@@ -1,0 +1,108 @@
+# .claude/issue-tracker.yaml — agent-issue-tracker schema v1
+#
+# Each consuming project commits one such file at its repo root. The plugin's
+# skills + slash commands read this file to know which tracker backend to
+# dispatch to and how to fill in tracker-specific fields.
+#
+# Fields marked REQUIRED have no default. Fields marked optional show the
+# default the plugin uses if you omit them.
+
+# REQUIRED. Schema version. The plugin reads this to apply forward-compat
+# migrations. v1 is the only version v1 of the plugin understands.
+schema_version: 1
+
+# REQUIRED. Backend identifier. Currently supported: github | jira.
+backend: github
+
+# Optional. Per-type config (labels and title conventions).
+# All five types ship with sensible defaults; override only what you need.
+types:
+  bug:
+    labels: [bug]                # always applied at create_issue time
+    title_prefix: ""             # advisory; the skill includes this in the title
+  feature:
+    labels: [enhancement]
+  followup:
+    labels: [followup]
+  epic:
+    labels: [epic]
+    title_prefix: "epic: "       # all epics get this prefix in the title
+  sub:
+    labels: []                   # initiative-tracking adds phase prefix at file time
+
+# Optional. Project vocabulary for the `<area>` label.
+# If set, skills nudge the agent to pick from this enum when filling the
+# Locus / area block. If omitted, the area field becomes free-form.
+areas:
+  - dashboard
+  - backend
+  - frontend
+  - infra
+
+# Optional. Project vocabulary for the `<subsystem>` body field.
+# Same role as areas, but goes inline in the issue body's Locus block
+# rather than as a label.
+subsystems:
+  - ibkr
+  - proposal-service
+  - execution-service
+  - scheduler
+  - scripts
+
+# Optional. Triage label names. Override only if your tracker uses different names.
+triage:
+  needs_design_label: needs-design   # default
+  needs_triage_label: needs-triage   # default
+
+# REQUIRED if `backend: github`. GitHub backend config.
+github:
+  # REQUIRED. The "owner/repo" of the tracker repo (where issues are filed).
+  repo: maxdimitrov/example-project
+
+  # Optional. The PR close-on-merge phrasing rendered into PR description
+  # templates by feature-request / bug-tracking. Default: "Fixes #N".
+  default_pr_close_syntax: "Fixes #N"
+
+# REQUIRED if `backend: jira`. Jira Cloud backend config.
+# Jira reaches the tracker via the Atlassian Remote MCP — no API tokens
+# stored in the plugin. /tracker-init resolves cloud_id automatically.
+jira:
+  # REQUIRED. Your Atlassian site domain (without https://).
+  site: example.atlassian.net
+
+  # REQUIRED. Filled by /tracker-init via Atlassian MCP's site-discovery tool.
+  cloud_id: ""
+
+  # REQUIRED. The Jira project key under which issues are filed.
+  project: TRADE
+
+  # REQUIRED. Map the plugin's 5 type names to your Jira project's
+  # issue types. The names on the right must match your project's
+  # configured issue types exactly (case-sensitive).
+  issue_types:
+    bug: Bug
+    feature: Story          # or Task — per your team's convention
+    epic: Epic
+    sub: Sub-task           # or Story for epic-children
+
+  # Optional. Where the `<area>` value goes in Jira. Default: components.
+  # Set to `labels` if your project uses labels for area-style tagging
+  # instead of Jira's Components feature.
+  area_field: components
+
+  # Optional. How epics link to their children. Default: native.
+  #   native     — modern Cloud unified parent field (sub-task.parent.key)
+  #   epic_link  — classic customfield_10014 Epic Link
+  parent_link_style: native
+
+  # Optional. Only used if parent_link_style: epic_link. Default: customfield_10014.
+  epic_link_field: customfield_10014
+
+  # Optional. The transition name to "Done" state in your project's workflow.
+  # Default: Done.
+  done_transition: Done
+
+  # Optional. Advisory text rendered into PR descriptions, telling reviewers
+  # how your Jira-PR integration triggers auto-close. Plugin does not enforce
+  # auto-close — this is purely advisory text.
+  close_on_merge_hint: ""

@@ -1,0 +1,8 @@
+schema_version: 1
+backend: github
+
+areas: [dashboard, backend, frontend, infra]
+subsystems: [api, worker, scheduler, scripts]
+
+github:
+  repo: your-org/your-repo
