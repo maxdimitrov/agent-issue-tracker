@@ -56,13 +56,13 @@ not.** Default-favour the lighter-weight sibling skills:
 | Signal | Use this skill | Use a single-issue sibling instead |
 |---|---|---|
 | Fits in one PR | no | yes — `feature-request` or `bug-tracking` |
-| Spans 1-3 days | no | yes — single issue |
+| Spans 1–3 days | no | yes — single issue |
 | Spans weeks | yes | — |
 | Multiple phases with checkpoints | yes | — |
 | Has a design spec | yes (link it) | optional |
 | Decomposes into 3+ independent issues | yes | — |
 
-If you would only file 1-2 sub-issues, you don't have an
+If you would only file 1–2 sub-issues, you don't have an
 initiative — you have a feature. Bounce out: file via
 `feature-request` instead.
 
