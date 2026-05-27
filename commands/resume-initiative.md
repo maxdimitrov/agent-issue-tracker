@@ -69,7 +69,7 @@ Named `/resume-initiative` (not `/resume`) to avoid shadowing Claude Code's buil
 
 2. If a worktree for that child already exists (convention: `.claude/worktrees/<branch-with-slash-replaced-by-plus>`), report its path and stop. Otherwise:
 
-3. Use the `superpowers:using-git-worktrees` skill (or the native `EnterWorktree` tool) to create one. The branch name comes from the child issue body's `Branch:` line if present, otherwise infer:
+3. Use the `superpowers:using-git-worktrees` skill (or the native `EnterWorktree` tool) to create one. The worktree is created in the consumer's current working directory regardless of whether the next-up child is in the same repo as the epic or in a different repo via `owner/repo#N` — the operator's working tree is local, only the child issue body fetch (step 4) hits the child's repo via the backend's `view_issue`. The branch name comes from the child issue body's `Branch:` line if present, otherwise infer:
    - `feat/<short-slug-of-title>` for `enhancement`-labelled children
    - `fix/<short-slug>` for `bug`
    - `docs/<short-slug>` for `documentation`
