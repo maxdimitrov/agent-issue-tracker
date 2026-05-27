@@ -96,7 +96,8 @@ Named `/resume-initiative` (not `/resume`) to avoid shadowing Claude Code's buil
 
 ## Failure modes
 
-- Backend authentication or reachability failure → the configured backend reports a connection error. Run `/tracker-doctor` to diagnose the setup; see `backends/<backend>.md` setup section and re-invoke.
+- Backend authentication or reachability failure → the configured backend reports a reachability failure. Run `/tracker-doctor` to diagnose the setup; see `backends/<backend>.md` setup section and re-invoke.
+- `view_issue` returns not-found for the supplied ref → check the ref syntax matches the configured backend (`#42` vs `PROJ-123` vs `owner/repo#42`).
 - No open epics → tell the operator. Do not crash.
 - The chosen epic body is missing required fields → report which fields are missing; suggest the operator runs the `initiative-tracking` skill to rewrite it.
 - `--start` invoked but `Next up:` is `none` or no children exist → report "no next-up child to start" and exit; do not create a worktree from nothing.
