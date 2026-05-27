@@ -28,7 +28,7 @@ Named `/resume-initiative` (not `/resume`) to avoid shadowing Claude Code's buil
 
 2. For each epic, parse its body for the **Status block** (a markdown section the `initiative-tracking` skill maintains). The four field-prefix strings are canonical and exact (see the `initiative-tracking` skill's "Status block — exact field spec" table):
    - `- **Phase:**` — e.g. `Phase 1a · 2/4 sub-issues closed`
-   - `- **Next up:**` — `#<N>` or `PROJ-123` or `owner/repo#<N>` — or literal `none`
+   - `- **Next up:**` — `<ref> — <title>` or literal `none`, where `<ref>` is one of `#<N>` (same repo), `owner/repo#<N>` (cross-repo GitHub), or `PROJ-123` (Jira)
    - `- **Current branch:**` — branch name or literal `none`
    - `- **Last updated:**` — `YYYY-MM-DD`
 
