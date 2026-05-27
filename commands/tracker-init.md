@@ -4,7 +4,7 @@ description: Interactive scaffolder — writes `.claude/issue-tracker.yaml` for 
 
 # /tracker-init [--force]
 
-Write a valid `.claude/issue-tracker.yaml` to the consumer project's root. This command walks you through an `AskUserQuestion`-driven flow to gather backend choice, backend-specific credentials and config, and project vocabulary. It assembles the YAML in memory, validates it against the schema, and writes it atomically. Refuses to overwrite an existing config unless `--force` is passed. After init completes, run `/tracker-doctor` to validate the config end-to-end. The schema reference is [`examples/issue-tracker.yaml.example`](../examples/issue-tracker.yaml.example).
+Write a valid `.claude/issue-tracker.yaml` to the consumer project's root. This command walks you through an `AskUserQuestion`-driven flow to gather backend choice, backend-specific credentials and config, and project vocabulary. It assembles the YAML in memory per the schema and writes it atomically. Refuses to overwrite an existing config unless `--force` is passed. After init completes, run `/tracker-doctor` to validate the config end-to-end — `/tracker-init` writes; `/tracker-doctor` validates. The schema reference is [`examples/issue-tracker.yaml.example`](../examples/issue-tracker.yaml.example).
 
 ## Invocation modes
 
@@ -48,7 +48,7 @@ Store the answer as `github.repo`. Skip Phase 4 and proceed to Phase 5.
 
 ### Phase 4 — Jira branch (skip if backend is github)
 
-**4a. Atlassian MCP availability (STOP-IF-FAIL).** Search the agent's tool surface for the Atlassian Remote MCP tool family (conventional names: `createJiraIssue`, `getJiraIssue`, `searchJiraIssuesUsingJql`, `getAccessibleAtlassianResources`). If no Atlassian tools are found → instruct the operator: "The Atlassian connector is not enabled. Go to claude.ai → Settings → Connectors → Atlassian, enable it, and re-invoke `/tracker-init`." Exit. Do not continue.
+**4a. Atlassian MCP availability (STOP-IF-FAIL).** Use `ToolSearch` against keywords like `jira atlassian` to discover the Atlassian Remote MCP tool family (conventional names: `createJiraIssue`, `getJiraIssue`, `searchJiraIssuesUsingJql`, `getAccessibleAtlassianResources`). If no Atlassian tools are found → instruct the operator: "The Atlassian connector is not enabled. Go to claude.ai → Settings → Connectors → Atlassian, enable it, and re-invoke `/tracker-init`." Exit. Do not continue.
 
 **4b. Site + cloud_id (combined).** Invoke the MCP's site-discovery tool (conventional name `getAccessibleAtlassianResources`) to fetch the list of `{cloudId, url, ...}` entries the connector grants access to. Branch on the result count:
 - Zero sites → STOP-IF-FAIL. The connector's scope does not include any Jira sites. Instruct: "The Atlassian connector has no Jira site access. Update the connector scope at claude.ai and re-invoke `/tracker-init`." Exit.
@@ -86,7 +86,7 @@ Invoke `AskUserQuestion` once with two questions (multi-question form):
 
 If the subsystems answer is "Yes", invoke `AskUserQuestion` a second time (single-select with "Other" for free-form):
 - Question: "Enter subsystem names, one per line."
-- Header: `Subsystem list`
+- Header: `Subsys list`
 - Parse the multi-line "Other" response into a YAML list (one item per line).
 
 If the subsystems answer is "No", record that `subsystems:` will be omitted from the YAML.
