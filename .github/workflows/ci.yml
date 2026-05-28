@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  markdown-lint:
+    name: Markdown lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DavidAnson/markdownlint-cli2-action@v16
+        with:
+          globs: '**/*.md'
+
+  yaml-validate:
+    name: YAML validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yamllint
+        run: pip install yamllint
+      - name: Lint YAML files
+        run: yamllint -d relaxed .
+
+  backend-contract:
+    name: Backend contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every contract operation must appear in every backend
+        run: |
+          set -euo pipefail
+          contract_ops=$(grep -oP '^### `\K[a-z_]+(?=`)' backends/_interface.md | sort -u)
+          if [ -z "$contract_ops" ]; then
+            echo "FAIL: no operation headings found in backends/_interface.md"
+            echo "  (expected headings of the form '### \`<op>\`')"
+            exit 1
+          fi
+          fail=0
+          for backend in backends/github.md backends/jira.md; do
+            backend_ops=$(grep -oP '^### `\K[a-z_]+(?=`)' "$backend" | sort -u)
+            missing=$(comm -23 <(echo "$contract_ops") <(echo "$backend_ops") || true)
+            if [ -n "$missing" ]; then
+              echo "FAIL: $backend missing contract operations:"
+              echo "$missing" | sed 's/^/  - /'
+              fail=1
+            fi
+          done
+          if [ "$fail" -eq 1 ]; then
+            exit 1
+          fi
+          echo "PASS: all backends implement all contract operations"
+          echo "$contract_ops" | sed 's/^/  - /'

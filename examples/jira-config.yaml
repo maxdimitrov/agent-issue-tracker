@@ -1,0 +1,18 @@
+# Minimal Jira backend config — sibling to github-config.yaml.
+# See issue-tracker.yaml.example for the full schema with comments.
+
+schema_version: 1
+backend: jira
+
+areas: [dashboard, backend, frontend, infra]
+subsystems: [api, worker, scheduler, scripts]
+
+jira:
+  site: example.atlassian.net
+  cloud_id: ""                 # /tracker-init fills this from the Atlassian MCP
+  project: TRADE
+  issue_types:
+    bug: Bug
+    feature: Story
+    epic: Epic
+    sub: Sub-task
