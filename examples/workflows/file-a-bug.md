@@ -24,7 +24,7 @@ The phrase "file a bug" activates the [`bug-tracking`](../../skills/bug-tracking
 
 ## 2. Skill activation
 
-The skill reads `.claude/issue-tracker.yaml`, sees `backend: github`, and resolves the dispatch target to [`backends/github.md`](../../backends/github.md). It pulls the title format (`<component>: <symptom>`) and the labels (`[bug, <area>]`) from the config's `types.bug` block (defaulted in your config because you didn't override).
+The skill reads `.claude/issue-tracker.yaml`, sees `backend: github`, and resolves the dispatch target to [`backends/github.md`](../../backends/github.md). The title format (`<component>: <symptom>`) and the labels (`[bug, <area>]`) come from the plugin's built-in defaults; you'd override them with a `types.bug` block in your config — see [`issue-tracker.yaml.example`](../issue-tracker.yaml.example) for the full schema.
 
 It applies the bug-tracking bail criteria:
 
@@ -40,7 +40,7 @@ No bail. Skill proceeds.
 
 The skill fills [`templates/bug-body.md`](../../templates/bug-body.md) with your input:
 
-```markdown
+````markdown
 ## Goal
 Scheduler returns from main() within 30 seconds of SIGTERM, even when the
 internal job queue has pending entries.
@@ -92,7 +92,7 @@ make deploy-staging  # observe clean rollover
 
 ## Notes
 First seen on staging 2026-05-28 during routine deploy.
-```
+````
 
 (Sections are tracker-agnostic; the same body works for GitHub or Jira.)
 
@@ -116,7 +116,7 @@ GitHub returns `https://github.com/your-org/your-repo/issues/142`. The skill cap
 
 ## Variations
 
-- **`backend: jira`** — same body, different dispatch. The skill resolves [`backends/jira.md`](../../backends/jira.md) instead and invokes `createJiraIssue` via the Atlassian Remote MCP. The ref comes back as `TRADE-142` instead of `#142`. Labels and components map per your `jira.area_field` config — see [`examples/jira-config.yaml`](../jira-config.yaml).
+- **`backend: jira`** — same body, different dispatch. The skill resolves [`backends/jira.md`](../../backends/jira.md) instead and invokes `createJiraIssue` via the Atlassian Remote MCP. The ref comes back as `TRADE-142` instead of `#142`. The `area` label routes to either Jira components or labels per your `jira.area_field` config (defaulting to `components`); see [`issue-tracker.yaml.example`](../issue-tracker.yaml.example) for the full Jira schema or [`examples/jira-config.yaml`](../jira-config.yaml) for the minimal starting point.
 - **Subsystem missing from `subsystems:`** — the skill nudges you: "scheduler is not in your configured subsystems enum (api / worker / scripts). Pick one of those, or add `scheduler` to `.claude/issue-tracker.yaml` and re-trigger."
 - **Bail criteria triggered** — if your input is "things are slow" with no repro and no acceptance, the skill refuses and asks for: a specific symptom, a repro command, a testable acceptance. The bail is intentional: a vague body wastes an agent run.
 - **Cross-repo filing** — the skill files to whatever `github.repo` says in `.claude/issue-tracker.yaml`. If your bug lives in a different repo, edit the config or use [`feature-request`](../../skills/feature-request/SKILL.md)'s cross-repo flow.

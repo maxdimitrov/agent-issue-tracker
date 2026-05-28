@@ -12,7 +12,7 @@ You type:
 
 The command invokes the configured backend's `list_open_issues({label: 'epic'})` (per [`backends/github.md`](../../backends/github.md)) and `view_issue` on each result to fetch the Status block. It renders a compact list:
 
-```
+```text
 #200  extract shared logging into obs/logging   Phase 1 · 2/4 closed    Next: #203 api + worker cutover
 #175  workspaces dashboard rebuild              Phase 2 · 5/7 closed    Next: #182 datepicker accessibility
 ```
@@ -29,7 +29,7 @@ The command calls `view_issue({ref: #200})`, parses the body's Status block per 
 
 Output:
 
-```
+```text
 Epic #200 — extract shared logging into obs/logging
 Design spec: docs/superpowers/specs/2026-05-28-shared-logging-design.md (main)
 
@@ -71,9 +71,9 @@ The session is now inside the worktree, brainstorming the sub-issue. You did NOT
 The `## Children` task-list mirror in the epic body can carry three ref shapes; the parser handles all three:
 
 | Shape | Example | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `#N` | `#203` | Same repo as the epic (per `.claude/issue-tracker.yaml` `github.repo`) |
-| `owner/repo#N` | `maxdimitrov/trading-bot#142` | Cross-repo GitHub ref — fetch from that repo |
+| `owner/repo#N` | `your-org/other-repo#142` | Cross-repo GitHub ref — fetch from that repo |
 | `PROJ-123` | `LOG-15` | Jira issue key (project-scoped) |
 
 This is the canonical cross-backend index. Native sub-issue API queries (e.g. GitHub's `/repos/<owner>/<repo>/issues/<N>/sub_issues`) are an optional augmentation — useful for showing native-linkage discrepancies — but the task-list mirror is what the parser trusts.

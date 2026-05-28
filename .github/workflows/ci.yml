@@ -13,7 +13,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: DavidAnson/markdownlint-cli2-action@v16
         with:
-          globs: '**/*.md'
+          # Adopter-facing prose only. skills/, templates/, commands/, and
+          # backends/ files use agent-prompt DSL conventions (placeholder
+          # <angle-bracket> notation, list-after-heading without blank lines)
+          # that don't fit generic markdownlint rules. Expanding the lint
+          # surface into those directories is a v1.1 follow-on.
+          globs: |
+            README.md
+            CONTRIBUTING.md
+            CHANGELOG.md
+            examples/**/*.md
 
   yaml-validate:
     name: YAML validate

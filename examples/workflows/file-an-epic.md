@@ -110,7 +110,7 @@ The `## Children` task-list mirror is the **cross-backend source of truth** — 
 
 ## 7. Result
 
-```
+```text
 Filed:
   Epic #200 — extract shared logging into obs/logging
   Sub-issue #201 — obs/logging skeleton (Phase 0)
