@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (no unreleased changes)
 
+## [1.0.1] - 2026-05-29
+
+Patch release. Makes the documented install path actually work — `v1.0.0` shipped without `.claude-plugin/marketplace.json`, so `claude plugin marketplace add maxdimitrov/agent-issue-tracker` failed at the first step for every adopter. The plugin's `dependencies = ["superpowers"]` resolution, the skills, the slash commands, and the backend modules were all correct at `v1.0.0`; the only thing missing was the marketplace manifest that surfaces the plugin to the Claude Code plugin system.
+
+### Fixed
+
+- `(#35)` `.claude-plugin/marketplace.json` added — declares this repo as a self-contained single-plugin marketplace named `maxdimitrov-agent-issue-tracker`, with one entry pointing at `./` (the repo root, where `.claude-plugin/plugin.json` lives). Schema reference: `https://anthropic.com/claude-code/marketplace.schema.json`. Modeled on the single-plugin marketplaces in the existing Claude Code plugin ecosystem (`affaan-m/everything-claude-code` `marketplace.json` shape).
+- `(#35)` `.claude-plugin/plugin.json` `version` bumped from `1.0.0-pre` to `1.0.1`. The `1.0.0-pre` literal was a Phase 4 oversight — the version bump from pre-release to release was supposed to land alongside the `v1.0.0` tag, but never did, so the installed plugin would have reported `1.0.0-pre` even at the `v1.0.0` tag. Fix-forward via patch release (the `v1.0.0` git tag is not moved).
+
+### Release-gate smokes
+
+- **Smoke 1 (GitHub backend against `maxdimitrov/agent-issue-tracker`)** — PASS via #35 + this PR exercising the GitHub backend end-to-end (agent-prompt-shaped bug body via the plugin methodology; the `bug` label; PR-close on merge).
+- **Smoke 6 (install path against the published repo, new for `v1.0.1`)** — PASS in the post-tag release session: `claude plugin marketplace add maxdimitrov/agent-issue-tracker` succeeds, `claude plugin install agent-issue-tracker` succeeds, `superpowers` resolves transitively, the installed plugin reports `"version": "1.0.1"` in `~/.claude/plugins/installed_plugins.json`. This smoke joins the five-scenario gate codified in `CONTRIBUTING.md` Release process — every future release must rerun it.
+- Smokes 2, 3, 4, 5 carry forward from `v1.0.0` unchanged — no skill, command, backend, or methodology surface changed in this release.
+
 ## [1.0.0] - 2026-05-28
 
 First public release. Five skills (`bug-tracking`, `feature-request`, `followup-tracking`, `initiative-tracking`, `skill-currency`), three slash commands (`/tracker-init`, `/tracker-doctor`, `/resume-initiative`), two backends (`github` via the `gh` CLI; `jira` via the Atlassian Remote MCP), full CI (markdown-lint, yaml-validate, backend-contract checker), and three operator-facing walkthroughs. Release-gate smoke status: smokes 1 + 5 PASS in the release session; smokes 2 + 3 + 4 DEFERRED to Phase 5/6 dogfood cutovers — see "Release-gate smokes" below.
