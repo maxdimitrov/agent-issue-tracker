@@ -17,7 +17,10 @@ description: >-
   updating the Status block after a child closes, or reorganising
   phases. The siblings bug-tracking, feature-request, and
   followup-tracking cover single-issue shapes; this one covers
-  the *index* over many issues.
+  the *index* over many issues. Initiatives may nest more than one
+  level — a child of an epic can itself be an epic (a "sub-epic")
+  with its own children — and `/resume-initiative` walks the whole
+  tree; see "Nested initiatives".
 ---
 
 # Initiative Tracking — Multi-Week Effort as Epic + Sub-Issues
@@ -66,6 +69,14 @@ If you would only file 1–2 sub-issues, you don't have an
 initiative — you have a feature. Bounce out: file via
 `feature-request` instead.
 
+The same gate applies one level down. If an existing **child** of an
+epic turns out to itself decompose into 3+ independent sub-issues,
+it has outgrown leaf status and should be promoted to a **sub-epic**
+under its existing parent — not flattened, and not spun off as a new
+root initiative. A child with only 1–2 sub-tasks is still a leaf;
+file those as a plain checklist in its body or as `followup`s, not
+as a sub-epic. See "Nested initiatives" for the promotion mechanics.
+
 If the work is genuinely multi-week BUT there's no design spec
 yet, run `superpowers:brainstorming` → `superpowers:writing-plans`
 first. This skill takes a written spec as input.
@@ -91,6 +102,82 @@ Do **not** file when:
 - A similar epic already exists — invoke the backend's
   `list_open_issues` operation with `label: epic` first. Most
   "new" initiatives are continuations of existing ones.
+
+## Nested initiatives
+
+An initiative is a **tree**, not a flat two-level list. Most are
+shallow (one epic + leaf children), but a child that grows its own
+multi-issue scope becomes a **sub-epic** with children of its own.
+The model is recursive and uniform at every level:
+
+- **Root epic** — an epic with no parent. It has the `epic` label
+  and an epic body, and its body has **no** `## Parent epic` block.
+- **Sub-epic** — an epic that is also a child. Same `epic` label,
+  same epic body (`templates/epic-body.md` doubles as the sub-epic
+  body), **plus** a `## Parent epic` block naming its immediate
+  parent. It is simultaneously a parent (of its children) and a
+  child (of its parent).
+- **Leaf** — a feature/bug sub-issue, directly agent-workable. No
+  `epic` label.
+
+The single distinguishing signal — portable across backends — is
+the `## Parent epic` block: a root omits it, every non-root node
+includes it. (`epic` label = "this node has children / is
+recursable"; `## Parent epic` present = "this node also has a
+parent".) Don't rely on native tracker parent fields for this; not
+all backends expose them on a plain read (see
+`backends/_interface.md` `view_issue` + invariant 6).
+
+### Each node is self-describing
+
+Every epic node — root or sub-epic — carries its **own** Status
+block and its **own** `## Children` mirror listing only its
+**direct** children. The full tree is the recursion over each
+node's mirror; there is no single body that holds the whole tree.
+`/resume-initiative` walks it top-down from a root, descending into
+any child marked `▸ sub-epic` (authoritatively: any child carrying
+the `epic` label), with a built-in depth cap and visited-ref cycle
+guard so traversal always terminates.
+
+### Counting and "Next up" are local
+
+A node's `- **Phase:** … <closed>/<total>` counts its **direct
+children only** — a sub-epic counts as one unit, closed when the
+sub-epic node itself closes. This keeps maintenance one-hop (see
+"Maintenance"). The true rolled-up leaf totals across a subtree are
+computed by `/resume-initiative` at read time for display; never
+hand-maintain a transitive count in a body. A node's
+`- **Next up:**` names its next direct child; when that child is a
+sub-epic, the command drills into it to surface the next workable
+*leaf*, reporting the path (`root ▸ sub-epic ▸ leaf`).
+
+### Promoting a leaf to a sub-epic
+
+When a child outgrows leaf status (3+ independent sub-issues — the
+triage gate, one level down):
+
+1. Edit the child to the epic body shape (`templates/epic-body.md`)
+   — add a Status block, a `## Children` mirror, and a
+   `## Parent epic` block pointing at its parent. Keep its existing
+   ref and title.
+2. Add the `epic` label to it (`add_label`). It is now a recursable
+   node.
+3. In the **parent's** `## Children` mirror, mark this child's line
+   `▸ sub-epic`.
+4. File its sub-issues as children of it (`create_issue` +
+   `link_sub_issue` with the sub-epic as `parent_ref`), and list
+   them in the sub-epic's own `## Children` mirror.
+
+### Depth and backend ceilings
+
+Nesting depth is bounded by `/resume-initiative`'s recursion cap
+(not a config setting) and by each backend's native-linkage
+ceiling. GitHub sub-issues nest arbitrarily; Jira's standard
+hierarchy caps at three levels (Epic → Story/Task → Sub-task), so
+on Jira interior nodes map to Story/Task and only leaves map to
+Sub-task — and any nesting past the native cap is carried by the
+`## Children` body mirror alone. See `backends/_interface.md`
+invariant 6 and the per-backend modules.
 
 ## Filing the epic
 
@@ -136,6 +223,13 @@ the epic body. The skill is responsible for keeping the Status
 block accurate after every sub-issue closes — see "Maintenance"
 below.
 
+**Every epic node carries its own Status block** — a sub-epic has
+the exact same four prefixes as a root. The `<closed>/<total>`
+count is always **direct children only** (a sub-epic counts as one
+unit in its parent's count); rolled-up subtree totals are a
+read-time view computed by `/resume-initiative`, never written into
+a body. See "Nested initiatives".
+
 ### Worked example
 
 A real Status block from an in-flight initiative — the
@@ -157,17 +251,19 @@ the `## Children` task-list entry for `#43` to
 
 ## Creating sub-issues
 
-Each sub-issue body uses the standard `feature-request` or
+Each leaf sub-issue body uses the standard `feature-request` or
 `bug-tracking` agent-prompt template (Goal / Locus / Skills to
 load / What's missing OR Symptom / Sketch / Constraints /
 Acceptance / Verify) plus a `## Parent epic` block. The skill's
-contract is: **the body of every child issue is agent-runnable** —
-any future agent that picks up the child can do so cold.
+contract is: **the body of every leaf child is agent-runnable** —
+any future agent that picks up the child can do so cold. (A sub-epic
+child is the exception — it is an index, not a leaf prompt; it uses
+the epic body shape. See "Nested initiatives".)
 
 Use `templates/sub-issue-body.md` as the composition guide. It
-points at `templates/feature-body.md` or `templates/bug-body.md`
-based on whether the sub-issue is feature-shaped or bug-shaped,
-and documents the `## Parent epic` block to append.
+points at `templates/feature-body.md`, `templates/bug-body.md`, or
+(for a sub-epic) `templates/epic-body.md` based on the sub-issue's
+shape, and documents the `## Parent epic` block to append.
 
 Conventions specific to children of an epic:
 
@@ -175,14 +271,17 @@ Conventions specific to children of an epic:
   issue-list view shows phase membership without needing the epic
   body. Example: `Phase 1: backend interface contract + GitHub
   backend`.
-- **`## Parent epic` block** — required; cites the epic's ref and
-  one-line title.
+- **`## Parent epic` block** — required; cites the **immediate**
+  parent's ref and one-line title (which may be a sub-epic, not the
+  root — see "Nested initiatives").
 - **Labels:** the type-shape label (`bug` for defects,
   `enhancement` for new capabilities) plus the same area label(s)
   as the work touches, plus the same triage label conventions
   (`needs-design` if the sub-issue has open design questions,
-  etc.). Do NOT label children with `epic` — that's reserved for
-  the index.
+  etc.). Do NOT label a **leaf** child with `epic`. The one
+  exception is a **sub-epic** child: it carries `epic` precisely
+  because it is itself a recursable index — that label is what
+  `/resume-initiative` keys on to descend into it.
 
 ### Linking children to the epic
 
@@ -209,6 +308,13 @@ section as an unchecked task-list item. When it closes, flip the
 checkbox and append `— closed YYYY-MM-DD`. See "Maintenance"
 below for the read-modify-write mechanics.
 
+In a nested initiative, each epic node owns a `## Children` mirror
+listing **only its own direct children**; the full tree is the
+recursion over every node's mirror. A child that is itself a
+sub-epic gets a trailing `▸ sub-epic` marker on its line so
+`/resume-initiative` knows to recurse into it (authoritative signal:
+the child's `epic` label). The line grammar is otherwise unchanged.
+
 Per-backend native linkage mechanics — GitHub's native sub-issue
 API, Jira's `parent` field or Epic Link customfield — are
 documented in `backends/<backend>.md`. The skill does not encode
@@ -216,16 +322,28 @@ them.
 
 ## Maintenance
 
-Whenever a child closes:
+Whenever a child closes, update **only its immediate parent's**
+body (the node whose `## Children` mirror lists it):
 
-1. Increment the `Phase` line's `<closed>/<total>` count.
-2. Recompute `Next up` — first open child by phase order, or
-   `none` if all children for the current phase are closed.
+1. Increment that parent's `Phase` line `<closed>/<total>` count.
+2. Recompute that parent's `Next up` — first open direct child by
+   phase order, or `none` if all its direct children are closed.
 3. Bump `Last updated` to today.
-4. Flip the `## Children` task-list mirror entry to
+4. Flip the parent's `## Children` task-list mirror entry to
    `[x] <ref> — <title> — closed YYYY-MM-DD`.
 5. Append to `Decision log` if a non-trivial decision was made
    during the child's PR.
+
+**One-hop, not whole-chain.** Because each node counts only its
+direct children, closing a leaf touches exactly one body — the
+parent's. Do **not** walk up the ancestor chain re-rolling totals;
+`/resume-initiative` computes rolled-up subtree progress on read.
+The chain advances one hop at a time *only* through closes: when a
+sub-epic's last direct child closes, the sub-epic itself becomes
+eligible to close (see "Epic lifecycle"); closing the sub-epic is a
+child-close from *its* parent's perspective, so you then run these
+same five steps once on the grandparent. Each step is a single
+node's read-modify-write — never a multi-body fan-out.
 
 **How to edit the epic body safely.** Whole-body edits are
 destructive — the configured backend's `edit_body` operation
@@ -256,10 +374,14 @@ follow-up `feature-request`.
 
 ## Epic lifecycle
 
+The lifecycle is the same for a root epic and a sub-epic — a
+sub-epic is just an epic that also has a parent.
+
 | State | Meaning | Action |
 |---|---|---|
 | Open + has open children | initiative in progress | `/resume-initiative <ref>` works |
 | Open + all children closed | ready to declare done | operator invokes `close_issue` with `reason: completed` plus a one-paragraph wrap-up comment |
+| Sub-epic + all children closed | sub-initiative done | close it like any epic; its close is then a child-close from its parent's view — run the Maintenance steps once on the parent (one hop up) |
 | Closed | initiative shipped | preserved as history; design spec link still valid |
 | Closed + reason `not_planned` | abandoned | comment explains why; surviving children get triaged separately via `bug-tracking` / `feature-request` / `followup-tracking` |
 

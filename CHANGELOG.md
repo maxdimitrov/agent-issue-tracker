@@ -7,7 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-(no unreleased changes)
+### Added
+
+- **Nested initiatives (N-level trees).** `initiative-tracking` now
+  supports initiatives nested more than one level deep — a child of
+  an epic can itself be an epic (a "sub-epic") with its own
+  children, to any depth — and `/resume-initiative` walks the whole
+  tree. The design is **fully backwards-compatible**: an existing
+  two-level epic is the degenerate case (a root with no
+  `## Parent epic` block and no sub-epic-marked children) and keeps
+  parsing unchanged. No backend-contract change (the seven
+  operations are untouched), no config/schema change, no new issue
+  type — a sub-epic is just an epic that has a parent. Decisions:
+  reuse the `epic` label + a `## Parent epic` block to mark interior
+  nodes; count direct children per node with rolled-up leaf totals
+  computed by the command on read (one-hop maintenance preserved);
+  command-enforced depth cap (`MAX_DEPTH = 10`) + visited-ref cycle
+  guard.
+
+### Changed
+
+- `commands/resume-initiative.md` — Mode 1 filters `list_open_issues`
+  to **roots** (no `## Parent epic` block) and rolls up leaf
+  progress; Mode 2 recursively enumerates the child subtree, renders
+  it as an indented tree, and resolves `Next up` down to the next
+  workable **leaf** (reporting the drill path); Mode 3 `--start`
+  drills past sub-epics to a leaf and guards against handing a
+  sub-epic body to `superpowers:brainstorming`. New "Tree traversal
+  (shared rules)" section (node/root detection, depth cap, cycle
+  guard, read-only rollup).
+- `skills/initiative-tracking/SKILL.md` — new "Nested initiatives"
+  section (root vs sub-epic vs leaf, per-node Status block +
+  `## Children` mirror, leaf-promotion mechanics); triage gate gains
+  the one-level-down rule (a child that decomposes into 3+
+  sub-issues is promoted to a sub-epic under its existing parent);
+  Maintenance clarified as one-hop (close edits only the immediate
+  parent); Status-block spec and lifecycle updated for sub-epics.
+- `skills/followup-tracking/SKILL.md` — new "When a follow-up
+  compounds" rule: a compounded follow-up spun from work already
+  inside an initiative becomes a **sub-epic under that parent**, not
+  a new root.
+- `templates/epic-body.md` — doubles as the sub-epic body; optional
+  `## Parent epic` block; `## Children` documents the `▸ sub-epic`
+  marker and per-node (direct-children) semantics.
+- `templates/sub-issue-body.md` — composes from feature/bug **or**
+  epic base; `## Parent epic` generalized to name the immediate
+  parent (which may be a sub-epic).
+- `backends/_interface.md`, `backends/github.md`, `backends/jira.md`
+  — new cross-backend invariant 6 (nesting lives in the body
+  `## Children` mirror; native `link_sub_issue` is best-effort to
+  each backend's hierarchy ceiling). Documents GitHub's arbitrary
+  sub-issue depth and Jira's three-level cap (Epic → Story/Task →
+  Sub-task; deeper nesting is body-mirror-only, and requires
+  `parent_link_style: native`). `view_issue.parent?` clarified as a
+  best-effort secondary signal; root detection uses the
+  `## Parent epic` body block.
+
+> Release note: this is a feature — bump `1.0.2` → `1.1.0` (minor)
+> at release time, per semver, and add the seven-smoke release-gate
+> run plus an N-level traversal smoke.
 
 ## [1.0.2] - 2026-05-29
 
