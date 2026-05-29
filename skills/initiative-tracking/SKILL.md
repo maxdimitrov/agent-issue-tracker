@@ -320,6 +320,15 @@ API, Jira's `parent` field or Epic Link customfield — are
 documented in `backends/<backend>.md`. The skill does not encode
 them.
 
+**Optional board mirror.** If the consumer configures `github.project` (GitHub
+backend only), also add each newly filed/linked child to the GitHub Projects (v2)
+board and set its Status to `Todo` — root epic, sub-epics, and leaves, including
+cross-repo `owner/repo#N` children. This is a human-facing **view**; the
+`## Children` mirror stays canonical. Best-effort — a board failure WARNs and never
+blocks the file/link. See the `## GitHub Projects board (optional)` section below
+and `backends/github.md` for the literal `gh project` calls. With `github.project`
+unset, skip this.
+
 ## Maintenance
 
 Whenever a child closes, update **only its immediate parent's**
@@ -333,6 +342,9 @@ body (the node whose `## Children` mirror lists it):
    `[x] <ref> — <title> — closed YYYY-MM-DD`.
 5. Append to `Decision log` if a non-trivial decision was made
    during the child's PR.
+6. If `github.project` is set (GitHub backend), set the closed child's board item
+   Status to `Done` (best-effort — WARN and continue on failure). See "GitHub
+   Projects board (optional)" below.
 
 **One-hop, not whole-chain.** Because each node counts only its
 direct children, closing a leaf touches exactly one body — the
@@ -371,6 +383,39 @@ destructive-edit invariant.
 Optional — a CI job that does steps 1-3 automatically on
 issue-closed events. Out of scope for this skill; a candidate
 follow-up `feature-request`.
+
+## GitHub Projects board (optional)
+
+When the consumer's `.claude/issue-tracker.yaml` sets `github.project` (GitHub
+backend only), mirror the initiative tree onto that GitHub Projects (v2) board in
+addition to the canonical `## Children` task-list mirror. **The board is a
+human-facing view; the `## Children` mirror stays the source of truth.** With
+`github.project` unset, skip this entire section — behaviour is unchanged.
+
+All board writes are **best-effort**: a failure WARNs and continues, never blocking
+the issue operation. See `backends/github.md` "GitHub Projects v2 board (optional)"
+for the literal `gh project` calls and scope setup
+(`gh auth refresh -s project,read:project`).
+
+Status lifecycle — three states, each a real event:
+
+- **Todo** — when a child is filed + linked (see "Children task-list mirror"
+  above), add it to the board and set Status `Todo`. Applies to every node: root
+  epic, sub-epics, and leaves, including cross-repo `owner/repo#N` children (added
+  by full issue URL).
+- **In Progress** — set by `/resume-initiative --start` when a child's worktree is
+  entered. See `commands/resume-initiative.md`.
+- **Done** — when a child closes (see "Maintenance" step 6), set Status `Done`.
+
+### Backfilling an existing tree onto a board
+
+When `github.project` is newly configured on an in-flight initiative — or an
+operator asks to "populate the board" — walk each epic node's `## Children` mirror
+top-down (root -> sub-epics -> leaves) and add every node, setting Status from its
+current state (open -> `Todo`, closed -> `Done`). Idempotent: GitHub Projects v2
+stores a content item at most once, so re-adding an already-present issue returns
+the existing item — no duplicates. This is a documented procedure, not a slash
+command.
 
 ## Epic lifecycle
 
