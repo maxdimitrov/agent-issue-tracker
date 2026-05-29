@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 (no unreleased changes)
 
+## [1.0.2] - 2026-05-29
+
+Patch release. Makes the plugin actually **load** after install — `v1.0.1` (`#35`) fixed the marketplace-add + install steps, but `claude plugin list` post-install reported `Status: ✘ failed to load` with `Dependency "superpowers@maxdimitrov-agent-issue-tracker" is not installed`. The runtime resolver scopes bare names in `plugin.json.dependencies` to the **current plugin's** marketplace, so `"superpowers"` resolved to `superpowers@maxdimitrov-agent-issue-tracker` (which doesn't exist) instead of `superpowers@claude-plugins-official` (where the dep actually lives). Adopters saw a green install but every plugin component failed to surface: `/tracker-doctor` returned "No matching commands", skills didn't fire.
+
+### Fixed
+
+- `(#37)` `.claude-plugin/plugin.json` `dependencies` qualified with the marketplace: `["superpowers"]` → `["superpowers@claude-plugins-official"]`. The Anthropic-blessed `claude-plugins-official` marketplace is where `superpowers` (https://github.com/obra/superpowers) ships. With this change, `claude plugin list` reports `Status: ✔ enabled` and `claude plugin details agent-issue-tracker` reports 8 components (5 skills + 3 commands) in a fresh session against the install.
+- `(#37)` `.claude-plugin/plugin.json` `version` bumped `1.0.1` → `1.0.2` (and matching entry in `.claude-plugin/marketplace.json`).
+- `(#37)` `CONTRIBUTING.md` Release process gains **smoke 7** ("plugin loads `enabled` post-install"), retroactively adds **smoke 6** ("install path against the published repo", introduced in `#35`'s `[1.0.1]` block but not actually written into CONTRIBUTING.md at the time). The release-gate is now seven scenarios; smokes 1-5 unchanged. Closes a `skill-currency`-style gap where the methodology section ("joins the gate") shipped without the methodology-document change.
+
+### Release-gate smokes
+
+- **Smoke 1 (GitHub backend against `maxdimitrov/agent-issue-tracker`)** — PASS via `#37` + this PR exercising the GitHub backend end-to-end (agent-prompt-shaped bug body via the plugin methodology; `bug` label; PR-close on merge).
+- **Smoke 6 (install path)** — PASS in the post-tag release session: `claude plugin marketplace add maxdimitrov/agent-issue-tracker` + `claude plugin install agent-issue-tracker` both exit 0; install records `version: 1.0.2`. Smoke 6's first canonical run as part of the gate.
+- **Smoke 7 (loads enabled post-install)** — PASS in the post-tag release session: `claude plugin list` shows `Status: ✔ enabled` for `agent-issue-tracker@maxdimitrov-agent-issue-tracker`; `claude plugin details agent-issue-tracker` reports 8 components (5 skills + 3 commands); a fresh CC session resolves the three slash commands. Smoke 7's first canonical run; was the failing smoke that motivated this release.
+- Smokes 2, 3, 4, 5 carry forward from `v1.0.0` and `v1.0.1` unchanged — no skill, command, backend, or methodology surface changed in this release.
+
 ## [1.0.1] - 2026-05-29
 
 Patch release. Makes the documented install path actually work — `v1.0.0` shipped without `.claude-plugin/marketplace.json`, so `claude plugin marketplace add maxdimitrov/agent-issue-tracker` failed at the first step for every adopter. The plugin's `dependencies = ["superpowers"]` resolution, the skills, the slash commands, and the backend modules were all correct at `v1.0.0`; the only thing missing was the marketplace manifest that surfaces the plugin to the Claude Code plugin system.
