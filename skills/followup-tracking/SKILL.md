@@ -211,6 +211,29 @@ not sub-issues; the parent linkage is the body's Parent block plus
 the `followup` label. `link_sub_issue` is reserved for the epic →
 sub-issue relationship documented in `initiative-tracking`.
 
+## When a follow-up compounds
+
+A single follow-up is one issue. But sometimes the deferred scope
+keeps growing — the "one cleanup" turns out to be 3+ independent
+sub-issues. At that point it has outgrown a follow-up and become an
+initiative; switch to `initiative-tracking`. **Where** it lands
+depends on its origin:
+
+- The follow-up was spun out of **standalone** work (not part of any
+  initiative) → promote it to a **root epic**. Supersede the
+  follow-up with a one-line "superseded by `<epic-ref>`" close
+  comment.
+- The follow-up was spun out of work that is **already a child of an
+  epic** (e.g. a deferred review-comment from a sub-issue's PR) →
+  file it as a **sub-epic under that existing parent**, not as a new
+  root. Keep the follow-up's context in the sub-epic body. This
+  keeps the initiative tree intact instead of fragmenting one effort
+  across two unrelated roots. See `initiative-tracking`'s "Nested
+  initiatives".
+
+A follow-up that stays at 1–2 sub-tasks is **not** an initiative —
+leave it as a single follow-up issue with a checklist in its body.
+
 ## At the start of work
 
 The backend's `list_open_issues` operation filtered by
