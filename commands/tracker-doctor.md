@@ -38,7 +38,7 @@ If any check `FAIL`s in Phase 1, **stop here**. Do NOT run Phase 2 or Phase 3. T
 
 ### Phase 2 — Backend reachability
 
-Branch on `backend:` value from the schema. Phase 2 always finishes with `view_issue` (per cross-backend invariant #5 in `backends/_interface.md`) as the final reachability proof — different backends have different setup-prerequisite checks before that.
+Branch on `backend:` value from the schema. Phase 2 always finishes with `view_issue` (per cross-backend invariant #5 in `backends/_interface.md`) as the final reachability proof — different backends have different setup-prerequisite checks before that. The GitHub branch adds a fourth, WARN-only probe when `github.project` is configured (Projects board reachability).
 
 #### GitHub branch
 
@@ -50,6 +50,21 @@ Three sequential probes numbered 1/2/3.
    - `PASS` if the call returns a structured response (issue exists).
    - `PASS-WITH-NOTE` if the call returns 404 — the repo is reachable, but the issue doesn't exist (greenfield repo). The dispatch path is proven.
    - `FAIL` only on 401 / 403 (auth wrong despite Step 1 passing — token scope mismatch) or connection error.
+
+4. **GitHub Projects board (only if `github.project` is set; skip otherwise).**
+   Parse `<owner>` + `<N>` from the configured `github.project` URL, then run
+   `gh project view <N> --owner <owner>`.
+   - `PASS` if it returns the project (board reachable + scope present).
+   - `WARN` (never `FAIL`) if `gh` reports a missing scope / permission error —
+     the board is optional. Print the paste-able fix in a fenced block:
+
+     ```bash
+     gh auth refresh -s project,read:project
+     ```
+
+   - `WARN` if `github.project` is a **repo-level** URL
+     (`.../<owner>/<repo>/projects/<N>`) — repo projects can't span repos; suggest
+     a user/org-level board.
 
 #### Jira branch
 
