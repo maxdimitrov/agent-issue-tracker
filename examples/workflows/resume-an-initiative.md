@@ -83,7 +83,7 @@ This is the canonical cross-backend index. Native sub-issue API queries (e.g. Gi
 ## Variations
 
 - **`backend: jira`** — same flow, different refs. The epic ref becomes `LOG-1`; sub-issues come back as `LOG-2..5`. Dispatch routes through [`backends/jira.md`](../../backends/jira.md) — `searchJiraIssuesUsingJql` for Mode 1, `getJiraIssue` for `view_issue`, etc. The Status block format is byte-identical; the `<ref>` syntax in `Next up:` is the only visible difference.
-- **Cross-repo initiative** — an epic in `trading-bot` with a sub-issue in `agent-issue-tracker`. The mirror line is `- [ ] maxdimitrov/agent-issue-tracker#29 — title`. The parser resolves `view_issue` against the cross-repo target; the worktree still lands in the consumer's CWD.
+- **Cross-repo initiative** — an epic in `your-org/api` with a sub-issue in `your-org/lib`. The mirror line is `- [ ] your-org/lib#29 — title`. The parser resolves `view_issue` against the cross-repo target; the worktree still lands in the consumer's CWD.
 - **No machine-readable Status block** — if the epic body was hand-edited away from the canonical four-line format, the command reports "epic exists but has no machine-readable status; update via the `initiative-tracking` skill or use `view_issue` directly" and stops.
 - **No open epics** — Mode 1 reports "no open epics" and exits cleanly.
 - **`Next up: none`** — Mode 3 (`--start`) refuses to create a worktree from nothing; reports "no next-up child to start" and exits.

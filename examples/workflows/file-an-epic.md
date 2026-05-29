@@ -124,7 +124,7 @@ Resume with: /resume-initiative #200
 ## Variations
 
 - **`backend: jira`** — same flow, different refs. The epic comes back as `LOG-1`; sub-issues as `LOG-2..5`. Sub-issue linkage uses `editJiraIssue` setting `fields.parent.key` (modern Cloud) or `customfield_10014` (classic Epic Link, configurable via `jira.parent_link_style`). The `## Children` task-list mirror's lines become `- [ ] LOG-2 — ...`.
-- **Cross-repo sub-issues** — if a sub-issue lives in a different repo (e.g. you're tracking the initiative against trading-bot but one sub-issue lives in agent-issue-tracker), the `## Children` line is `- [ ] owner/other-repo#N — title`. [`/resume-initiative`](../../commands/resume-initiative.md) handles all three ref shapes.
+- **Cross-repo sub-issues** — if a sub-issue lives in a different repo (e.g. the initiative is tracked against `your-org/api` but one sub-issue lives in `your-org/lib`), the `## Children` line is `- [ ] your-org/lib#N — title`. [`/resume-initiative`](../../commands/resume-initiative.md) handles all three ref shapes.
 - **Bail criteria triggered** — if you said "I have a vague idea about better logging", the skill refuses: an initiative needs a design spec, named phases, and a finite sub-issue count. The bail prevents an epic that drifts into "ongoing migration" with no end state.
 - **Updating the Status block** — every time a sub-issue closes, the skill (or your `/audit-skills` workflow) updates the `Phase:` count and the `Next up:` line. See [`skills/initiative-tracking/SKILL.md`](../../skills/initiative-tracking/SKILL.md) §Maintenance.
 
