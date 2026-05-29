@@ -6,7 +6,7 @@ Portable issue-tracking skills + slash commands for Claude Code. Five skills, th
 
 An issue tracker designed for agent handoff. A future Claude Code session can't pick up your "fix the auth thing" ticket cold weeks later — it lacks the locus, the repro, the constraints, the acceptance bar that made the ticket fileable in the first place. The skills here file issues in a shape an agent can read: Goal, Locus, Skills to load, Constraints, Acceptance, Verify — every field load-bearing, every body capable of carrying the context that produced it. The five skills also encode bail criteria (no fuzzy locus, no unbounded scope, no open design questions, no fuzzy acceptance) that prevent vague issues from reaching the agent in the first place.
 
-The methodology started as project-local skills in [`maxdimitrov/trading-bot`](https://github.com/maxdimitrov/trading-bot). It turned out to generalize across personal and work projects, so the skills moved here — tracker-agnostic, with a thin backend abstraction so a project using Jira gets the same discipline as a project on GitHub.
+The methodology started as project-local skills hard-coded to a single GitHub repo. It turned out to generalize across personal and work projects, so the skills moved here — tracker-agnostic, with a thin backend abstraction so a project using Jira gets the same discipline as a project on GitHub.
 
 ## What ships
 

@@ -140,7 +140,7 @@ For `reason: not_planned`, pass `--reason "not planned"`. For `reason: duplicate
 
 ## PR close-on-merge convention
 
-GitHub auto-closes referenced issues when the merging PR's body or title contains `Fixes #N`, `Closes #N`, or `Resolves #N` and the PR merges to the repo's default branch. The plugin's `feature-request` and `bug-tracking` skills tell the agent to include `Closes #<N>` in PR bodies for this backend. Trading-bot's existing convention is `Fixes #N` for bugs and `Closes #N` for features — both work identically.
+GitHub auto-closes referenced issues when the merging PR's body or title contains `Fixes #N`, `Closes #N`, or `Resolves #N` and the PR merges to the repo's default branch. The plugin's `feature-request` and `bug-tracking` skills tell the agent to include `Closes #<N>` in PR bodies for this backend. `Fixes #N` and `Closes #N` work identically; a project can pick whichever phrasing it prefers via `github.default_pr_close_syntax` below.
 
 The consumer's `.claude/issue-tracker.yaml`'s `github.default_pr_close_syntax` field is rendered into PR description templates as the recommended phrasing.
 
