@@ -15,7 +15,7 @@ Patch release. Makes the plugin actually **load** after install — `v1.0.1` (`#
 
 ### Fixed
 
-- `(#37)` `.claude-plugin/plugin.json` `dependencies` qualified with the marketplace: `["superpowers"]` → `["superpowers@claude-plugins-official"]`. The Anthropic-blessed `claude-plugins-official` marketplace is where `superpowers` (https://github.com/obra/superpowers) ships. With this change, `claude plugin list` reports `Status: ✔ enabled` and `claude plugin details agent-issue-tracker` reports 8 components (5 skills + 3 commands) in a fresh session against the install.
+- `(#37)` `.claude-plugin/plugin.json` `dependencies` qualified with the marketplace: `["superpowers"]` → `["superpowers@claude-plugins-official"]`. The Anthropic-blessed `claude-plugins-official` marketplace is where [`superpowers`](https://github.com/obra/superpowers) ships. With this change, `claude plugin list` reports `Status: ✔ enabled` and `claude plugin details agent-issue-tracker` reports 8 components (5 skills + 3 commands) in a fresh session against the install.
 - `(#37)` `.claude-plugin/plugin.json` `version` bumped `1.0.1` → `1.0.2` (and matching entry in `.claude-plugin/marketplace.json`).
 - `(#37)` `CONTRIBUTING.md` Release process gains **smoke 7** ("plugin loads `enabled` post-install"), retroactively adds **smoke 6** ("install path against the published repo", introduced in `#35`'s `[1.0.1]` block but not actually written into CONTRIBUTING.md at the time). The release-gate is now seven scenarios; smokes 1-5 unchanged. Closes a `skill-currency`-style gap where the methodology section ("joins the gate") shipped without the methodology-document change.
 
