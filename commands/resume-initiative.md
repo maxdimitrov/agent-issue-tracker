@@ -20,7 +20,7 @@ Named `/resume-initiative` (not `/resume`) to avoid shadowing Claude Code's buil
 |---|---|
 | `/resume-initiative` | List all open **root** initiatives + their next-up leaf (rolled up across the tree). Pick one. |
 | `/resume-initiative <ref>` | Load epic (or sub-epic) `<ref>`. Show phase progress, the child tree, and the next-up leaf. |
-| `/resume-initiative <ref> --start` | Load `<ref>`, resolve next-up down to a leaf, enter that leaf's worktree, and hand off to `superpowers:brainstorming` inline. |
+| `/resume-initiative <ref> --start` | Load `<ref>`, resolve next-up down to a leaf, enter that leaf's worktree, and hand off to `superpowers:brainstorming` inline. (Sets the leaf's GitHub Projects board Status to In Progress if `github.project` is configured.) |
 
 `<ref>` may be a root epic OR any sub-epic — the command treats whatever node you name as the subtree root and walks down from there.
 
@@ -121,6 +121,12 @@ Each path is a recursion; each MUST apply the guards on every hop.
    The worktree directory keeps its `<sanitized>` name (that matches the existing on-disk convention `feat+<slug>`); only the branch is renamed.
 
 4. Report the new worktree path. `EnterWorktree` already switched the session's CWD into the worktree, so the agent workflow continues inline — do NOT stop and ask the operator to open a new window.
+   **(Optional board sync.)** If the consumer's `.claude/issue-tracker.yaml` sets
+   `github.project` (GitHub backend), set this leaf's GitHub Projects board item
+   Status to `In Progress` now — best-effort: a failure WARNs and does NOT abort
+   the handoff. See `backends/github.md` "GitHub Projects v2 board (optional)" for
+   the `gh project item-list` (resolve item id by issue URL) + `item-edit` calls.
+   With `github.project` unset, skip this.
    Invoke `view_issue({ref: leaf-ref})` to fetch the leaf issue body (where `leaf-ref` may carry an `owner/repo#N` prefix for cross-repo cases). **Safety check:** if the fetched body turns out to be an epic body (a Status block is present / the issue carries the `epic` label), it is a sub-epic, not a leaf — do NOT hand it to brainstorming. Re-run step 1's drill on it to reach a real leaf first. Once you have a leaf body, pass it to `superpowers:brainstorming`. The leaf body is already an agent prompt (Goal, Locus, Sketch, Acceptance, Verify) — brainstorming uses it as starting context, it does NOT re-derive the problem from scratch.
 
    If the operator would rather use a fresh window, they can interrupt — this inline handoff is the default path. The same inline-brainstorm convention applies when re-entering an existing worktree via `EnterWorktree path=...`.
