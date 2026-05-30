@@ -119,6 +119,24 @@ Every backend module MUST satisfy these. They are not negotiable.
 
 ---
 
+## Optional backend-specific capabilities
+
+The seven operations above are the entire contract. A backend MAY document
+additional, backend-specific affordances that are NOT contract operations and are
+NOT required of any other backend. Such affordances live under plain `##` headings
+in the backend module — never a `` ### `op` `` operation heading — so the
+`backend-contract` CI op-parity check (which greps `` ### `op` `` headings) ignores
+them. They are always optional for the consumer; with the relevant config key
+unset, behaviour is unchanged.
+
+The first such affordance is **GitHub Projects (v2) board population** — see
+`backends/github.md` "GitHub Projects v2 board (optional)". It mirrors an
+initiative's issue tree onto a GitHub Projects board as a human-facing view. It is
+GitHub-only; `backends/jira.md` records it as n/a. It adds **no** contract
+operation: the seven ops stay seven, and op-parity remains green.
+
+---
+
 ## Adding a new backend
 
 To add a new backend (GitLab, Linear, Jira Server, plain-file, etc.):

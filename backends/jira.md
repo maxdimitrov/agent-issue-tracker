@@ -202,3 +202,11 @@ The skill prose (`feature-request`, `bug-tracking`) renders `jira.close_on_merge
 2. **`cloud_id` round-trip** — invoke `getAccessibleAtlassianResources`; confirm the configured `jira.cloud_id` appears in the returned site list and matches the configured `jira.site`. If not, `/tracker-doctor` reports the accessible cloud_ids and the operator picks the right one.
 3. **`getJiraIssue({cloudId, issueIdOrKey: "<jira.project>-1"})`** — the canonical reachability probe per cross-backend invariant #5. PASS if returns; PASS-WITH-NOTE on 404 (project reachable but `<PROJECT>-1` doesn't exist); FAIL on 401 / 403 (auth wrong, or `cloud_id` doesn't match `site`).
 4. **Vocabulary sanity (WARN-level):** `getJiraProjectMetadata({cloudId, projectKey})` returns the project's configured issue types + components. WARN if any value in `jira.issue_types.*` (the consumer's mappings for the five plugin type keys — `bug`, `feature`, `epic`, `sub`, `followup` — to their Jira issue type names, e.g. `Bug`, `Story`, `Epic`, `Sub-task`, `Task`) is missing from the project's issue type list. No FAIL — vocabulary mismatches are operator setup tasks surfaced informationally; the plugin still works without them (the next `create_issue` will fail noisily at the MCP layer, with a more actionable error message than the plugin could compose preemptively).
+
+## GitHub Projects v2 board (optional) -- n/a for Jira
+
+Projects-board population is a GitHub-specific affordance (see
+`backends/github.md` "GitHub Projects v2 board (optional)" and `_interface.md`
+"Optional backend-specific capabilities"). It is **not applicable to Jira** -- use
+Jira's own boards. No Jira behaviour change; the `github.project` config key is
+ignored when `backend: jira`.

@@ -25,6 +25,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   command-enforced depth cap (`MAX_DEPTH = 10`) + visited-ref cycle
   guard.
 
+- **GitHub Projects (board) support for initiatives (optional).**
+  `initiative-tracking` can optionally mirror an initiative's issue tree onto a
+  user/org-level GitHub Projects (v2) board — adding the root epic, sub-epics, and
+  leaf children (including cross-repo `owner/repo#N` children) as items and syncing
+  each child's lifecycle to the board's **Status** field (`Todo` on file,
+  `In Progress` on `/resume-initiative --start`, `Done` on close). Opt-in via a new
+  optional `github.project` URL in `.claude/issue-tracker.yaml`; with it unset,
+  behaviour is byte-identical to before. The board is a human-facing **view** — the
+  `## Children` task-list mirror stays canonical, and every board write is
+  best-effort (a board failure never blocks an issue operation). GitHub-only (n/a
+  for Jira); **no** backend-contract change — the seven operations are untouched.
+  `/tracker-doctor` gains a WARN-only board reachability/scope check; `/tracker-init`
+  gains an optional board-URL prompt. Needs the `project` token scope
+  (`gh auth refresh -s project,read:project`).
+
 ### Changed
 
 - `commands/resume-initiative.md` — Mode 1 filters `list_open_issues`

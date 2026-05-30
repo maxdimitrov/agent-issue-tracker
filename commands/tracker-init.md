@@ -44,7 +44,20 @@ Store the answer as `backend`. Branch on it: if `github`, proceed to Phase 3; if
 - Options: If a default was extracted in 3b, present it first as `<owner/repo> (this repo)` and mark it "(Recommended)". If no default, present no recommended option; the operator will use "Other" for free-form input.
 - "Other" response → accept as-is (user can type `owner/repo`). Reject blank input with a re-prompt.
 
-Store the answer as `github.repo`. Skip Phase 4 and proceed to Phase 5.
+Store the answer as `github.repo`.
+
+**3d. Projects board prompt (optional).** Invoke `AskUserQuestion` once
+(single-select with "Other" for free-form):
+- Question: "Mirror initiatives onto a GitHub Projects (v2) board? Paste a
+  user/org-level board URL, or skip."
+- Header: `Project board`
+- Options: `Skip — no board` (recommended) | (the operator uses "Other" to paste a
+  URL like `https://github.com/users/<owner>/projects/<N>`).
+- If the operator skips, record that `github.project` will be omitted. If they
+  paste a URL, store it as `github.project` (accept as-is; reject blank "Other"
+  with a re-prompt).
+
+Skip Phase 4 and proceed to Phase 5.
 
 ### Phase 4 — Jira branch (skip if backend is github)
 
@@ -119,6 +132,8 @@ Emit the following blocks conditionally:
 - `github:` block — emit ONLY if `backend: github`. Include:
   - `repo: <value from Phase 3c>`
   - `default_pr_close_syntax: "Fixes #N"` (render explicitly so it is visible; this is the schema default)
+  - `project: <value from Phase 3d>` — emit ONLY if the operator pasted a board
+    URL in Phase 3d; omit the key entirely if they skipped.
 - `jira:` block — emit ONLY if `backend: jira`. Include:
   - `site: <value from Phase 4b, stripped of https:// and trailing slash>`
   - `cloud_id: <value from Phase 4b>`
@@ -156,6 +171,10 @@ Next steps:
 ```
 
 **For GitHub:** Append: "If `/tracker-doctor` reports missing area labels on the repo, it will print `gh label create` commands you can paste."
+
+**For GitHub with a board configured:** Append: "You configured a Projects board.
+Grant the token scope once with `gh auth refresh -s project,read:project`, then
+`/tracker-doctor` will verify the board is reachable."
 
 **For Jira:** Append: "If `/tracker-doctor` reports missing issue types in the project, it will print the next-step `getJiraProjectMetadata` call you can run."
 

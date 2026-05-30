@@ -63,6 +63,16 @@ github:
   # templates by feature-request / bug-tracking. Default: "Fixes #N".
   default_pr_close_syntax: "Fixes #N"
 
+  # Optional. A user- or org-level GitHub Projects (v2) board URL. When set,
+  # initiative-tracking mirrors the initiative tree onto this board, and
+  # /resume-initiative --start sets a child's Status to In Progress. Best-effort:
+  # the `## Children` task-list mirror stays canonical; a board failure never
+  # blocks an issue operation. Omit for no board behaviour (default).
+  # Needs the `project` token scope: gh auth refresh -s project,read:project
+  # Use a user- or org-level board (repo-level projects can't span repos):
+  #   project: https://github.com/users/<owner>/projects/<N>
+  #   project: https://github.com/orgs/<org>/projects/<N>
+
 # REQUIRED if `backend: jira`. Jira Cloud backend config.
 # Jira reaches the tracker via the Atlassian Remote MCP — no API tokens
 # stored in the plugin. /tracker-init resolves cloud_id automatically.
