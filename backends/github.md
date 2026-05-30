@@ -152,3 +152,78 @@ The consumer's `.claude/issue-tracker.yaml`'s `github.default_pr_close_syntax` f
 1. `gh auth status` — must succeed (consumer is authed).
 2. `gh repo view "$GITHUB_REPO"` — must succeed (repo exists, consumer has access).
 3. For each label in `areas:`, `gh label list --repo "$GITHUB_REPO" --search "$LABEL"` — warning if missing, prints `gh label create` next-step.
+
+## GitHub Projects v2 board (optional)
+
+**Optional, GitHub-only. Not a contract operation** — see
+[`_interface.md`](_interface.md) "Optional backend-specific capabilities". When the
+consumer's `.claude/issue-tracker.yaml` sets `github.project`, `initiative-tracking`
+mirrors the initiative tree onto that GitHub Projects (v2) board: it adds the root
+epic, every sub-epic, and every leaf child as items and reflects each child's
+lifecycle in the board's built-in **Status** field. The board is a human-facing
+view; the epic body's `## Children` task-list mirror stays canonical. With
+`github.project` unset, none of this runs.
+
+GitHub Projects v2 is GraphQL-only; the `gh project` subcommands wrap it and need
+the `project` token scope:
+
+    gh auth refresh -s project,read:project
+
+### Project config
+
+`github.project` is a **user- or org-level** Projects board URL:
+
+- user board: `https://github.com/users/<owner>/projects/<N>`
+- org board:  `https://github.com/orgs/<org>/projects/<N>`
+
+Parse `<owner>` (the path segment after `users/` or `orgs/`) and `<N>` (the
+trailing number). Repo-level project URLs (`.../<owner>/<repo>/projects/<N>`) are
+NOT supported — repo projects can't span repos, which defeats the cross-repo use
+case.
+
+### Resolve board identifiers (once per session, then cache)
+
+    # project node id
+    PROJECT_ID=$(gh project view <N> --owner <owner> --format json --jq .id)
+
+    # Status field id + the Todo / In Progress / Done option ids
+    gh project field-list <N> --owner <owner> --format json \
+      --jq '.fields[] | select(.name=="Status")'
+    # -> {"id":"<STATUS_FIELD_ID>", "options":[{"id":"..","name":"Todo"}, ...]}
+
+Match option names case-insensitively, tolerating `Todo` / `To do`. If the board
+has no `Status` field or an expected option is missing, skip the status write
+(still add the item) and WARN once.
+
+### Add an item + set its Status
+
+    # add (idempotent: an issue already on the board returns its existing item)
+    ITEM_ID=$(gh project item-add <N> --owner <owner> \
+      --url <issue-url> --format json --jq .id)
+
+    # set Status (non-draft items require --id AND --project-id; one field per call)
+    gh project item-edit --id "$ITEM_ID" --project-id "$PROJECT_ID" \
+      --field-id "$STATUS_FIELD_ID" --single-select-option-id "$OPTION_ID"
+
+`<issue-url>` is the child's full GitHub issue URL. Because the board is
+user/org-level, a cross-repo `owner/repo#N` child is added by its own repo's issue
+URL — the same call works regardless of which repo the issue lives in.
+
+### Set Status on an item already on the board
+
+When the issue was added earlier (close -> `Done`; `--start` -> `In Progress`),
+resolve its item id by content URL first:
+
+    ITEM_ID=$(gh project item-list <N> --owner <owner> --format json -L 200 \
+      --jq '.items[] | select(.content.url=="<issue-url>") | .id')
+
+then `item-edit` as above. (`item-list` defaults to 30 items; pass `-L` generously.
+Best-effort: if the item isn't in the fetched page, WARN and skip.)
+
+### Failure semantics
+
+Every `gh project` call here is **best-effort**. Any failure — missing `project`
+scope, unreachable board, GraphQL error, absent `Status` field — is a WARN, never a
+block: the underlying `create_issue` / `link_sub_issue` / `close_issue` /
+`/resume-initiative --start` operation still succeeds. The `## Children` mirror is
+the source of truth; a degraded board never blocks an initiative operation.

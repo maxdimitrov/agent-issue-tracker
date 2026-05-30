@@ -6,3 +6,6 @@ subsystems: [api, worker, scheduler, scripts]
 
 github:
   repo: your-org/your-repo
+  # Optional. Mirror initiatives onto a user/org-level GitHub Projects (v2) board.
+  # Needs `gh auth refresh -s project,read:project`. Omit for no board behaviour.
+  #   project: https://github.com/orgs/your-org/projects/1
