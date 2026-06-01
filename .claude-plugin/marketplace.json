@@ -12,7 +12,7 @@
       "name": "agent-issue-tracker",
       "source": "./",
       "description": "Portable issue-tracking skills + slash commands for Claude Code, with GitHub and Jira backends. Bundles five skills (bug-tracking, feature-request, followup-tracking, initiative-tracking, skill-currency), three slash commands (/tracker-init, /tracker-doctor, /resume-initiative), and a backend interface contract with implementations for the gh CLI and the Atlassian Remote MCP.",
-      "version": "1.0.2",
+      "version": "1.1.0",
       "author": {
         "name": "Maksim Dimitrov"
       },
