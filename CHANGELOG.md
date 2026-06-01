@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-06-01
+
 ### Added
 
 - **Nested initiatives (N-level trees).** `initiative-tracking` now
@@ -78,9 +80,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   best-effort secondary signal; root detection uses the
   `## Parent epic` body block.
 
-> Release note: this is a feature — bump `1.0.2` → `1.1.0` (minor)
-> at release time, per semver, and add the seven-smoke release-gate
-> run plus an N-level traversal smoke.
+### Release-gate smokes
+
+Smoke gate per CONTRIBUTING.md "Release process" **waived by operator
+decision** at release time — smokes 1–7 were not run for this release.
 
 ## [1.0.2] - 2026-05-29
 
