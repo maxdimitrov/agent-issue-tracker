@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-03
+
 ### Added
 
 - **`list_child_issues` backend operation + "adopting an existing
@@ -50,6 +52,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CONTRIBUTING.md` smoke 7. Motivated by hitting exactly this gap —
   needing a sanctioned path to file the `list_child_issues` miss back
   upstream.
+
+### Release-gate smokes
+
+Per CONTRIBUTING.md Release process; operator-approved runnable-subset scope for
+this release.
+
+- **Smoke 1 (GitHub backend against `maxdimitrov/agent-issue-tracker`)** — PASS.
+  `#42` and `#43` were both filed and closed through the plugin's GitHub backend
+  (agent-prompt-shaped bodies, area/type labels, PR-close-on-merge); this release
+  PR exercises the same path end-to-end.
+- **Smokes 6 + 7 (install path; loads enabled with all 9 components)** — run
+  against the published `v1.2.0` tag in a clean session (they require the tag to
+  exist first); outcome recorded in the GitHub release notes rather than this
+  block, which is fixed at tag time.
+- **Smokes 2, 3, 4, 5 (Jira backend; `/tracker-init`; `/tracker-doctor`;
+  `/resume-initiative`)** — DEFERRED. No live Atlassian connector in the release
+  session; structural cold-read only, matching the v1.0.0–v1.0.2 gating
+  discipline. `#42` touched `initiative-tracking` + the backend contract and `#43`
+  added `tracker-contribute`; a live `/resume-initiative` + `/tracker-doctor`
+  pass against a real epic is the recommended post-release validation.
 
 ## [1.1.0] - 2026-06-01
 
