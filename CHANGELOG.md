@@ -33,6 +33,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   children read "child tickets to be filed when prioritized" from the
   stale body and concluded there were none.
 
+- **`tracker-contribute` skill — report a plugin problem (or a fix)
+  upstream.** A sixth skill for the case the plugin's own thesis
+  implies but nothing covered: when agent-issue-tracker *itself*
+  misbehaves or falls short while you're using it, file a well-formed
+  issue — or open a PR — against the plugin's own repo
+  (`maxdimitrov/agent-issue-tracker`) in the plugin's agent-prompt
+  body shape. It is the **one** skill that ignores
+  `.claude/issue-tracker.yaml`: plugin problems always route to the
+  upstream GitHub repo via `gh`, never into the consumer's configured
+  tracker (where the maintainer would never see them). Covers the
+  issue-vs-PR decision, the `CONTRIBUTING.md` body shape, and the
+  repo's own conventions (skill-currency, op-parity CI, no version
+  bump). Component count updated 8 → 9 (six skills + three commands)
+  across `marketplace.json`, `plugin.json`, `README.md`, and
+  `CONTRIBUTING.md` smoke 7. Motivated by hitting exactly this gap —
+  needing a sanctioned path to file the `list_child_issues` miss back
+  upstream.
+
 ## [1.1.0] - 2026-06-01
 
 ### Added
