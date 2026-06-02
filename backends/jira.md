@@ -1,6 +1,6 @@
 # Jira Backend
 
-Backend module for the [Atlassian Remote MCP](https://www.atlassian.com/blog/announcements/remote-mcp-server) — the dispatch surface for the `jira` backend. Implements the seven operations from [`_interface.md`](_interface.md). Sibling implementation: [`github.md`](github.md).
+Backend module for the [Atlassian Remote MCP](https://www.atlassian.com/blog/announcements/remote-mcp-server) — the dispatch surface for the `jira` backend. Implements the eight operations from [`_interface.md`](_interface.md). Sibling implementation: [`github.md`](github.md).
 
 ## Auth
 
@@ -105,6 +105,25 @@ searchJiraIssuesUsingJql({
 - `label` filter → append ` AND labels = "<label>"`
 
 Returns a list of issue keys + summaries + statuses; the backend module translates the MCP response to `[{ref, title, status}]` matching the contract output shape.
+
+---
+
+### `list_child_issues`
+
+List the direct children of a parent issue (open **and** closed).
+
+```
+searchJiraIssuesUsingJql({
+  cloudId: <jira.cloud_id>,
+  jql: 'parent = "<parent_ref>" ORDER BY key ASC'
+})
+```
+
+**Field mapping:** `parent_ref` → the JQL `parent = "<ref>"` clause. Note there is deliberately **no** `statusCategory != Done` filter — unlike `list_open_issues`, this op returns closed children too, because adoption needs them to render `[x] … — closed` mirror lines. Translate each returned issue to `{ref: key, title: summary, status: status.name}`.
+
+**Pagination:** `searchJiraIssuesUsingJql` pages its results (`nextPageToken` / `pageInfo.hasNextPage`). Follow the token until exhausted — a truncated page silently drops children from the adopted `## Children` mirror. Request only the fields you need (`["summary", "status"]`) so a many-child epic's descriptions don't blow the response size.
+
+**Hierarchy ceiling (invariant 6):** the JQL `parent` field resolves the unified parent linkage Jira Cloud maintains down to its three-level cap (Epic → Story/Task → Sub-task). On `jira.parent_link_style: native` this returns a node's direct children at every level the native hierarchy reaches; nesting deeper than the cap is body-mirror-only and is neither returned nor required here. On classic `jira.parent_link_style: epic_link` projects, where Epic → Story linkage lives in the Epic Link customfield rather than `parent`, fall back to `'"Epic Link" = <parent_ref>'` (or the configured `jira.epic_link_field`).
 
 ---
 

@@ -49,7 +49,7 @@ Annotated tags only (`-a`). Tag the squash-merge commit of the release PR, not t
 
 ## Adding a backend
 
-The contract every backend implements lives in [`backends/_interface.md`](backends/_interface.md) — seven operations (`create_issue`, `add_label`, `link_sub_issue`, `list_open_issues`, `view_issue`, `edit_body`, `close_issue`) with identical tracker-agnostic inputs, plus five cross-backend invariants every backend must satisfy.
+The contract every backend implements lives in [`backends/_interface.md`](backends/_interface.md) — eight operations (`create_issue`, `add_label`, `link_sub_issue`, `list_open_issues`, `list_child_issues`, `view_issue`, `edit_body`, `close_issue`) with identical tracker-agnostic inputs, plus five cross-backend invariants every backend must satisfy.
 
 A new backend ships as a single `backends/<backend>.md` file documenting how each contract operation maps to that backend's native API. The reference implementations are [`backends/github.md`](backends/github.md) (via the `gh` CLI) and [`backends/jira.md`](backends/jira.md) (via the Atlassian Remote MCP). Both follow the same section structure — Auth, Reference table, per-operation block, Cross-backend invariants, PR close-on-merge convention, Setup verification — and a new backend should mirror it.
 

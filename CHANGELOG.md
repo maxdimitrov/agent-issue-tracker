@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`list_child_issues` backend operation + "adopting an existing
+  epic" workflow.** `initiative-tracking` can now bring a
+  pre-existing epic — one not created through the skill, with no
+  `## Children` mirror yet or a stale one — under the template by
+  enumerating its **actual** children from the tracker instead of
+  trusting the epic body's prose. Adds an eighth contract operation
+  `list_child_issues(parent_ref) → [{ref, title, status}]` to
+  `backends/_interface.md` (the read-inverse of `link_sub_issue`;
+  returns a parent's **direct** children, open **and** closed —
+  adoption needs the closed ones to render `[x] … — closed` mirror
+  lines), implemented for both backends (Jira: `parent = <ref>` JQL
+  with pagination; GitHub: a paginated GET on the native `sub_issues`
+  endpoint). New **"Adopting an existing epic into the template"**
+  section in `skills/initiative-tracking/SKILL.md` carrying the
+  load-bearing guard: **never infer the child set from body prose —
+  query the tracker.** Op-count references swept 7 → 8 across
+  `_interface.md`, both backend modules, all four tracker skills,
+  `README.md`, and `CONTRIBUTING.md`; the CI `backend-contract`
+  op-parity check stays green (the new `list_child_issues` heading
+  appears in both backends). No config or schema change. Motivated by
+  a live miss: an agent reformatting an epic that already had ten
+  children read "child tickets to be filed when prioritized" from the
+  stale body and concluded there were none.
+
 ## [1.1.0] - 2026-06-01
 
 ### Added
