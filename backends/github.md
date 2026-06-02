@@ -1,6 +1,6 @@
 # GitHub Backend
 
-Backend module for [`gh` CLI](https://cli.github.com/) — the dispatch surface for the `github` backend. Implements the seven operations from [`_interface.md`](_interface.md).
+Backend module for [`gh` CLI](https://cli.github.com/) — the dispatch surface for the `github` backend. Implements the eight operations from [`_interface.md`](_interface.md).
 
 ## Auth
 
@@ -17,6 +17,7 @@ For GitHub Enterprise, `gh auth login --hostname <enterprise-host>`. The `github
 | Sub-issue link (resolve child id) | `gh api repos/OWNER/REPO/issues/N --jq .id` |
 | Sub-issue link (attach) | `gh api -X POST repos/OWNER/REPO/issues/PARENT/sub_issues -F sub_issue_id=CHILD_ID` |
 | List open | `gh issue list --repo OWNER/REPO --label LABEL --state open --json number,title,state` |
+| List children | `gh api --paginate repos/OWNER/REPO/issues/PARENT_N/sub_issues` |
 | View | `gh issue view N --repo OWNER/REPO --json body,labels,state` |
 | Edit body (destructive) | `gh issue edit N --repo OWNER/REPO --body-file PATH` |
 | Close | `gh issue close N --repo OWNER/REPO --comment "REASON"` |
@@ -93,6 +94,23 @@ gh issue list \
 ```
 
 For multi-label AND-filter, repeat `--label`. For type-filter, pass the type-driven label (`bug`, `enhancement`, `epic`).
+
+---
+
+### `list_child_issues`
+
+The read-inverse of `link_sub_issue` — GET the same `sub_issues` endpoint that `link_sub_issue` POSTs to. Returns the parent's direct children, open and closed.
+
+```bash
+gh api --paginate repos/"$GITHUB_REPO"/issues/"$PARENT_N"/sub_issues \
+  --jq '.[] | "\(.number)\t\(.title)\t\(.state)"'
+```
+
+`--paginate` is required: the endpoint pages at 30, and a silently truncated list would drop children from the adopted `## Children` mirror. Each item carries `state` (`open` / `closed`) — adoption needs the closed ones to render `[x] … — closed` lines. The skill translates each row to `{ref: #number, title, status}`.
+
+**Cross-repo children** (`owner/repo#N`): a child in another repo lives under *its* repo's endpoint — call `gh api repos/<that-owner>/<that-repo>/issues/<N>/sub_issues` for that child's repo, not the configured `github.repo`.
+
+**Nesting (invariant 6):** GitHub sub-issues nest arbitrarily deep, so this call returns the true direct children at every level — there is no native ceiling below the body mirror's reach (contrast Jira). The skill recurses one node at a time via the `## Children` mirror.
 
 ---
 
