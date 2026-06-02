@@ -27,7 +27,7 @@ description: >-
 
 The canonical tracker is the one configured in the consumer project's
 `.claude/issue-tracker.yaml`. The plugin's `backends/_interface.md`
-documents the seven operations every backend implements;
+documents the eight operations every backend implements;
 `backends/<backend>.md` (e.g. `backends/github.md`) documents the
 literal CLI / MCP invocation for each operation.
 

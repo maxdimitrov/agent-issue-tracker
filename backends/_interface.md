@@ -6,7 +6,7 @@ The contract is THE source of truth. If a backend module diverges from this cont
 
 ## Operations
 
-Seven operations. Inputs are tracker-agnostic field names; the backend module translates them into tracker-specific fields (label vs component vs custom field, etc.).
+Eight operations. Inputs are tracker-agnostic field names; the backend module translates them into tracker-specific fields (label vs component vs custom field, etc.).
 
 ### `create_issue`
 
@@ -60,6 +60,19 @@ Seven operations. Inputs are tracker-agnostic field names; the backend module tr
 - `label` (optional) — filter to a specific label
 
 **Output:** list of `{ref, title, status}` entries.
+
+---
+
+### `list_child_issues`
+
+**Purpose:** List the children of a parent issue — the read-inverse of `link_sub_issue`. Used by `initiative-tracking` to adopt a pre-existing epic (one whose body has no `## Children` mirror yet, or a stale one) and to reconcile the mirror against the tracker's actual parent-child linkage. This is the operation that lets the skill answer "what are this epic's children?" from the tracker instead of trusting the epic body's prose.
+
+**Inputs:**
+- `parent_ref` — the parent issue ref
+
+**Output:** list of `{ref, title, status}` entries — the parent's **direct** children only. Includes **both open and closed** children, which is the deliberate difference from `list_open_issues`: adoption needs the closed ones to render them in the `## Children` mirror as `[x] … — closed`. Depth is the skill's concern, not this op's — `initiative-tracking` recurses over each node's `## Children` mirror per invariant 6, calling this op once per node.
+
+**Nesting (invariant 6):** native parent queries reach exactly as far as the backend's linkage ceiling (e.g. Jira's three-level Epic → Story/Task → Sub-task cap). Below that ceiling there are no *native* children to enumerate by construction — deeper nesting lives in the body mirror alone — so this op is reliable precisely where adoption needs it: reconciling one node's direct children at a time. A backend whose native ceiling is shallower than a given tree is NOT in violation; the `## Children` body mirror remains the depth-of-record.
 
 ---
 
@@ -121,7 +134,7 @@ Every backend module MUST satisfy these. They are not negotiable.
 
 ## Optional backend-specific capabilities
 
-The seven operations above are the entire contract. A backend MAY document
+The eight operations above are the entire contract. A backend MAY document
 additional, backend-specific affordances that are NOT contract operations and are
 NOT required of any other backend. Such affordances live under plain `##` headings
 in the backend module — never a `` ### `op` `` operation heading — so the
@@ -133,7 +146,7 @@ The first such affordance is **GitHub Projects (v2) board population** — see
 `backends/github.md` "GitHub Projects v2 board (optional)". It mirrors an
 initiative's issue tree onto a GitHub Projects board as a human-facing view. It is
 GitHub-only; `backends/jira.md` records it as n/a. It adds **no** contract
-operation: the seven ops stay seven, and op-parity remains green.
+operation: the eight ops stay eight, and op-parity remains green.
 
 ---
 
@@ -142,7 +155,7 @@ operation: the seven ops stay seven, and op-parity remains green.
 To add a new backend (GitLab, Linear, Jira Server, plain-file, etc.):
 
 1. Create `backends/<name>.md`.
-2. For each of the seven operations above, document the literal CLI command, MCP tool call, or API request that implements it. Use the same field names as the contract; translate to tracker-specific fields inside the documentation.
+2. For each of the eight operations above, document the literal CLI command, MCP tool call, or API request that implements it. Use the same field names as the contract; translate to tracker-specific fields inside the documentation.
 3. Document how the six cross-backend invariants are satisfied — including invariant 6 (where the new backend's native parent-child linkage ceiling sits, so `initiative-tracking` knows how deep native augmentation goes before the body mirror is the sole record).
 4. Add a `<name>` block to the config schema in `examples/issue-tracker.yaml.example` with all required + optional fields.
 5. Ship a minimal `examples/<name>-config.yaml`.

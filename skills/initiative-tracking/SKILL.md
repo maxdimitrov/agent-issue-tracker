@@ -27,7 +27,7 @@ description: >-
 
 The canonical tracker is the one configured in the consumer
 project's `.claude/issue-tracker.yaml`. The plugin's
-`backends/_interface.md` documents the seven operations every
+`backends/_interface.md` documents the eight operations every
 backend implements; `backends/<backend>.md` (e.g.
 `backends/github.md`) documents the literal CLI / MCP invocation
 for each operation.
@@ -102,6 +102,58 @@ Do **not** file when:
 - A similar epic already exists — invoke the backend's
   `list_open_issues` operation with `label: epic` first. Most
   "new" initiatives are continuations of existing ones.
+
+## Adopting an existing epic into the template
+
+Sometimes the epic already exists in the tracker but is NOT in
+this template's shape — it was filed by hand, by another tool, or
+before this skill existed, so it has no `## Status block` and no
+`## Children` mirror (or a stale one). "Make this epic follow the
+template" is an *adoption*, not a fresh file.
+
+**The load-bearing rule: never infer the child set from the epic
+body's prose — query the tracker.** The body is the exact artifact
+you are about to rewrite, so it is the least trustworthy source for
+"what are this epic's children?" A line like "child tickets to be
+filed when prioritized" can be months stale while children already
+exist (some closed, some in review). Trusting it silently produces
+an empty `## Children` mirror and a wrong `Next up`. Always call the
+backend's `list_child_issues(epic_ref)` operation (see
+`backends/_interface.md`) and build from what the tracker actually
+returns.
+
+Procedure:
+
+1. `list_child_issues(epic_ref)` → the epic's real **direct**
+   children (open AND closed). This is the source of truth for the
+   mirror, not the body.
+2. Build the `## Children` mirror from that list: each closed child
+   → `[x] <ref> — <title> (Phase N) — closed YYYY-MM-DD`, each open
+   child → `[ ] <ref> — <title> (Phase N)`. Group children into
+   `## Phases` using the sequencing the existing body / design spec
+   already describes; if none is stated, ask the operator rather
+   than inventing phases.
+3. Fill the `## Status block` from the real data — `Phase`
+   direct-child `<closed>/<total>` count, `Next up` = first open
+   child by phase order (or `none`), `Current branch`, and
+   `Last updated` = today.
+4. **Preserve, don't destroy.** Fold the existing body's narrative
+   into `## Goal` / `## Design spec`, and keep any per-item detail
+   the children don't already carry as an appendix below the
+   template sections. `edit_body` is a destructive whole-body
+   replace (cross-backend invariant 2) — read-modify-write so
+   nothing load-bearing is lost.
+5. For a nested initiative, recurse: call `list_child_issues` once
+   per epic node (root, then each sub-epic) to build that node's
+   own direct-children mirror.
+
+**Reconcile, tracker wins.** If a pre-existing `## Children` mirror
+disagrees with `list_child_issues`, the tracker's native linkage is
+authoritative — add children it returns that the mirror is missing.
+Before dropping a mirror-only entry (in the body but not returned),
+check it isn't a cross-repo `owner/repo#N` child or one whose native
+link was never established; if so, fix the link (`link_sub_issue`)
+rather than deleting the line.
 
 ## Nested initiatives
 

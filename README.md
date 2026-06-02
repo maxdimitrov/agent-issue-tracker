@@ -143,7 +143,7 @@ The dependency is load-bearing. The skills cite `superpowers:brainstorming`, `su
 
 ## Adding a backend
 
-The seven-operation contract every backend implements lives in [`backends/_interface.md`](backends/_interface.md). Reference implementations: [`backends/github.md`](backends/github.md) (via `gh` CLI), [`backends/jira.md`](backends/jira.md) (via the Atlassian Remote MCP). The CI `backend-contract` job asserts every contract operation heading appears in every backend file — catches drift on PR.
+The eight-operation contract every backend implements lives in [`backends/_interface.md`](backends/_interface.md). Reference implementations: [`backends/github.md`](backends/github.md) (via `gh` CLI), [`backends/jira.md`](backends/jira.md) (via the Atlassian Remote MCP). The CI `backend-contract` job asserts every contract operation heading appears in every backend file — catches drift on PR.
 
 GitLab, Linear, Asana, plaintext-file, and Jira Server / Data Center are filed as day-one follow-on issues. See [CONTRIBUTING.md](CONTRIBUTING.md) for the backend-addition checklist.
 
