@@ -108,9 +108,9 @@ See `templates/bug-body.md` for the canonical skeleton with placeholders.
 - **Verify** — the exact commands the agent runs at the end; matches the
   issue-fix agent's verification step.
 
-If you cannot fill in all five required fields, the issue is probably not
-auto-fixable yet — file it anyway (so it's tracked), but tag it
-`needs-triage` and expect a human pass before any agent can work it.
+If you cannot fill in all of the required fields above, the issue is
+probably not auto-fixable yet — file it anyway (so it's tracked), but tag
+it `needs-triage` and expect a human pass before any agent can work it.
 
 ## Labels
 
@@ -151,7 +151,7 @@ pick up yet.
 
 ## Example — a well-formed bug
 
-```markdown
+````markdown
 ## Goal
 POST /api/queues/<name>/retry returns 200 with the requeued message id
 when the message is in the dead-letter queue, instead of 500.
@@ -208,7 +208,7 @@ namespaced under `dlq.requeue_target`.
 pytest -q tests/test_queue_retry.py::test_retry_dead_letter
 pytest -q
 ```
-```
+````
 
 ---
 
