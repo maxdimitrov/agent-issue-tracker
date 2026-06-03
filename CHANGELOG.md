@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-06-03
+
 ### Fixed
 
 - **`skill-currency` skill-path ambiguity.** The rule, a new "Where
@@ -31,6 +33,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (progressive disclosure for the optional, `github.project`-gated
   feature); `SKILL.md` keeps a concise pointer and the trigger rules
   stay inline.
+
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process". This is a docs/skill-prose-only
+patch — no backend operation, command, or API-surface change — so the
+functional command smokes (3-5) and clean-machine install smokes (6-7)
+exercise code paths unchanged in 1.2.1.
+
+- **1. GitHub backend smoke — PASS.** Filed bug (#46), feature (#47),
+  followup (#48), and an epic (#49) with a linked sub-issue (#50)
+  against this repo. Verified labels (`bug`; `enhancement`;
+  `enhancement`+`followup`; `epic`), body shapes (Parent / Parent epic
+  blocks), and native sub-issue linkage (#49 → #50 via the `-F`
+  typed-integer `sub_issues` API). All five closed after verification.
+  Also created the previously-missing `followup` and `epic` repo labels.
+- **2. Jira backend smoke — DEFERRED.** Atlassian connector not
+  configured in the release session.
+- **3–5. `/tracker-init`, `/tracker-doctor`, `/resume-initiative` —
+  DEFERRED.** Command implementations unchanged in this release.
+- **6–7. Clean-machine install + post-install load — DEFERRED.** No
+  `marketplace.json` / `plugin.json` dependency change beyond the
+  version bump; clean machine not available this session.
 
 ## [1.2.0] - 2026-06-03
 
