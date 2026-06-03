@@ -42,9 +42,24 @@ them necessary, or they don't ship at all.
 > When a PR changes API surface — new module, new public function,
 > new CLI subcommand, new env var, new DB table or schema-version
 > bump, new HTTP route, changed function signature, removed
-> function/file — the affected `.claude/skills/*.md` files MUST
-> update in the same PR. A stale skill misleads every future agent
-> that touches the area.
+> function/file — the affected `SKILL.md` files MUST update in the
+> same PR. A stale skill misleads every future agent that touches the
+> area.
+
+### Where the skills live
+
+The same rule covers two layers, and which path you grep depends on
+where your PR lands:
+
+- **Developing this plugin** (or any project that authors its own
+  skills) — the skills are at `skills/*/SKILL.md`, a sibling of
+  `backends/`, `templates/`, and `commands/`. The worked example and
+  acceptance snippets below use this path.
+- **A consumer project that installed this plugin** — the skills are
+  read from `.claude/skills/*/SKILL.md`.
+
+Apply the rule to whichever layer your change touches; the discipline
+is identical, only the directory differs.
 
 ## Why a stale skill is dangerous
 
@@ -107,7 +122,9 @@ The discriminator is the question: **"Would an agent in a future session need to
 1. **Identify the affected skills.** For each file you changed, search
    the skill prose for references — function names, file paths, table
    names, env vars, CLI subcommand names. Any matching skill must be
-   reviewed. Grep is your friend: `grep -r "function_name" .claude/skills/`.
+   reviewed. Grep is your friend: `grep -r "function_name" skills/` when
+   developing this plugin, or `.claude/skills/` in a consumer project that
+   installed it.
 
 2. **Decide: update existing skill, write new skill, or escape-hatch.**
    - The change touches a subsystem with an existing `*-architecture`
@@ -167,7 +184,8 @@ discipline is holding.
 
 Today the rule is honor-system. Before opening a PR, review the diff
 against the skill corpus by hand: grep the changed files' identifiers
-against `.claude/skills/`. Take care to catch indirect references — a
+against the skill directory (`skills/` here, `.claude/skills/` in a
+consumer). Take care to catch indirect references — a
 function parameter type rename that propagates to a skill's code
 example. Reviewers do the same on the way in.
 

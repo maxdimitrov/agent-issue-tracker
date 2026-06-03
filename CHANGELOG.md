@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`skill-currency` skill-path ambiguity.** The rule, a new "Where
+  the skills live" note, and both `grep` instructions now name both
+  locations — `skills/*/SKILL.md` when developing the plugin and
+  `.claude/skills/*/SKILL.md` once installed in a consumer — so an
+  agent working in the plugin repo no longer greps an empty
+  `.claude/skills/`.
+- **`bug-tracking` required-field miscount.** "all five required
+  fields" corrected to "all of the required fields above" (the list
+  enumerates six; the body template marks seven `[required]`).
+- **Worked-example rendering.** The `bug-tracking`, `feature-request`,
+  and `followup-tracking` worked examples wrapped a markdown body in
+  an outer code fence that the inner fenced blocks closed early,
+  mis-rendering on GitHub. Switched each outer fence to four backticks
+  so the inner blocks nest correctly.
+
+### Changed
+
+- **`initiative-tracking` GitHub Projects board section** moved into
+  `skills/initiative-tracking/references/github-projects-board.md`
+  (progressive disclosure for the optional, `github.project`-gated
+  feature); `SKILL.md` keeps a concise pointer and the trigger rules
+  stay inline.
+
 ## [1.2.0] - 2026-06-03
 
 ### Added

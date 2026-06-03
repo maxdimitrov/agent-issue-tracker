@@ -181,7 +181,7 @@ ideas that still need a human brainstorm pass.
 
 ## Example — a well-formed feature request
 
-```markdown
+````markdown
 ## Goal
 `cli/list` supports a `--json` output format that emits each row as a
 JSON object on its own line (NDJSON), instead of only the existing
@@ -230,7 +230,7 @@ consumer reinvents the parser.
 pytest -q tests/test_cli_list.py
 pytest -q
 ```
-```
+````
 
 ---
 
