@@ -250,7 +250,7 @@ A follow-up spun out of the `cli/list --json` feature (from the
 without schema versioning. The next slice — adding a `--schema-version`
 flag — was deferred.
 
-```markdown
+````markdown
 ## Parent
 - Spun out of: `#<PR ref>` (cli/list --json feature; merged
   YYYY-MM-DD)
@@ -327,7 +327,7 @@ break silently when the field set changes.
 pytest -q tests/test_cli_list.py
 pytest -q
 ```
-```
+````
 
 ---
 
