@@ -14,15 +14,15 @@ If `/tracker-doctor`'s Phase 2 step 1 reports the Atlassian MCP missing from the
 
 | Operation | MCP tool | Notes |
 |---|---|---|
-| Create | `createJiraIssue` | `cloudId`, `projectKey`, `summary`, `description` (markdown), `issueTypeName`, `labels`, `components`, `parent`? |
+| Create | `createJiraIssue` | top-level: `cloudId`, `projectKey`, `issueTypeName`, `summary`, `description` (markdown), `parent`?; `labels` / `priority` / area-component / custom fields go in the `additional_fields` object — a top-level `labels` arg silently no-ops |
 | Add label | `editJiraIssue` | set `fields.labels` (read-modify-write — fetch current labels first) |
 | Sub-issue link | `editJiraIssue` | set `fields.parent.key` (modern Cloud) or `customfield_10014` (classic Epic Link); branch on `jira.parent_link_style` |
 | List open | `searchJiraIssuesUsingJql` | JQL: `project = <key> AND statusCategory != Done` plus optional `issuetype` / `labels` filters |
 | View | `getJiraIssue` | returns `{key, summary, description, status, labels, components, parent}` |
 | Edit body | `editJiraIssue` | set `fields.description` to markdown string; MCP translates to ADF |
-| Close | `transitionJiraIssue` | transition name from `jira.done_transition` (default `Done`); optional `comment` |
+| Close | `transitionJiraIssue` | `transition: {id}` — numeric id resolved via `getTransitionsForJiraIssue` (ids are workflow-scoped, not global); no `comment` param — post a reason via `addCommentToJiraIssue({commentBody})` |
 
-Tool names listed are conventional per the parent design spec §5.5. The Atlassian Remote MCP was not available in the authoring session for direct verification; the CHANGELOG entry for this module marks the names as "conventional pending Phase 6 live smoke." Future sessions with the connector available may run `ToolSearch` against `atlassian jira` and promote any drifted name in a follow-up commit.
+Tool names and call shapes verified live against the Atlassian Remote MCP (project MP, 2026-06-03). Transition ids are **workflow-scoped**, not global — the numeric id for a given transition name differs between workflows (e.g. the Story/Sub-task/Bug workflow vs the Epic workflow), so resolve them per-issue via `getTransitionsForJiraIssue` rather than hardcoding any numeric id. (Illustrative datum from that run: id `131` = "In Code Review" in MP's Story/Sub-task/Bug workflow — an example of *why* ids must be resolved at runtime, not a value to reuse.)
 
 ---
 
@@ -37,11 +37,10 @@ createJiraIssue({
   cloudId: <jira.cloud_id>,
   projectKey: <jira.project>,
   summary: <title>,
-  description: <body — markdown; MCP translates to ADF>,
   issueTypeName: <jira.issue_types.<type>>,
-  labels: <labels[]>,
-  components: <derived from area + area_field — see below>,
-  parent: <optional, for sub-issues created at file-time>
+  description: <body — markdown; MCP translates to ADF>,
+  parent: <optional, for sub-issues created at file-time>,
+  additional_fields: { labels: <labels[]>, components: <derived from area + area_field — see below> }
 })
 ```
 
@@ -49,12 +48,20 @@ createJiraIssue({
 - `type` → `issueTypeName` via the consumer's `jira.issue_types.<type>` mapping
 - `title` → `summary`
 - `body` → `description` (markdown; MCP handles ADF translation)
-- `labels` → `labels[]`
-- `area` → `components[].name` if `jira.area_field: components`, else appended to `labels[]` if `area_field: labels`
+- `labels` → `additional_fields.labels[]` — a top-level `labels` arg silently no-ops, so labels MUST go inside the `additional_fields` object
+- `area` → `additional_fields.components[].name` if `jira.area_field: components`, else appended to `additional_fields.labels[]` if `area_field: labels`
 - `subsystem` → inline in `description` body (Locus block) — same convention as the GitHub backend
 - `parent` → `parent.key` at create time when the operation supplies one (Cloud's unified parent works at creation for Sub-task types; for Story → Epic linkage use `link_sub_issue` post-create per the consumer's `jira.parent_link_style`)
 
 Returns the Jira issue key (e.g. `TRADE-42`); the skill captures this as the ref.
+
+**Body format — GitHub-Flavored Markdown ONLY, never Jira wiki markup.** The Atlassian Cloud MCP's `description` field is Markdown→ADF: it expects GitHub-Flavored Markdown and passes Jira **wiki-markup** tokens through as *literal text* (no API error — the issue just renders garbled). Do NOT reach for wiki markup even though "Jira" primes it. Token substitutions:
+
+- `h1.` / `h2.` headings → `#` / `##`
+- `{{monospace}}` → `` `monospace` `` (backticks)
+- wiki ordered `#` / bullet `*` list markers → Markdown `1.` / `-`
+
+Critical trap: a `#` at line-start is a Markdown **heading**, not an ordered-list item — wiki `#`-prefixed lists render as giant H1s. Because the `bug-tracking` thesis is "the body is an agent prompt," garbled headings and broken fences corrupt the very Locus / Acceptance / Verify structure an issue-fix agent parses. (Jira **Server / Data Center** legitimately uses wiki markup — see issue #3 — but this Cloud backend is Markdown-only; do not conflate them.)
 
 ---
 
@@ -123,6 +130,8 @@ searchJiraIssuesUsingJql({
 
 **Pagination:** `searchJiraIssuesUsingJql` pages its results (`nextPageToken` / `pageInfo.hasNextPage`). Follow the token until exhausted — a truncated page silently drops children from the adopted `## Children` mirror. Request only the fields you need (`["summary", "status"]`) so a many-child epic's descriptions don't blow the response size.
 
+**Search-index lag (eventual consistency):** `searchJiraIssuesUsingJql` reads Jira's **search index**, which is *eventually* consistent — a child created or re-parented seconds earlier can be absent from the FIRST query even though it already exists. This is distinct from pagination: a child can be missing even when `pageInfo.hasNextPage` is `false`. Adoption is exactly when this bites (you query an epic's children right after filing them), so when children were just filed, re-query until the child count is stable, and/or cross-check membership via `getJiraIssue(child).fields.parent` — `getJiraIssue` is strongly consistent, while the JQL search index is not.
+
 **Hierarchy ceiling (invariant 6):** the JQL `parent` field resolves the unified parent linkage Jira Cloud maintains down to its three-level cap (Epic → Story/Task → Sub-task). On `jira.parent_link_style: native` this returns a node's direct children at every level the native hierarchy reaches; nesting deeper than the cap is body-mirror-only and is neither returned nor required here. On classic `jira.parent_link_style: epic_link` projects, where Epic → Story linkage lives in the Epic Link customfield rather than `parent`, fall back to `'"Epic Link" = <parent_ref>'` (or the configured `jira.epic_link_field`).
 
 ---
@@ -170,18 +179,20 @@ editJiraIssue({
 Mark an issue resolved by transitioning to the project's done state.
 
 ```
-transitionJiraIssue({
-  cloudId,
-  issueIdOrKey: <ref>,
-  transitionName: <jira.done_transition>,
-  comment: <optional reason string>
-})
+# Resolve the workflow-scoped transition id (ids differ per workflow — Story/Bug vs Epic)
+transitions = getTransitionsForJiraIssue({cloudId, issueIdOrKey: <ref>})
+id = <the transition whose name matches jira.done_transition>
+
+transitionJiraIssue({cloudId, issueIdOrKey: <ref>, transition: {id: <id>}})
+
+# Reason, if any, is a SEPARATE call (transitionJiraIssue has no comment param):
+addCommentToJiraIssue({cloudId, issueIdOrKey: <ref>, commentBody: <reason>})
 ```
 
-**Reason mapping:**
-- `completed` → `transitionJiraIssue` with `jira.done_transition` (default `Done`)
-- `not_planned` → `transitionJiraIssue` with `"Won't Do"` if that transition exists in the project workflow; otherwise fall back to `done_transition` and put the reason in the comment
-- `duplicate` → no native equivalent; close with the project's `done_transition` and reference the duplicate's ref in the comment
+**Reason mapping:** `done_transition` is resolved by NAME to a workflow-scoped transition id at runtime via `getTransitionsForJiraIssue` (never hardcode the numeric id — ids are workflow-scoped, not global), then applied as `transition: {id}`. Any reason string is a SEPARATE `addCommentToJiraIssue({commentBody: <reason>})` call — `transitionJiraIssue` has no `comment` param.
+- `completed` → transition via `jira.done_transition` (default `Done`); no comment needed
+- `not_planned` → transition via `"Won't Do"` if that transition exists in the project workflow (resolve its id the same way); otherwise fall back to `done_transition` and post the reason via `addCommentToJiraIssue({commentBody})`
+- `duplicate` → no native equivalent; transition via the project's `done_transition` and reference the duplicate's ref via `addCommentToJiraIssue({commentBody})`
 
 `done_transition` defaults to `Done` but is overridable per consumer via `.claude/issue-tracker.yaml`. Different Jira projects use different transition names for "this issue is finished" (`Done`, `Closed`, `Resolved`, etc.), and the plugin cannot enumerate them all — consumers set the value that matches their workflow.
 
@@ -189,12 +200,12 @@ transitionJiraIssue({
 
 ## Cross-backend invariants — how Jira satisfies them
 
-1. **Body format is markdown** — the Atlassian Remote MCP's `createJiraIssue` and `editJiraIssue` tools accept markdown `description` strings and translate to ADF (Atlassian Document Format) internally. The plugin NEVER emits or parses ADF; `getJiraIssue` returns ADF that the MCP translates back to markdown for the plugin. Translation is lossless for the agent-prompt body shapes the plugin uses (headings, lists, code fences, tables, links, bold/italic). If a future Atlassian Remote MCP version stops doing this translation, the plugin would need an ADF library — that would be a backward-incompatible plugin change, worth a major version bump. Today this constraint is on Atlassian, not the plugin.
+1. **Body format is markdown** — the Atlassian Remote MCP's `createJiraIssue` and `editJiraIssue` tools accept markdown `description` strings and translate to ADF (Atlassian Document Format) internally. The plugin NEVER emits or parses ADF; `getJiraIssue` returns ADF that the MCP translates back to markdown for the plugin. Translation is lossless for the agent-prompt body shapes the plugin uses (headings, lists, code fences, tables, links, bold/italic), with one **bullet normalization to be aware of: a leading `-` unordered-list bullet is rewritten to `*` on the markdown→ADF→markdown round-trip** (e.g. a Status-block line written `- **Phase:** …` reads back as `* **Phase:** …`; the bold labels and values are byte-identical — only the bullet glyph flips). Task-list lines (`- [ ]` / `- [x]`) are **exempt** and stay `-`. This is why `/resume-initiative` matches Status-block lines on the bold field label rather than a literal `- ` bullet (see `skills/initiative-tracking/SKILL.md` "Status block — exact field spec"). If a future Atlassian Remote MCP version stops doing this translation, the plugin would need an ADF library — that would be a backward-incompatible plugin change, worth a major version bump. Today this constraint is on Atlassian, not the plugin.
 2. **Whole-body edits are destructive** — `editJiraIssue` replaces the `fields.description` value in one call; there is no append-only API. Plugin pattern: `getJiraIssue` → modify in memory → `editJiraIssue`. Same shape as GitHub's `gh issue view --json body` → modify → `gh issue edit --body-file`. The Status-block-update path in `initiative-tracking` uses exactly this read-modify-write shape on both backends.
 3. **Sub-issue linkage** — Jira Cloud's modern unified `parent` field (set via `editJiraIssue` on the child) is the recommended path. The classic Epic Link customfield (`customfield_10014` by convention) is a per-project fallback for older Jira projects that pre-date the unified parent field. Branched by `jira.parent_link_style` in `.claude/issue-tracker.yaml` — `native` (recommended) vs `epic_link` (classic compatibility).
 4. **Issue refs are opaque** — Jira refs are `<PROJECT>-<N>` (e.g. `TRADE-42`). Skills treat refs as opaque strings; only this backend module knows the syntax. The plugin's `commands/resume-initiative.md` accepts both `#N` (GitHub) and `<PROJECT>-<N>` (Jira) in the Status block's `Next up:` line per `skills/initiative-tracking/SKILL.md`.
 5. **`/tracker-doctor` reachability** — `view_issue({ref: "<jira.project>-1"})` (the default smoke ref; `--smoke-issue <ref>` overrides) dispatches to `getJiraIssue`. PASS if the call returns a structured response; PASS-WITH-NOTE on 404 (project reachable but no `<PROJECT>-1` filed yet — common in greenfield projects); FAIL on 401 / 403 (auth wrong, or `cloud_id` doesn't match `site`).
-6. **Initiative nesting** — Jira's standard issue hierarchy is hard-capped at **three levels**: Epic → Story/Task → Sub-task. Sub-tasks cannot own children. So when `initiative-tracking` nests a "sub-epic" under a parent epic, the **interior nodes (root epic + sub-epics) map to issue types that can parent** — Epic at the root, Story/Task for sub-epics — linked via the unified `parent` field (`jira.parent_link_style: native`); only the **leaves** map to Sub-task. Native linkage therefore reaches exactly as far as that three-level cap, after which the recursive `## Children` body mirror is the **sole** record of any deeper nesting (per cross-backend invariant 6) and `/resume-initiative` still traverses it correctly. Classic projects on `jira.parent_link_style: epic_link` can only express Epic → Story (the Epic Link field is meaningful only there); they cannot represent sub-epics natively at all and MUST use `native` parent linkage to get past one level — for `epic_link` projects, deep nesting is body-mirror-only. Teams needing native linkage beyond three levels need Jira Premium's Advanced Roadmaps custom hierarchy, which is outside this plugin's scope. `getJiraIssue` returns `fields.parent.key`, so root-vs-nested detection MAY use it here — but the portable signal remains the `## Parent epic` block in the body.
+6. **Initiative nesting** — Jira's standard issue hierarchy spans **three levels**: Epic → Story/Task → Sub-task, and a Sub-task has no children of its own. So when `initiative-tracking` nests a "sub-epic" under a parent epic, the **interior nodes (root epic + sub-epics) map to issue types that can parent** — Epic at the root, Story/Task for sub-epics — linked via the unified `parent` field (`jira.parent_link_style: native`); only the **leaves** map to Sub-task. **This cap is enforcement-soft on the create/parent path: the MCP `createJiraIssue` `parent` path silently accepts a Sub-task parented directly under an Epic — the Epic → Sub-task level-skip is NOT bounced on create** (verified live, project MP, 2026-06-03: a Sub-task created with `parent` an Epic succeeded and the parent stuck). Do not rely on a rejection — the **skill**, not the tracker, must enforce the leaf-of-Epic = Story convention (see `initiative-tracking` §"Depth and backend ceilings"). Enforcement is also non-uniform: the *same-level* Story → Story `parent` link IS rejected (`"Given parent work item does not belong to appropriate hierarchy"`), while the Epic → Sub-task level-skip is not. Native linkage reaches as far as that three-level cap, after which the recursive `## Children` body mirror is the **sole** record of any deeper nesting (per cross-backend invariant 6) and `/resume-initiative` still traverses it correctly. Classic projects on `jira.parent_link_style: epic_link` can only express Epic → Story (the Epic Link field is meaningful only there); they cannot represent sub-epics natively at all and MUST use `native` parent linkage to get past one level — for `epic_link` projects, deep nesting is body-mirror-only. Teams needing native linkage beyond three levels need Jira Premium's Advanced Roadmaps custom hierarchy, which is outside this plugin's scope. `getJiraIssue` returns `fields.parent.key`, so root-vs-nested detection MAY use it here — but the portable signal remains the `## Parent epic` block in the body.
 
 ---
 
@@ -220,7 +231,7 @@ The skill prose (`feature-request`, `bug-tracking`) renders `jira.close_on_merge
 1. **Atlassian MCP availability** — the agent's tool surface includes the Atlassian Remote MCP family (`createJiraIssue`, `getJiraIssue`, `searchJiraIssuesUsingJql`, `getAccessibleAtlassianResources`). If absent, `/tracker-doctor` reports the connector setup link (claude.ai → Settings → Connectors → Atlassian).
 2. **`cloud_id` round-trip** — invoke `getAccessibleAtlassianResources`; confirm the configured `jira.cloud_id` appears in the returned site list and matches the configured `jira.site`. If not, `/tracker-doctor` reports the accessible cloud_ids and the operator picks the right one.
 3. **`getJiraIssue({cloudId, issueIdOrKey: "<jira.project>-1"})`** — the canonical reachability probe per cross-backend invariant #5. PASS if returns; PASS-WITH-NOTE on 404 (project reachable but `<PROJECT>-1` doesn't exist); FAIL on 401 / 403 (auth wrong, or `cloud_id` doesn't match `site`).
-4. **Vocabulary sanity (WARN-level):** `getJiraProjectMetadata({cloudId, projectKey})` returns the project's configured issue types + components. WARN if any value in `jira.issue_types.*` (the consumer's mappings for the five plugin type keys — `bug`, `feature`, `epic`, `sub`, `followup` — to their Jira issue type names, e.g. `Bug`, `Story`, `Epic`, `Sub-task`, `Task`) is missing from the project's issue type list. No FAIL — vocabulary mismatches are operator setup tasks surfaced informationally; the plugin still works without them (the next `create_issue` will fail noisily at the MCP layer, with a more actionable error message than the plugin could compose preemptively).
+4. **Vocabulary sanity (WARN-level):** `getJiraProjectIssueTypesMetadata({cloudId, projectIdOrKey})` returns the project's configured issue types (the visible-project list itself comes from `getVisibleJiraProjects`). WARN if any value in `jira.issue_types.*` (the consumer's mappings for the five plugin type keys — `bug`, `feature`, `epic`, `sub`, `followup` — to their Jira issue type names, e.g. `Bug`, `Story`, `Epic`, `Sub-task`, `Task`) is missing from the project's issue type list. No FAIL — vocabulary mismatches are operator setup tasks surfaced informationally; the plugin still works without them (the next `create_issue` will fail noisily at the MCP layer, with a more actionable error message than the plugin could compose preemptively).
 
 ## GitHub Projects v2 board (optional) -- n/a for Jira
 

@@ -176,7 +176,7 @@ Next steps:
 Grant the token scope once with `gh auth refresh -s project,read:project`, then
 `/tracker-doctor` will verify the board is reachable."
 
-**For Jira:** Append: "If `/tracker-doctor` reports missing issue types in the project, it will print the next-step `getJiraProjectMetadata` call you can run."
+**For Jira:** Append: "If `/tracker-doctor` reports missing issue types in the project, it will print the next-step `getJiraProjectIssueTypesMetadata` call you can run."
 
 **For `--force` overwrites:** Prepend the entire output with: "(Overwrote existing config at `.claude/issue-tracker.yaml`.)"
 

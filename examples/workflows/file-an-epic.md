@@ -25,7 +25,7 @@ No bail. Skill proceeds.
 
 ## 3. Body draft
 
-The skill fills [`templates/epic-body.md`](../../templates/epic-body.md). Critical: the four field prefixes under `## Status block` are CANONICAL — `- **Phase:**`, `- **Next up:**`, `- **Current branch:**`, `- **Last updated:**`. [`/resume-initiative`](../../commands/resume-initiative.md) parses these character-for-character.
+The skill fills [`templates/epic-body.md`](../../templates/epic-body.md). Critical: the four field labels under `## Status block` are CANONICAL — `**Phase:**`, `**Next up:**`, `**Current branch:**`, `**Last updated:**`. [`/resume-initiative`](../../commands/resume-initiative.md) matches each line on its bold field label, tolerant of the leading list-bullet character (`-`/`*`/`+`; Jira's ADF round-trip rewrites a leading `-` to `*`).
 
 ```markdown
 ## Goal

@@ -225,11 +225,22 @@ triage gate, one level down):
 Nesting depth is bounded by `/resume-initiative`'s recursion cap
 (not a config setting) and by each backend's native-linkage
 ceiling. GitHub sub-issues nest arbitrarily; Jira's standard
-hierarchy caps at three levels (Epic → Story/Task → Sub-task), so
+hierarchy spans three levels (Epic → Story/Task → Sub-task), so
 on Jira interior nodes map to Story/Task and only leaves map to
 Sub-task — and any nesting past the native cap is carried by the
-`## Children` body mirror alone. See `backends/_interface.md`
-invariant 6 and the per-backend modules.
+`## Children` body mirror alone.
+
+**The skill enforces the type convention — the tracker does not.**
+On Jira the create/parent path is enforcement-soft: the MCP
+silently accepts a Sub-task parented directly under an Epic (the
+Epic → Sub-task level-skip is not bounced — see `backends/jira.md`
+invariant 6). So a **direct leaf of the root Epic is a Story** (or
+Task), **never a Sub-task**; a Sub-task is legal only under a
+Story/Task interior node (Jira hierarchyLevel 0 — e.g. a sub-epic
+mapped to a Story), never directly under an Epic. Do not assume a
+malformed Sub-task-under-Epic `create_issue` will be rejected — the
+skill must place the correct issue type itself. See
+`backends/_interface.md` invariant 6 and the per-backend modules.
 
 ## Filing the epic
 
@@ -251,14 +262,25 @@ The body is divided into a human-readable preamble and a
 machine-readable Status block. See `templates/epic-body.md` for
 the canonical skeleton with placeholders.
 
-The Status block fields are CANONICAL and parsed by
-`/resume-initiative` character-for-character. Change them only if
-you update `/resume-initiative` in the same PR.
+The Status block fields are CANONICAL. `/resume-initiative` matches
+each line on its **bold field label** (`**Phase:**`, `**Next up:**`,
+`**Current branch:**`, `**Last updated:**`) and is tolerant of the
+leading list-bullet character (`-`/`*`/`+`) that precedes it — the
+Atlassian Remote MCP rewrites a leading `-` bullet to `*` on the
+markdown→ADF round-trip, so a strictly-literal `- ` match would
+break on Jira after the first edit (see `backends/jira.md`
+invariant 1). Write them in the canonical `- **Label:**` form; change
+the labels themselves only if you update `/resume-initiative` in the
+same PR.
 
 ## Status block — exact field spec
 
-These are the strings `/resume-initiative` parses. Do not
-paraphrase.
+These are the canonical strings to **write**. `/resume-initiative`
+matches each line on its **bold field label** and tolerates the
+leading list-bullet character (`-`/`*`/`+`), so it is the labels and
+value formats below that must not be paraphrased — the bullet glyph
+itself is not load-bearing on read (Jira's ADF round-trip flips a
+leading `-` to `*`).
 
 | Line prefix | Format | Example | Required |
 |---|---|---|---|
