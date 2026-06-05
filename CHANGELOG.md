@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+Skill-currency fixes surfaced by the 2026-06-03 live-Jira test of
+`initiative-tracking` (epic #59, Phases 1-2). All are doc/skill-prose
+corrections to match observed Atlassian Remote MCP behaviour — no
+backend operation, command, or API-surface change.
+
+- **`backends/jira` tool-reference drifted from the live Atlassian
+  Remote MCP (#53).** The Reference table, `create_issue` /
+  `close_issue` invocation blocks, and Setup-verification step 4 now
+  match the connector verified live (project MP, 2026-06-03):
+  labels/components go in the `additional_fields` object on create (a
+  top-level `labels` arg silently no-ops); `close_issue` resolves a
+  workflow-scoped transition id via `getTransitionsForJiraIssue` and
+  applies `transition: {id}` (no `comment` param — reasons post via
+  `addCommentToJiraIssue({commentBody})`); the vocabulary probe uses
+  `getJiraProjectIssueTypesMetadata({projectIdOrKey})` (the old
+  `getJiraProjectMetadata` does not exist). The "conventional pending
+  Phase 6 live smoke" disclaimer is replaced with a verified-live
+  note; transition ids are documented as workflow-scoped, never
+  hardcoded.
+- **`backends/jira` did not warn against Jira wiki markup (#52).**
+  Added an explicit `create_issue` callout: issue bodies MUST be
+  GitHub-Flavored Markdown, never wiki markup (`h1.`→`#`, `{{x}}`→
+  `` `x` ``, wiki `#`/`*` lists → `1.`/`-`), flagging the
+  `#`-at-line-start-is-a-heading trap that garbled a real issue
+  (MP-5740). Cloud is Markdown-only; Jira Server (#3) is the wiki
+  exception.
+- **`backends/jira` `list_child_issues` documented pagination but not
+  search-index lag (#57).** Added a sibling note:
+  `searchJiraIssuesUsingJql` reads the eventually-consistent search
+  index, so a just-filed child can be absent from the first query even
+  when `pageInfo.hasNextPage` is `false`; re-query until the count is
+  stable and/or cross-check via the strongly-consistent
+  `getJiraIssue(child).fields.parent`.
+- **Jira three-level cap documented as hard-enforced on create
+  (#54).** `backends/jira.md` invariant 6 and `initiative-tracking`
+  §"Depth and backend ceilings" now state the cap is enforcement-soft:
+  the MCP create path silently accepts a Sub-task parented directly
+  under an Epic, so the skill — not the tracker — enforces "a direct
+  leaf of the root Epic is a Story, never a Sub-task." (Same-level
+  Story → Story parenting IS rejected; enforcement is non-uniform.)
+- **Status-block parse contract documented as keyed on a literal
+  `-` bullet (#55).** `initiative-tracking` SKILL, `/resume-initiative`, the
+  epic-body template, and `backends/jira.md` invariant 1 now match the
+  four Status-block fields on the **bold field label**, tolerant of
+  the leading list-bullet character (`-`/`*`/`+`) — the Atlassian
+  Remote MCP rewrites a leading `-` bullet to `*` on the ADF
+  round-trip (task-list `- [ ]` lines are exempt), so the old
+  "character-for-character" contract was silently false on Jira.
+- **`templates/epic-body.md` sub-epic marker placement was
+  self-contradictory (#58).** The prose now agrees with the worked
+  example: the `▸ sub-epic` marker goes after the `(Phase N)` suffix
+  and before any `— closed YYYY-MM-DD` tail. Added a closed-sub-epic
+  worked-example line.
+
 ## [1.2.1] - 2026-06-03
 
 ### Fixed

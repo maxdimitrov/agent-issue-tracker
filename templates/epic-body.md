@@ -5,11 +5,14 @@ the `initiative-tracking` skill. Use it verbatim — each section
 maps to the index `/resume-initiative` reads when an operator
 returns to a multi-week initiative.
 
-The four field-prefix strings under `## Status block` are CANONICAL
-and exact — `- **Phase:**`, `- **Next up:**`, `- **Current branch:**`,
-`- **Last updated:**`. `/resume-initiative` parses them
-character-for-character across both GitHub and Jira backends. Do
-not reword.
+The four field labels under `## Status block` are CANONICAL —
+`**Phase:**`, `**Next up:**`, `**Current branch:**`,
+`**Last updated:**`. `/resume-initiative` matches each line on its
+**bold field label**, tolerant of the leading list-bullet character
+(`-`/`*`/`+`) — on Jira the Atlassian Remote MCP rewrites a leading
+`-` bullet to `*` on the ADF round-trip, so the bullet glyph is not
+matched literally. Write them in the canonical `- **Label:**` form;
+do not reword the labels.
 
 To file, fill in this template and pass the result as the `body`
 argument to your backend's `create_issue` operation with
@@ -50,9 +53,11 @@ branch and commit it landed on.
   `<branch>`, commit `<sha>`)
 
 ## Status block
-The four field prefixes below are CANONICAL — they appear literally
-because `/resume-initiative` parses them character-for-character.
-Update them whenever a sub-issue closes (see the
+The four field labels below are CANONICAL — `/resume-initiative`
+matches each line on its **bold field label**, tolerant of the
+leading list-bullet character (`-`/`*`/`+`; Jira's ADF round-trip
+rewrites a leading `-` to `*`). Write them in the `- **Label:**`
+form shown. Update them whenever a sub-issue closes (see the
 `initiative-tracking` skill's Maintenance section).
 - **Phase:** <phase-name> · <closed>/<total> sub-issues closed
 - **Next up:** <ref> — <title> (or `none` if no open children)
@@ -100,16 +105,20 @@ over every node's mirror (see cross-backend invariant 6 in
 - [ ] <ref> — <title> (Phase 0)
 - [x] <ref> — <title> (Phase 0) — closed YYYY-MM-DD
 - [ ] <ref> — <title> (Phase 0) ▸ sub-epic
+- [x] <ref> — <title> (Phase 0) ▸ sub-epic — closed YYYY-MM-DD
 - ...
 
 A child that is itself a sub-epic carries a trailing ` ▸ sub-epic`
-marker, placed after the title (before any `(Phase N)` /
-`— closed` suffix). The marker is a human-readable hint that tells
-`/resume-initiative` to recurse into that child's own `## Children`
-mirror rather than treat it as a leaf. The authoritative signal is
-still that the child carries the `epic` label; old mirrors without
-the marker keep working because the command falls back to the label
-check. The leading `- [ ] <ref> — <title>` grammar is unchanged.
+marker, placed AFTER the `(Phase N)` suffix and before any
+`— closed YYYY-MM-DD` tail — matching the worked-example lines
+above (open: `… (Phase 0) ▸ sub-epic`; closed:
+`… (Phase 0) ▸ sub-epic — closed YYYY-MM-DD`). The marker is a
+human-readable hint that tells `/resume-initiative` to recurse into
+that child's own `## Children` mirror rather than treat it as a
+leaf. The authoritative signal is still that the child carries the
+`epic` label; old mirrors without the marker keep working because
+the command falls back to the label check. The leading
+`- [ ] <ref> — <title>` grammar is unchanged.
 
 ## Decision log
 Append-only — each entry is dated and one paragraph. Record
