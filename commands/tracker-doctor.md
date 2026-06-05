@@ -103,8 +103,8 @@ Print one such command per missing area.
 
 Two checks, numbered:
 
-1. For each value in `jira.issue_types.*` (the five mapped issue type names — `Bug`, `Story`, etc.), check whether the issue type exists in the configured Jira project. Conventional MCP call: `getJiraProjectMetadata({cloudId, projectKey})` (or the equivalent `issueTypes` endpoint exposed by the MCP; the agent uses `ToolSearch` against `jira project metadata` if the name has shifted in the current MCP version). `WARN` with "missing issue type `<name>` in project `<projectKey>`; check your Jira project settings or remap in `.claude/issue-tracker.yaml`" for any missing type.
-2. If `jira.area_field: components`, list the project's configured Components (via the same metadata call) and surface them as a `WARN-info` line so the operator knows what areas they can use. No `FAIL` — `area_field` defaults to free-form when components don't match.
+1. For each value in `jira.issue_types.*` (the five mapped issue type names — `Bug`, `Story`, etc.), check whether the issue type exists in the configured Jira project. MCP call (verified live against the Atlassian Remote MCP): `getJiraProjectIssueTypesMetadata({cloudId, projectIdOrKey})` returns the project's configured issue types (the visible-project list itself comes from `getVisibleJiraProjects`); the agent can `ToolSearch` against `jira project metadata` if the tool name has shifted in the current MCP version. `WARN` with "missing issue type `<name>` in project `<projectKey>`; check your Jira project settings or remap in `.claude/issue-tracker.yaml`" for any missing type.
+2. If `jira.area_field: components`, list the project's configured Components (resolve the project-components metadata tool via `ToolSearch` against `jira project components`) and surface them as a `WARN-info` line so the operator knows what areas they can use. No `FAIL` — `area_field` defaults to free-form when components don't match.
 
 ### Phase 4 — Summary
 

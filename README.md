@@ -128,7 +128,7 @@ The disambig table between bug and feature lives in [`feature-request`](skills/f
 
 ### Epic + sub-issue indexing
 
-Epics carry a four-line **Status block** with canonical field prefixes — `- **Phase:**`, `- **Next up:**`, `- **Current branch:**`, `- **Last updated:**`. [`/resume-initiative`](commands/resume-initiative.md) parses these character-for-character. Update them as sub-issues close.
+Epics carry a four-line **Status block** with canonical field labels — `**Phase:**`, `**Next up:**`, `**Current branch:**`, `**Last updated:**`. [`/resume-initiative`](commands/resume-initiative.md) matches each line on its bold field label, tolerant of the leading list-bullet character (Jira's ADF round-trip rewrites a leading `-` to `*`). Update them as sub-issues close.
 
 The epic body also carries a `## Children` task-list mirror — the **cross-backend source of truth** for the sub-issue index. It handles all three ref shapes: `#N` (same-repo GitHub), `owner/repo#N` (cross-repo GitHub), `PROJ-123` (Jira). Native sub-issue linkage via the tracker's own API is additional UI metadata; the mirror is what every consumer of the epic reads.
 
