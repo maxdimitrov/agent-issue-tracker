@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-06-05
+
 ### Fixed
 
 Skill-currency fixes surfaced by the 2026-06-03 live-Jira test of
@@ -62,6 +64,49 @@ backend operation, command, or API-surface change.
   example: the `▸ sub-epic` marker goes after the `(Phase N)` suffix
   and before any `— closed YYYY-MM-DD` tail. Added a closed-sub-epic
   worked-example line.
+
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process". This release is
+doc/skill/command **prose only** — no backend operation logic, command
+flow, or API-surface change. The GitHub backend module
+(`backends/github.md`) is untouched, so backend-dispatch risk is
+confined to the GitHub create/link/close paths, which smoke 1
+exercises directly.
+
+- **1. GitHub backend smoke — PASS.** Filed bug (#62), feature (#63),
+  followup (#64), and an epic (#65) with a linked sub-issue (#66)
+  against this repo. Verified labels (`bug`; `enhancement`;
+  `enhancement`+`followup`; `epic`; `enhancement`), the epic
+  Status-block shape, and native sub-issue linkage (#65 → #66 via the
+  `-F` typed-integer `sub_issues` API). All five closed after
+  verification.
+- **2. Jira backend smoke — DEFERRED.** Atlassian Remote MCP connector
+  not configured in the release session (same deferral as 1.2.1). The
+  `backends/jira.md` changes in this release *document* live behaviour
+  captured by the 2026-06-03 initiative-tracking Jira test (epic #59);
+  they are not newly-authored conventions.
+- **3. `/tracker-init` — DEFERRED (prose-only edit).** The only change
+  was the Jira next-step panel text (`getJiraProjectMetadata` →
+  `getJiraProjectIssueTypesMetadata`); scaffolder flow unchanged, and no
+  consumer `.claude/issue-tracker.yaml` exists in this repo to scaffold
+  against non-destructively. Statically verified.
+- **4. `/tracker-doctor` — PASS (GitHub slice).** GitHub-branch
+  reachability + vocabulary checks run live: `gh` authenticated, repo
+  reachable (`view_issue` dispatch surface), all plugin vocabulary
+  labels present (`bug`/`enhancement`/`epic`/`followup`/`needs-design`).
+  The Jira-branch vocabulary probe (the file edited here) needs a live
+  MCP session — DEFERRED, tracked by #61.
+- **5. `/resume-initiative` — PASS.** Parsed the real epic #59: all
+  four Status-block fields matched on the bold field label (the new
+  bullet-tolerant contract from #55), the `## Children` mirror counted
+  5 closed / 1 open, and next-up resolved to #56. Separately proved the
+  #55 contract directly — the bold-label match succeeds on `*`-bulleted
+  Status lines (the Jira ADF `-`→`*` round-trip case).
+- **6–7. Clean-machine install + post-install load — DEFERRED.** No
+  `marketplace.json` / `plugin.json` dependency change beyond the
+  version bump; clean machine not available this session (same deferral
+  as 1.2.1).
 
 ## [1.2.1] - 2026-06-03
 
