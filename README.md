@@ -1,6 +1,6 @@
 # agent-issue-tracker
 
-Portable issue-tracking skills + slash commands for Claude Code. Six skills, three slash commands, two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
+Portable issue-tracking skills + slash commands for Claude Code. Six skills, four slash commands, two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
 
 ## What this is
 
@@ -21,13 +21,14 @@ Six skills:
 | [`skill-currency`](skills/skill-currency/SKILL.md) | Codifies the "skills update with the PR that changed the API" rule |
 | [`tracker-contribute`](skills/tracker-contribute/SKILL.md) | Reports a problem with this plugin (or a fix) upstream to its own repo |
 
-Three slash commands:
+Four slash commands:
 
 | Command | What it does |
 | --- | --- |
 | [`/tracker-init`](commands/tracker-init.md) | Interactive scaffolder — writes `.claude/issue-tracker.yaml` from prompts |
 | [`/tracker-doctor`](commands/tracker-doctor.md) | Validates the config + backend reachability + vocabulary sanity |
 | [`/resume-initiative`](commands/resume-initiative.md) | Loads an epic, prints status, optionally enters a worktree on the next-up child |
+| [`/work-issue`](commands/work-issue.md) | Drives ONE named issue end-to-end — read, scope, worktree, brainstorm → plan → execute → verify → PR |
 
 ## Install
 
