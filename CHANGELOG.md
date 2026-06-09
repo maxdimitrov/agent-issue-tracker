@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-09
+
+### Added
+
+- **`/work-issue` slash command — single-issue execution driver.** The
+  missing counterpart to `/resume-initiative`. Where `/resume-initiative`
+  is epic/initiative-oriented (walks an initiative tree, picks the next
+  workable leaf), `/work-issue <ref> [--start] [--draft]` takes ONE named
+  issue and drives it end-to-end through the full mandated agent pipeline:
+  `view_issue` the ref → scope assessment (trivial-work test) → isolated
+  worktree on a label-derived `feat/` | `fix/` | `docs/` branch → the
+  workflow (brainstorm → plan → execute for non-trivial, or
+  TDD-implement-verify for trivial) → `verification-before-completion` with
+  real output → `finishing-a-development-branch` opening a PR that links the
+  issue via the backend's close-on-merge convention. A **slash command, not
+  a subagent**, by deliberate design — the driver runs in the main session
+  so it can create worktrees and dispatch `subagent-driven-development`
+  implementer subagents, the same reason `/resume-initiative` is a
+  main-session command. Backend-agnostic: dispatches only through existing
+  contract operations (`view_issue` always; optional `add_label` /
+  `close_issue`), resolves the backend from `.claude/issue-tracker.yaml`,
+  and never reaches past `backends/_interface.md`. The defining contrast
+  with a consumer's trivial-only headless auto-fixer: a non-trivial scope
+  verdict does **NOT** bail — it *escalates rigor* to the longer
+  brainstorm → plan → execute path. `/work-issue` never refuses an issue
+  for being too big, and never auto-merges (the PR is the human gate).
+  `--start` runs the pipeline inline without pausing after worktree
+  creation (mirrors `/resume-initiative --start`); `--draft` opens a draft
+  PR. **No** backend-contract change — the eight operations are untouched,
+  the CI `backend-contract` op-parity check stays green (no new
+  `` ### `op` `` heading). Reuses `/resume-initiative` Mode-3's worktree
+  mechanics verbatim (prefer `EnterWorktree`, rename the sanitized branch in
+  place to the convention, idempotent re-entry of an existing worktree).
+  Component count updated three → four slash commands (six skills + four
+  commands) across `marketplace.json`, `plugin.json`, and `README.md`.
+  Specced in the consumer project's 2026-06-09 autonomous-issue-batch
+  design.
+
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process". This release adds **one new
+slash command** (`commands/work-issue.md`) plus doc updates (`README.md`,
+`CHANGELOG.md`, `plugin.json`, `marketplace.json`). No backend operation
+logic, no command-dispatch change to the existing three commands, and no
+backend-contract change — the eight operations are untouched and the
+`backends/*.md` modules are unedited, so backend-dispatch risk is confined
+to the paths smoke 1 already exercises.
+
+- **1. GitHub backend smoke — recommended at release time.** File +
+  close a bug / feature / followup / epic through the plugin's GitHub
+  backend against this repo, as in prior releases.
+- **2. Jira backend smoke — DEFERRED.** No backend-module change; the
+  `jira.md` close-on-merge convention `/work-issue` Step 6 relies on is
+  unchanged from 1.2.2. Atlassian connector availability gates a live run.
+- **3–4. `/tracker-init`, `/tracker-doctor` — DEFERRED (unchanged).** No
+  change to either command's flow in this release.
+- **5. `/resume-initiative` — DEFERRED (unchanged).** `/work-issue` reuses
+  its worktree mechanics by reference but does not edit the command.
+- **6–7. Clean-machine install + post-install load — recommended at tag
+  time.** `marketplace.json` / `plugin.json` carry a version + description
+  change plus the new `commands/work-issue.md`; confirm the installed
+  plugin reports four commands post-install (`claude plugin details
+  agent-issue-tracker` → ten components: six skills + four commands).
+
 ## [1.2.2] - 2026-06-05
 
 ### Fixed
