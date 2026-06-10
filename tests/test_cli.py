@@ -81,12 +81,14 @@ def test_paired_rule_flag_end_to_end(monkeypatch, capsys):
 def test_real_git_smoke_empty_diff():
     """End-to-end subprocess run in this repo: HEAD...HEAD is an empty
     diff, so the script must print the no-findings report and exit 0."""
-    # Use explicit PIPE instead of capture_output=True to avoid a Python 3.14
-    # Windows bug (WinError 6 / WinError 50) when the cwd path contains '+'.
+    # stdin=DEVNULL: pytest's capture mode replaces the standard handles
+    # with non-inheritable pipe objects on Windows; letting the child
+    # inherit the captured stdin trips WinError 6 in _make_inheritable.
     proc = subprocess.run(
         [sys.executable, str(SCRIPT), "--base", "HEAD"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        capture_output=True, text=True,
+        stdin=subprocess.DEVNULL,
         cwd=str(REPO_ROOT),
     )
-    assert proc.returncode == 0, proc.stderr.decode()
-    assert "No findings" in proc.stdout.decode()
+    assert proc.returncode == 0, proc.stderr
+    assert "No findings" in proc.stdout
