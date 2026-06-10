@@ -213,3 +213,91 @@ def doc_currency_findings(
                             ))
                             break    # one match per (doc, file, form)
     return tuple(out)
+
+
+# --- paired-rule detector ------------------------------------------------------
+# Generalization of trading-bot's DB-canonical subsystem detector (added
+# CREATE TABLE in scripts/db.py without a *-architecture skill change).
+# ZERO default rules ship; consumers configure rules via the
+# skill_currency.paired_rules block in .claude/issue-tracker.yaml, which the
+# slash command passes here as --paired-rule JSON flags.
+
+@dataclass(frozen=True)
+class PairedRule:
+    watch: str     # exact repo-relative path to inspect
+    pattern: str   # regex over added lines; group 1 (optional) = entity name
+    expect: str    # fnmatch glob; any changed file matching it suppresses the rule
+    message: str   # finding text; "{1}" interpolates group 1
+
+
+@dataclass(frozen=True)
+class PairedRuleFinding:
+    watch: str
+    line_no: int
+    entity: str | None
+    message: str
+
+
+def parse_rule(raw: str) -> PairedRule:
+    """Parse one --paired-rule JSON object. Raises ValueError on any shape
+    or regex problem so the CLI can exit 1 with a clear message."""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"--paired-rule is not valid JSON: {e}") from e
+    if not isinstance(data, dict):
+        raise ValueError("--paired-rule must be a JSON object")
+    missing = [k for k in ("watch", "pattern", "expect", "message")
+               if k not in data]
+    if missing:
+        raise ValueError(f"--paired-rule missing keys: {', '.join(missing)}")
+    try:
+        re.compile(str(data["pattern"]))
+    except re.error as e:
+        raise ValueError(f"--paired-rule has invalid regex: {e}") from e
+    return PairedRule(
+        watch=str(data["watch"]),
+        pattern=str(data["pattern"]),
+        expect=str(data["expect"]),
+        message=str(data["message"]),
+    )
+
+
+def paired_rule_findings(
+    diff: tuple[ChangedFile, ...],
+    rules: tuple[PairedRule, ...],
+) -> tuple[PairedRuleFinding, ...]:
+    """Apply each rule: if the watched file has added lines matching the
+    pattern AND no changed file matches the expect glob, emit one finding
+    per matching line.
+
+    Suppression heuristic (inherited from the origin detector): ANY
+    expect-matching change suppresses the whole rule -- assume the author
+    handled the requirement. Accepts a false-negative corner to keep the
+    noise floor low.
+    """
+    out: list[PairedRuleFinding] = []
+    for rule in rules:
+        watched = next((cf for cf in diff if cf.path == rule.watch), None)
+        if watched is None:
+            continue
+        rx = re.compile(rule.pattern)
+        hits: list[tuple[int, str | None]] = []
+        for line_no, content in watched.added_lines:
+            m = rx.search(content)
+            if m:
+                entity = m.group(1) if rx.groups else None
+                hits.append((line_no, entity))
+        if not hits:
+            continue
+        if any(fnmatch.fnmatch(cf.path.replace("\\", "/"), rule.expect)
+               for cf in diff):
+            continue
+        for line_no, entity in hits:
+            msg = (rule.message.replace("{1}", entity)
+                   if entity is not None else rule.message)
+            out.append(PairedRuleFinding(
+                watch=rule.watch, line_no=line_no,
+                entity=entity, message=msg,
+            ))
+    return tuple(out)
