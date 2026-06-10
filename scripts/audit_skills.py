@@ -365,3 +365,64 @@ def format_report(
     lines.append("file shifted, update the doc in this PR.")
     lines.append("Exit 0 (informational; PR not blocked).")
     return "\n".join(lines) + "\n"
+
+
+# --- CLI ----------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="audit_skills.py",
+        description="PR-time doc-currency audit (informational; never blocks)",
+    )
+    p.add_argument("--base", default="origin/main",
+                   help="Git ref to diff against (default: origin/main)")
+    p.add_argument("--json", action="store_true",
+                   help="Emit JSON instead of markdown")
+    p.add_argument("--doc-glob", action="append", default=None, metavar="GLOB",
+                   help="Doc-corpus glob; repeatable; REPLACES the built-in "
+                        "defaults when given")
+    p.add_argument("--paired-rule", action="append", default=None, metavar="JSON",
+                   help='One rule as a JSON object with keys '
+                        '"watch", "pattern", "expect", "message"; repeatable')
+    p.add_argument("--docs-root", default=".",
+                   help="Root directory for doc-corpus globs (default: cwd)")
+    return p
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+
+    try:
+        rules = tuple(parse_rule(raw) for raw in (args.paired_rule or ()))
+    except ValueError as e:
+        sys.stderr.write(f"[audit-skills] {e}\n")
+        return 1
+
+    try:
+        diff = list_changed_files(args.base)
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        sys.stderr.write(f"[audit-skills] git diff failed: {e}\n")
+        return 1
+
+    doc_globs = tuple(args.doc_glob) if args.doc_glob else _DEFAULT_DOC_GLOBS
+    doc = doc_currency_findings(diff, docs_root=args.docs_root,
+                                doc_globs=doc_globs)
+    paired = paired_rule_findings(diff, rules)
+    summary = DiffSummary(base_ref=args.base, changed=len(diff))
+
+    if args.json:
+        payload = {
+            "kind": "audit-skills",
+            "diff_summary": {"base_ref": args.base, "changed": len(diff)},
+            "doc_findings": [f.__dict__ for f in doc],
+            "paired_findings": [f.__dict__ for f in paired],
+        }
+        print(json.dumps(payload, indent=2))
+    else:
+        sys.stdout.write(format_report(doc, paired, summary,
+                                       rules_configured=bool(rules)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
