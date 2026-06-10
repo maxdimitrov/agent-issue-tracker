@@ -1,2 +1,5 @@
 # Worktrees for issue-driven work live under .claude/worktrees/
 .claude/worktrees/
+__pycache__/
+*.pyc
+.pytest_cache/
