@@ -286,11 +286,17 @@ def paired_rule_findings(
         for line_no, content in watched.added_lines:
             m = rx.search(content)
             if m:
+                # m.group(1) is None when the pattern has no groups (guarded
+                # by rx.groups) AND when group 1 didn't participate in the
+                # match (alternation); both fall through to no interpolation.
                 entity = m.group(1) if rx.groups else None
                 hits.append((line_no, entity))
         if not hits:
             continue
-        if any(fnmatch.fnmatch(cf.path.replace("\\", "/"), rule.expect)
+        # fnmatchcase, not fnmatch: fnmatch lowercases both operands on
+        # Windows, making suppression OS-dependent. Git paths are
+        # case-sensitive identifiers everywhere.
+        if any(fnmatch.fnmatchcase(cf.path.replace("\\", "/"), rule.expect)
                for cf in diff):
             continue
         for line_no, entity in hits:
