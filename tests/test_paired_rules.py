@@ -96,3 +96,31 @@ def test_parse_rule_rejects_invalid_regex():
 def test_parse_rule_rejects_non_object():
     with pytest.raises(ValueError, match="JSON object"):
         parse_rule('["not", "an", "object"]')
+
+
+def test_expect_glob_is_case_sensitive_on_every_os():
+    """fnmatchcase, not fnmatch: a path differing only by case from the
+    expect glob must NOT suppress the rule (fnmatch would lowercase both
+    operands on Windows, making suppression OS-dependent)."""
+    diff = (
+        _cf("scripts/db.py", [(100, "CREATE TABLE foo_bar (id INTEGER)")]),
+        _cf(".claude/skills/FOO-BAR-ARCHITECTURE/SKILL.MD", [(1, "---")]),
+    )
+    findings = paired_rule_findings(diff, (DB_RULE,))
+    assert len(findings) == 1
+
+
+def test_alternation_with_non_participating_group_1_gives_entity_none():
+    """A pattern with a group that didn't participate in the match (the
+    other alternation branch matched) yields entity None and an
+    uninterpolated message."""
+    rule = PairedRule(
+        watch="scripts/db.py",
+        pattern=r"(?:CREATE TABLE (\w+))|DROP TABLE",
+        expect="docs/arch.md",
+        message="table change detected",
+    )
+    diff = (_cf("scripts/db.py", [(5, "DROP TABLE old_table")]),)
+    findings = paired_rule_findings(diff, (rule,))
+    assert findings[0].entity is None
+    assert findings[0].message == "table change detected"
