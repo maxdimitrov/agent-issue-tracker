@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.0] - 2026-06-09
+## [1.3.0] - 2026-06-10
 
 ### Added
 
@@ -55,21 +55,33 @@ backend-contract change — the eight operations are untouched and the
 `backends/*.md` modules are unedited, so backend-dispatch risk is confined
 to the paths smoke 1 already exercises.
 
-- **1. GitHub backend smoke — recommended at release time.** File +
-  close a bug / feature / followup / epic through the plugin's GitHub
-  backend against this repo, as in prior releases.
+- **1. GitHub backend smoke — PASS.** Filed bug (#69), feature (#70),
+  followup (#71), and an epic (#72) with a linked sub-issue (#73) against
+  this repo. Verified labels (`bug`; `enhancement`; `enhancement`+`followup`;
+  `epic`; `enhancement`) and native sub-issue linkage (#72 → #73 via the
+  `-F` typed-integer `sub_issues` API). All five closed after verification.
 - **2. Jira backend smoke — DEFERRED.** No backend-module change; the
   `jira.md` close-on-merge convention `/work-issue` Step 6 relies on is
-  unchanged from 1.2.2. Atlassian connector availability gates a live run.
-- **3–4. `/tracker-init`, `/tracker-doctor` — DEFERRED (unchanged).** No
-  change to either command's flow in this release.
-- **5. `/resume-initiative` — DEFERRED (unchanged).** `/work-issue` reuses
-  its worktree mechanics by reference but does not edit the command.
-- **6–7. Clean-machine install + post-install load — recommended at tag
-  time.** `marketplace.json` / `plugin.json` carry a version + description
-  change plus the new `commands/work-issue.md`; confirm the installed
-  plugin reports four commands post-install (`claude plugin details
-  agent-issue-tracker` → ten components: six skills + four commands).
+  unchanged from 1.2.2. Atlassian connector not configured this session.
+- **3–5. `/tracker-init`, `/tracker-doctor`, `/resume-initiative` —
+  DEFERRED (unchanged).** None of the three existing commands' flows changed
+  this release; `/work-issue` reuses `/resume-initiative` Mode-3's worktree
+  mechanics by reference without editing the command.
+- **New-command static check — PASS.** `commands/work-issue.md` dispatches
+  only the `view_issue` contract op (plus optional `add_label` /
+  `close_issue`), adds **no** `` ### `op` `` heading (the CI `backend-contract`
+  op-parity check stays green), and references only existing `superpowers:*`
+  skills (`brainstorming`, `writing-plans`, `subagent-driven-development`,
+  `test-driven-development`, `verification-before-completion`,
+  `finishing-a-development-branch`, `requesting-code-review`,
+  `using-git-worktrees`).
+- **6. Clean-machine install — DEFERRED.** No clean machine available this
+  session (same deferral as 1.2.1 / 1.2.2).
+- **7. Post-install component count — PASS (static slice).** The plugin
+  manifest now ships **ten components** — six skills + four commands
+  (`/tracker-init`, `/tracker-doctor`, `/resume-initiative`, `/work-issue`),
+  verified against the repo tree. Full clean-machine `claude plugin details`
+  confirmation deferred with smoke 6.
 
 ## [1.2.2] - 2026-06-05
 
