@@ -29,6 +29,7 @@ Four slash commands:
 | [`/tracker-doctor`](commands/tracker-doctor.md) | Validates the config + backend reachability + vocabulary sanity |
 | [`/resume-initiative`](commands/resume-initiative.md) | Loads an epic, prints status, optionally enters a worktree on the next-up child |
 | [`/work-issue`](commands/work-issue.md) | Drives ONE named issue end-to-end — read, scope, worktree, brainstorm → plan → execute → verify → PR |
+| [`/audit-skills`](commands/audit-skills.md) | PR-time doc-currency audit — lists docs whose references may be stale vs the branch's diff; informational, never blocks |
 
 ## Install
 
@@ -135,7 +136,7 @@ The epic body also carries a `## Children` task-list mirror — the **cross-back
 
 ### Skill currency
 
-When a PR changes API surface — a new module, a new public function, a new CLI subcommand, a new env var, a new DB table, a new HTTP route, a changed function signature, a removed function/file — the affected `.claude/skills/*.md` files MUST update in the same PR. A stale skill misleads every future agent that touches the area. The [`skill-currency`](skills/skill-currency/SKILL.md) skill codifies this; the `/audit-skills` enforcement helper is a v1.1 follow-on.
+When a PR changes API surface — a new module, a new public function, a new CLI subcommand, a new env var, a new DB table, a new HTTP route, a changed function signature, a removed function/file — the affected `.claude/skills/*.md` files MUST update in the same PR. A stale skill misleads every future agent that touches the area. The [`skill-currency`](skills/skill-currency/SKILL.md) skill codifies this; the [`/audit-skills`](commands/audit-skills.md) command is its shipped enforcement helper — run it before opening a PR.
 
 ## Dependency
 
@@ -152,7 +153,7 @@ GitLab, Linear, Asana, plaintext-file, and Jira Server / Data Center are filed a
 ## Roadmap
 
 - **v1.0.0** (this release) — five skills, three slash commands, GitHub + Jira backends, full CI.
-- **v1.1** (planned) — port the `/audit-skills` detector + library as the enforcement helper for `skill-currency`.
+- **v1.4** (shipped) — `/audit-skills` detector + library as the enforcement helper for `skill-currency`.
 - **v2** (planned) — MCP server form factor so Cursor / Zed / other MCP-compatible clients can consume the tooling layer.
 
 Day-one follow-on issues filed against this repo cover each post-v1 enhancement; see [the issues list](https://github.com/maxdimitrov/agent-issue-tracker/issues?q=is%3Aissue+label%3Aenhancement) under the `enhancement` label.

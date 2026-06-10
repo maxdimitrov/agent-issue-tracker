@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-10
+
+### Added
+
+- **`/audit-skills` slash command + stdlib-only detector library — the
+  `skill-currency` enforcement helper** (#2). `scripts/audit_skills.py`
+  (Python 3.10+, zero third-party deps) parses the branch diff vs a base
+  ref (`git diff --unified=0 --find-renames`) and reports agent-readable
+  docs whose references to changed files may have gone stale, using
+  three match forms (path / basename / 3+-char stem) and dual-layout
+  default globs covering both consumer projects (`CLAUDE.md`,
+  `AGENTS.md`, `.claude/{skills,agents,commands}/`) and plugin-dev repos
+  (`skills/`, `commands/`, `backends/`, `templates/`). The
+  trading-bot-specific DB-canonical detector generalized into optional
+  config-driven **paired rules** (`{watch, pattern, expect, message}`,
+  zero defaults) configured under a new optional `skill_currency:` block
+  in `.claude/issue-tracker.yaml` — the slash command translates YAML to
+  CLI flags so the Python stays YAML-free. Informational discipline
+  throughout: exit 0 always on success, the PR is never blocked. The
+  command carries a prose fallback for consumers without Python on PATH.
+  Tested by a pytest suite (45 tests) including a hermetic frozen-diff
+  replay of the motivating miss (trading-bot PR #139) and the documented
+  short-stem false-positive guard; CI gains a `python-tests` job.
+
+### Changed
+
+- `skills/skill-currency/SKILL.md` — the "Verification" section now
+  points at the shipped `/audit-skills` helper instead of describing the
+  honor-system as the only option. The rule prose is unchanged.
+
 ## [1.3.0] - 2026-06-10
 
 ### Added
