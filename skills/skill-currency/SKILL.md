@@ -180,23 +180,23 @@ to downstream agents. Over time, the rate of retroactive-debt
 follow-ups is the project's calibration signal for how well the
 discipline is holding.
 
-## Verification — manual today, automated later
+## Verification — run /audit-skills
 
-Today the rule is honor-system. Before opening a PR, review the diff
-against the skill corpus by hand: grep the changed files' identifiers
-against the skill directory (`skills/` here, `.claude/skills/` in a
-consumer). Take care to catch indirect references — a
-function parameter type rename that propagates to a skill's code
-example. Reviewers do the same on the way in.
+The plugin ships an automated detector: the `/audit-skills` slash command
+plus the stdlib-only `scripts/audit_skills.py` library. Run it from your
+branch before opening a PR — it diffs against the base ref (default
+`origin/main`) and lists docs whose references to changed files may have
+gone stale, plus any paired-rule findings configured under
+`skill_currency:` in `.claude/issue-tracker.yaml`.
 
-An automated detector — a `/audit-skills` slash command + a
-`scripts/audit/` detector library that parses the PR diff and flags
-skills referencing changed identifiers — is filed as
-`agent-issue-tracker#2` (v1.1 follow-on against this repo). Until it
-ships, the rule is honor-system. The detector will codify a *subset*
-of this skill's discipline (the syntactic identifier-matching part);
-the skill itself remains the source of truth for the rule and its
-edge cases.
+The detector codifies a *subset* of this skill's discipline — the
+syntactic identifier-matching part. It is informational only (exit 0
+always; a PR is never blocked) and cannot catch semantic drift such as a
+retired convention that never names a file. The skill itself remains the
+source of truth for the rule and its edge cases; reviewers still check
+skill currency on the way in. Indirect references — a renamed function
+parameter type that propagates into a skill's code example — still need
+the manual grep described above.
 
 ## Worked example
 
