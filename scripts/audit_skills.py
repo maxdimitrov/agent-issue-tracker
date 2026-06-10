@@ -307,3 +307,61 @@ def paired_rule_findings(
                 entity=entity, message=msg,
             ))
     return tuple(out)
+
+
+# --- report -------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DiffSummary:
+    base_ref: str
+    changed: int
+
+
+def format_report(
+    doc: tuple[SkillFinding, ...],
+    paired: tuple[PairedRuleFinding, ...],
+    summary: DiffSummary,
+    rules_configured: bool,
+) -> str:
+    """Operator-readable markdown report. The paired-rule section only
+    renders when rules were configured, so rule-less consumers see no
+    dangling empty section."""
+    lines: list[str] = []
+    file_word = "file" if summary.changed == 1 else "files"
+    lines.append(f"[audit-skills] Doc-currency scan vs {summary.base_ref} "
+                 f"({summary.changed} changed {file_word})")
+    lines.append("")
+
+    if not doc and not paired:
+        lines.append("No findings -- doc corpus appears clean against this diff.")
+        lines.append("")
+        if rules_configured:
+            lines.append("Paired rules:")
+            lines.append("  (no paired-rule findings)")
+            lines.append("")
+        lines.append("Exit 0 (informational; PR not blocked).")
+        return "\n".join(lines) + "\n"
+
+    if doc:
+        lines.append("References to changed files:")
+        lines.append("")
+        sorted_doc = sorted(doc, key=lambda f: (f.referencing_doc, f.line_no))
+        for ref_doc, group in groupby(sorted_doc, key=lambda f: f.referencing_doc):
+            lines.append(f"{ref_doc}:")
+            for f in group:
+                lines.append(f"  L{f.line_no:<4} -> {f.changed_file}    ({f.matched_form})")
+            lines.append("")
+
+    if rules_configured:
+        lines.append("Paired rules:")
+        if paired:
+            for f in paired:
+                lines.append(f"  {f.watch} L{f.line_no}: {f.message}")
+        else:
+            lines.append("  (no paired-rule findings)")
+        lines.append("")
+
+    lines.append("Action: review each referencing doc; if the surface in the changed")
+    lines.append("file shifted, update the doc in this PR.")
+    lines.append("Exit 0 (informational; PR not blocked).")
+    return "\n".join(lines) + "\n"
