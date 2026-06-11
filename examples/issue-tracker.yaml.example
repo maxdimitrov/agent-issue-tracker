@@ -116,3 +116,19 @@ jira:
   # how your Jira-PR integration triggers auto-close. Plugin does not enforce
   # auto-close — this is purely advisory text.
   close_on_merge_hint: ""
+
+# --- Optional: /audit-skills configuration -----------------------------------
+# Consumed by the /audit-skills slash command (the skill-currency
+# enforcement helper). Both keys optional; omit the whole block to use
+# the built-in defaults.
+#
+# skill_currency:
+#   doc_globs:        # REPLACES the dual-layout defaults when set
+#     - CLAUDE.md
+#     - .claude/skills/*/SKILL.md
+#     - routines/*.md
+#   paired_rules:     # default: none. Example: the trading-bot pairing --
+#     - watch: scripts/db.py                # added CREATE TABLE here...
+#       pattern: 'CREATE\s+TABLE\s+(\w+)'
+#       expect: '.claude/skills/*-architecture/SKILL.md'   # ...without this
+#       message: 'new table `{1}` has no matching *-architecture skill in this diff'
