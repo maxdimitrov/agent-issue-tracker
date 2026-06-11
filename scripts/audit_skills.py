@@ -1,0 +1,428 @@
+"""Doc-currency + paired-rule audit for agent-readable docs.
+
+Stdlib-only (Python 3.10+). Shipped as a plugin asset; the /audit-skills
+slash command invokes it as:
+
+    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/audit_skills.py" [flags]
+
+Internal layering mirrors the origin implementation (trading-bot
+scripts/audit/): pure cores (_parse, doc_currency_findings,
+paired_rule_findings, format_report) and a thin I/O edge
+(list_changed_files, main).
+
+Exit codes:
+  0 -- informational success (findings or no findings; always)
+  1 -- operational error (bad ref, git missing, malformed rule JSON)
+"""
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import json
+import os
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from itertools import groupby
+from pathlib import Path
+from typing import Sequence
+
+
+# --- diff parsing -----------------------------------------------------------
+
+@dataclass(frozen=True)
+class ChangedFile:
+    """One file in a diff.
+
+    `added_lines` is the sequence of (line_no_in_new_file, content) for every
+    `+` line. `status` is git's letter: A added, M modified, R renamed,
+    D deleted. `rename_from` is set only for status='R'.
+    """
+    path: str
+    added_lines: tuple[tuple[int, str], ...]
+    status: str
+    rename_from: str | None
+
+
+_DIFF_HEADER = re.compile(r"^diff --git a/(.+) b/(.+)$")
+_NEW_FILE = re.compile(r"^new file mode ")
+_DELETED_FILE = re.compile(r"^deleted file mode ")
+_RENAME_FROM = re.compile(r"^rename from (.+)$")
+_RENAME_TO = re.compile(r"^rename to (.+)$")
+_HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+_BINARY_MARKER = re.compile(r"^Binary files ")
+
+
+def _parse(text: str) -> tuple[ChangedFile, ...]:
+    """Parse a unified diff into ChangedFile records.
+
+    Expects `git diff --unified=0` output (no context lines), but tolerates
+    context-bearing diffs by counting only '+' lines.
+    """
+    if not text.strip():
+        return ()
+
+    files: list[ChangedFile] = []
+    cur_path: str | None = None
+    cur_status: str = "M"
+    cur_rename_from: str | None = None
+    cur_added: list[tuple[int, str]] = []
+    cur_line_no: int | None = None
+
+    def _flush() -> None:
+        if cur_path is not None:
+            files.append(ChangedFile(
+                path=cur_path,
+                added_lines=tuple(cur_added),
+                status=cur_status,
+                rename_from=cur_rename_from,
+            ))
+
+    for raw in text.splitlines():
+        m = _DIFF_HEADER.match(raw)
+        if m:
+            _flush()
+            cur_path = m.group(2)   # `b/` path is the post-change name
+            cur_status = "M"
+            cur_rename_from = None
+            cur_added = []
+            cur_line_no = None
+            continue
+        if cur_path is None:
+            continue
+        if _NEW_FILE.match(raw):
+            cur_status = "A"
+            continue
+        if _DELETED_FILE.match(raw):
+            cur_status = "D"
+            continue
+        rm = _RENAME_FROM.match(raw)
+        if rm:
+            cur_status = "R"
+            cur_rename_from = rm.group(1)
+            continue
+        if _RENAME_TO.match(raw):
+            continue   # path already captured from `b/<path>` in the header
+        if _BINARY_MARKER.match(raw):
+            continue
+        hm = _HUNK_HEADER.match(raw)
+        if hm:
+            cur_line_no = int(hm.group(1))
+            continue
+        if cur_line_no is None:
+            continue   # metadata lines (index, ---, +++) before first hunk
+        if raw.startswith("+"):
+            cur_added.append((cur_line_no, raw[1:]))
+            cur_line_no += 1
+        # '-' lines and ' ' (context) lines don't bump the +new-side counter
+        # in --unified=0 output. Context lines don't appear with --unified=0,
+        # but if they do we leave cur_line_no alone (best-effort).
+
+    _flush()
+    return tuple(files)
+
+
+def list_changed_files(base_ref: str = "origin/main") -> tuple[ChangedFile, ...]:
+    """Run `git diff <base_ref>...HEAD` and parse the output.
+
+    `--unified=0` minimises context so line numbers are unambiguous;
+    `--find-renames` enables status R. Raises CalledProcessError on git
+    failure (bad ref, not a repo) and FileNotFoundError if git is absent.
+    """
+    proc = subprocess.run(
+        ["git", "diff", "--unified=0", "--find-renames", f"{base_ref}...HEAD"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+    )
+    return _parse(proc.stdout)
+
+
+# --- doc-currency detector ---------------------------------------------------
+
+_DEFAULT_DOC_GLOBS = (
+    # consumer-project layout
+    "CLAUDE.md",
+    "AGENTS.md",
+    ".claude/skills/*/SKILL.md",
+    ".claude/agents/*.md",
+    ".claude/commands/*.md",
+    # plugin-dev repo layout (this repo's own shape)
+    "skills/*/SKILL.md",
+    "commands/*.md",
+    "backends/*.md",
+    "templates/*.md",
+)
+
+
+@dataclass(frozen=True)
+class SkillFinding:
+    referencing_doc: str   # repo-relative, forward-slash
+    changed_file: str      # the file in the diff whose ref may be stale
+    matched_form: str      # "path" | "basename" | "basename_no_ext"
+    line_no: int
+
+
+def doc_currency_findings(
+    diff: tuple[ChangedFile, ...],
+    docs_root: str = ".",
+    doc_globs: tuple[str, ...] = _DEFAULT_DOC_GLOBS,
+) -> tuple[SkillFinding, ...]:
+    """For each changed file, scan every doc in `doc_globs` (under
+    `docs_root`) for substring matches of the file's path, basename, and
+    basename-without-extension. One finding per (doc, file, form).
+    """
+    if not diff:
+        return ()
+
+    search_forms: list[tuple[ChangedFile, list[tuple[str, str]]]] = []
+    for cf in diff:
+        forms: list[tuple[str, str]] = [(cf.path, "path")]
+        base = os.path.basename(cf.path)
+        if base and base != cf.path:
+            forms.append((base, "basename"))
+        stem, ext = os.path.splitext(base)
+        # Length guard: a <3-char stem (db, fx) matches spuriously as a
+        # substring of unrelated words; require >= 3 chars.
+        if stem and ext and stem != base and len(stem) >= 3:
+            forms.append((stem, "basename_no_ext"))
+        search_forms.append((cf, forms))
+
+    out: list[SkillFinding] = []
+    root = Path(docs_root)
+    for pattern in doc_globs:
+        for doc_path in sorted(root.glob(pattern)):
+            try:
+                body = doc_path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            lines = body.splitlines()
+            for cf, forms in search_forms:
+                for needle, form in forms:
+                    for line_no, line in enumerate(lines, start=1):
+                        if needle in line:
+                            rel = str(doc_path.relative_to(root)).replace("\\", "/")
+                            out.append(SkillFinding(
+                                referencing_doc=rel,
+                                changed_file=cf.path,
+                                matched_form=form,
+                                line_no=line_no,
+                            ))
+                            break    # one match per (doc, file, form)
+    return tuple(out)
+
+
+# --- paired-rule detector ------------------------------------------------------
+# Generalization of trading-bot's DB-canonical subsystem detector (added
+# CREATE TABLE in scripts/db.py without a *-architecture skill change).
+# ZERO default rules ship; consumers configure rules via the
+# skill_currency.paired_rules block in .claude/issue-tracker.yaml, which the
+# slash command passes here as --paired-rule JSON flags.
+
+@dataclass(frozen=True)
+class PairedRule:
+    watch: str     # exact repo-relative path to inspect
+    pattern: str   # regex over added lines; group 1 (optional) = entity name
+    expect: str    # fnmatch glob; any changed file matching it suppresses the rule
+    message: str   # finding text; "{1}" interpolates group 1
+
+
+@dataclass(frozen=True)
+class PairedRuleFinding:
+    watch: str
+    line_no: int
+    entity: str | None
+    message: str
+
+
+def parse_rule(raw: str) -> PairedRule:
+    """Parse one --paired-rule JSON object. Raises ValueError on any shape
+    or regex problem so the CLI can exit 1 with a clear message."""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"--paired-rule is not valid JSON: {e}") from e
+    if not isinstance(data, dict):
+        raise ValueError("--paired-rule must be a JSON object")
+    missing = [k for k in ("watch", "pattern", "expect", "message")
+               if k not in data]
+    if missing:
+        raise ValueError(f"--paired-rule missing keys: {', '.join(missing)}")
+    try:
+        re.compile(str(data["pattern"]))
+    except re.error as e:
+        raise ValueError(f"--paired-rule has invalid regex: {e}") from e
+    return PairedRule(
+        watch=str(data["watch"]),
+        pattern=str(data["pattern"]),
+        expect=str(data["expect"]),
+        message=str(data["message"]),
+    )
+
+
+def paired_rule_findings(
+    diff: tuple[ChangedFile, ...],
+    rules: tuple[PairedRule, ...],
+) -> tuple[PairedRuleFinding, ...]:
+    """Apply each rule: if the watched file has added lines matching the
+    pattern AND no changed file matches the expect glob, emit one finding
+    per matching line.
+
+    Suppression heuristic (inherited from the origin detector): ANY
+    expect-matching change suppresses the whole rule -- assume the author
+    handled the requirement. Accepts a false-negative corner to keep the
+    noise floor low.
+    """
+    out: list[PairedRuleFinding] = []
+    for rule in rules:
+        watched = next((cf for cf in diff if cf.path == rule.watch), None)
+        if watched is None:
+            continue
+        rx = re.compile(rule.pattern)
+        hits: list[tuple[int, str | None]] = []
+        for line_no, content in watched.added_lines:
+            m = rx.search(content)
+            if m:
+                # m.group(1) is None when the pattern has no groups (guarded
+                # by rx.groups) AND when group 1 didn't participate in the
+                # match (alternation); both fall through to no interpolation.
+                entity = m.group(1) if rx.groups else None
+                hits.append((line_no, entity))
+        if not hits:
+            continue
+        # fnmatchcase, not fnmatch: fnmatch lowercases both operands on
+        # Windows, making suppression OS-dependent. Git paths are
+        # case-sensitive identifiers everywhere.
+        if any(fnmatch.fnmatchcase(cf.path.replace("\\", "/"), rule.expect)
+               for cf in diff):
+            continue
+        for line_no, entity in hits:
+            msg = (rule.message.replace("{1}", entity)
+                   if entity is not None else rule.message)
+            out.append(PairedRuleFinding(
+                watch=rule.watch, line_no=line_no,
+                entity=entity, message=msg,
+            ))
+    return tuple(out)
+
+
+# --- report -------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class DiffSummary:
+    base_ref: str
+    changed: int
+
+
+def format_report(
+    doc: tuple[SkillFinding, ...],
+    paired: tuple[PairedRuleFinding, ...],
+    summary: DiffSummary,
+    rules_configured: bool,
+) -> str:
+    """Operator-readable markdown report. The paired-rule section only
+    renders when rules were configured, so rule-less consumers see no
+    dangling empty section."""
+    lines: list[str] = []
+    file_word = "file" if summary.changed == 1 else "files"
+    lines.append(f"[audit-skills] Doc-currency scan vs {summary.base_ref} "
+                 f"({summary.changed} changed {file_word})")
+    lines.append("")
+
+    if not doc and not paired:
+        lines.append("No findings -- doc corpus appears clean against this diff.")
+        lines.append("")
+        if rules_configured:
+            lines.append("Paired rules:")
+            lines.append("  (no paired-rule findings)")
+            lines.append("")
+        lines.append("Exit 0 (informational; PR not blocked).")
+        return "\n".join(lines) + "\n"
+
+    if doc:
+        lines.append("References to changed files:")
+        lines.append("")
+        sorted_doc = sorted(doc, key=lambda f: (f.referencing_doc, f.line_no))
+        for ref_doc, group in groupby(sorted_doc, key=lambda f: f.referencing_doc):
+            lines.append(f"{ref_doc}:")
+            for f in group:
+                lines.append(f"  L{f.line_no:<4} -> {f.changed_file}    ({f.matched_form})")
+            lines.append("")
+
+    if rules_configured:
+        lines.append("Paired rules:")
+        if paired:
+            for f in paired:
+                lines.append(f"  {f.watch} L{f.line_no}: {f.message}")
+        else:
+            lines.append("  (no paired-rule findings)")
+        lines.append("")
+
+    lines.append("Action: review each referencing doc; if the surface in the changed")
+    lines.append("file shifted, update the doc in this PR.")
+    lines.append("Exit 0 (informational; PR not blocked).")
+    return "\n".join(lines) + "\n"
+
+
+# --- CLI ----------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="audit_skills.py",
+        description="PR-time doc-currency audit (informational; never blocks)",
+    )
+    p.add_argument("--base", default="origin/main",
+                   help="Git ref to diff against (default: origin/main)")
+    p.add_argument("--json", action="store_true",
+                   help="Emit JSON instead of markdown")
+    p.add_argument("--doc-glob", action="append", default=None, metavar="GLOB",
+                   help="Doc-corpus glob; repeatable; REPLACES the built-in "
+                        "defaults when given")
+    p.add_argument("--paired-rule", action="append", default=None, metavar="JSON",
+                   help='One rule as a JSON object with keys '
+                        '"watch", "pattern", "expect", "message"; repeatable')
+    p.add_argument("--docs-root", default=".",
+                   help="Root directory for doc-corpus globs (default: cwd)")
+    return p
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+
+    try:
+        rules = tuple(parse_rule(raw) for raw in (args.paired_rule or ()))
+    except ValueError as e:
+        sys.stderr.write(f"[audit-skills] {e}\n")
+        return 1
+
+    try:
+        diff = list_changed_files(args.base)
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        sys.stderr.write(f"[audit-skills] git diff failed: {e}\n")
+        return 1
+
+    doc_globs = tuple(args.doc_glob) if args.doc_glob else _DEFAULT_DOC_GLOBS
+    doc = doc_currency_findings(diff, docs_root=args.docs_root,
+                                doc_globs=doc_globs)
+    paired = paired_rule_findings(diff, rules)
+    summary = DiffSummary(base_ref=args.base, changed=len(diff))
+
+    if args.json:
+        payload = {
+            "kind": "audit-skills",
+            "diff_summary": {"base_ref": args.base, "changed": len(diff)},
+            "doc_findings": [f.__dict__ for f in doc],
+            "paired_findings": [f.__dict__ for f in paired],
+        }
+        print(json.dumps(payload, indent=2))
+    else:
+        sys.stdout.write(format_report(doc, paired, summary,
+                                       rules_configured=bool(rules)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
