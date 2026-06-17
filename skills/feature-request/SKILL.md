@@ -41,6 +41,12 @@ This skill is the enhancement-side counterpart to `bug-tracking`. Same
 tracker, same backend dispatch, same lifecycle — different shape of body
 (no symptom/repro, but a sketch and an acceptance contract).
 
+**Slash-command entry-point.** [`/file-feature`](../../commands/file-feature.md)
+is a discoverable wrapper around this skill — it surfaces in Claude Code's
+command palette and triggers the exact flow described here, adding no behaviour
+of its own. This skill is the source of truth; filing by intent ("file a
+feature request") is equivalent.
+
 ## Why structure matters
 
 A vague feature request burns an agent run on guesswork. A structured
