@@ -38,6 +38,13 @@ all under the same label convention, with a Status block the
 operator-facing `/resume-initiative` command can parse without a
 human.
 
+**Slash-command entry-point.** [`/file-epic`](../../commands/file-epic.md) is a
+discoverable wrapper around this skill — it surfaces in Claude Code's command
+palette and triggers the exact flow described here, adding no behaviour of its
+own. This skill is the source of truth; filing by intent ("open an epic") is
+equivalent. Once the epic exists, [`/resume-initiative`](../../commands/resume-initiative.md)
+walks its tree.
+
 ## Why structure matters
 
 A multi-week initiative tracked only as a pile of un-related

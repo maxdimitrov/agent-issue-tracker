@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Four explicit filing slash commands — `/file-bug`, `/file-feature`,
+  `/file-followup`, `/file-epic`** (#8). Discoverable command-palette
+  entry-points that wrap the four issue-filing skills (`bug-tracking`,
+  `feature-request`, `followup-tracking`, `initiative-tracking`
+  respectively). Each is a one-screen wrapper that invokes its skill with
+  any post-command text as starting context, then lets the skill run its
+  normal flow unchanged — gather the agent-prompt body, apply the bail
+  criteria, and dispatch `create_issue` through the backend resolved from
+  `.claude/issue-tracker.yaml`. **No behavioural divergence:** the commands
+  are pure UX entry-points, the skills remain the source of truth; filing by
+  intent ("file a bug") is byte-for-byte equivalent. Originally deferred from
+  v1 per spec §5.6 as a reopen-on-demand candidate (#8 carried
+  `needs-design`); built now that the discoverability demand materialised, so
+  the design gate is resolved and the label dropped. Each filing skill gained
+  a reciprocal **"Slash-command entry-point"** note so the skill ↔ command
+  mapping is bidirectional. Component count swept five → nine slash commands
+  (six skills + nine commands) across `marketplace.json`, `plugin.json`, and
+  `README.md`. **No** backend-contract change — the eight operations are
+  untouched and the commands add no `` ### `op` `` heading, so the CI
+  `backend-contract` op-parity check stays green.
+
 ## [1.4.0] - 2026-06-10
 
 ### Added

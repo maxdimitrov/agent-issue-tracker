@@ -43,6 +43,12 @@ it's also what makes a follow-up agent-executable** — when the next
 agent picks it up cold weeks later, the parent + prior-work + ruled-out
 blocks prevent them from re-deriving discarded approaches.
 
+**Slash-command entry-point.** [`/file-followup`](../../commands/file-followup.md)
+is a discoverable wrapper around this skill — it surfaces in Claude Code's
+command palette and triggers the exact flow described here, adding no behaviour
+of its own. This skill is the source of truth; filing by intent ("spin that out
+as a follow-up") is equivalent.
+
 ## Type-orthogonal
 
 A follow-up is either bug-shaped or feature-shaped. This skill adds

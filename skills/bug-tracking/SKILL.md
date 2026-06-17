@@ -34,6 +34,12 @@ a failing regression test, makes a minimal fix, runs the full verification
 suite, and opens a draft PR. So **the body of every issue is an agent
 prompt**, not a human note.
 
+**Slash-command entry-point.** [`/file-bug`](../../commands/file-bug.md) is a
+discoverable wrapper around this skill — it surfaces in Claude Code's command
+palette and triggers the exact flow described here, adding no behaviour of its
+own. This skill is the source of truth; filing by intent ("file a bug") is
+equivalent.
+
 ## Why structure matters
 
 An agent picking the issue up cold will **bail** (refuse to work it, leave
