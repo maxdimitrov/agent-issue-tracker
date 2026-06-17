@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-17
+
 ### Added
 
 - **Four explicit filing slash commands — `/file-bug`, `/file-feature`,
@@ -29,6 +31,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `README.md`. **No** backend-contract change — the eight operations are
   untouched and the commands add no `` ### `op` `` heading, so the CI
   `backend-contract` op-parity check stays green.
+
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process". This release adds **four new slash
+commands** (`commands/file-bug.md`, `commands/file-feature.md`,
+`commands/file-followup.md`, `commands/file-epic.md`) plus doc updates (the
+four filing skills, `README.md`, `plugin.json`, `marketplace.json`,
+`CHANGELOG.md`). No backend operation logic and no backend-contract change —
+the eight operations are untouched and the `backends/*.md` modules are
+unedited, so backend-dispatch risk is confined to the create / label / link /
+close paths smoke 1 exercises directly.
+
+- **1. GitHub backend smoke — PASS.** Filed bug (#78), feature (#79),
+  followup (#80), and an epic (#81) with a linked sub-issue (#82) against
+  this repo. Verified labels (`bug`; `enhancement`; `enhancement`+`followup`;
+  `epic`; `enhancement`) and native sub-issue linkage (#81 → #82 via the
+  `-F` typed-integer `sub_issues` API). All five closed after verification.
+- **2. Jira backend smoke — DEFERRED.** Atlassian connector not configured
+  this session; no backend-module change (`backends/jira.md` unedited), so
+  Jira dispatch is identical to 1.4.0.
+- **3–5. `/tracker-init`, `/tracker-doctor`, `/resume-initiative` —
+  DEFERRED (unchanged).** None of the existing command flows changed this
+  release; the four new `/file-*` commands are additive filing entry-points
+  that do not alter scaffolding, validation, or initiative-walk logic.
+- **New-command static check — PASS.** Each `commands/file-*.md` dispatches
+  only by invoking its paired filing skill (no direct backend calls), adds
+  **no** `` ### `op` `` heading (the CI `backend-contract` op-parity check
+  stays green), and references only existing skills and commands (all
+  relative links resolve). The four reciprocal "Slash-command entry-point"
+  notes in the filing skills link back correctly.
+- **6. Clean-machine install — DEFERRED.** No clean machine available this
+  session (same deferral as prior releases).
+- **7. Post-install component count — PASS (static slice).** The manifest
+  now ships **fifteen components** — six skills + nine commands
+  (`/tracker-init`, `/tracker-doctor`, `/resume-initiative`, `/work-issue`,
+  `/audit-skills`, `/file-bug`, `/file-feature`, `/file-followup`,
+  `/file-epic`), verified against the repo tree and the swept
+  `plugin.json` / `marketplace.json` descriptions. Full clean-machine
+  `claude plugin details` confirmation deferred with smoke 6.
 
 ## [1.4.0] - 2026-06-10
 
