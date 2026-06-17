@@ -12,7 +12,7 @@ Any text after the command (`/file-feature add CSV export to the report view`) s
 
 1. Invoke the `feature-request` skill (via the `Skill` tool), passing the operator's `<short description>` (if any) as starting context.
 2. The skill does the rest, unchanged:
-   - gathers the body in the agent-prompt shape (What's missing, Sketch, Locus, Constraints, Acceptance, Verify);
+   - gathers the body in the agent-prompt shape (Goal, Locus, Skills to load, What's missing + Sketch, Constraints, Acceptance, Verify);
    - applies the bail criteria (fuzzy locus / unbounded scope / open design question → a `needs-design` issue first / fuzzy acceptance → ask rather than file a vague issue);
    - resolves the backend from `.claude/issue-tracker.yaml` and dispatches `create_issue` (with the `enhancement` label plus any area labels) through `backends/<backend>.md`.
 

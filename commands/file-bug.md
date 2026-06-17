@@ -12,7 +12,7 @@ Any text after the command (`/file-bug auth modal hangs on submit`) seeds the is
 
 1. Invoke the `bug-tracking` skill (via the `Skill` tool), passing the operator's `<short description>` (if any) as starting context.
 2. The skill does the rest, unchanged:
-   - gathers the body in the agent-prompt shape (Symptom, Repro, Impact, Locus, Constraints, Acceptance, Verify);
+   - gathers the body in the agent-prompt shape (Goal, Locus, Skills to load, Symptom + Repro + Impact, Constraints, Acceptance, Verify);
    - applies the bail criteria (no clear locus / unbounded blast radius / open design question / no writable regression test → ask for what's missing rather than file a vague issue);
    - resolves the backend from `.claude/issue-tracker.yaml` and dispatches `create_issue` (with the `bug` label plus any area labels) through `backends/<backend>.md`.
 

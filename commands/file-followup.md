@@ -12,7 +12,7 @@ Any text after the command (`/file-followup harden the retry path deferred from 
 
 1. Invoke the `followup-tracking` skill (via the `Skill` tool), passing the operator's `<short description>` (if any) as starting context.
 2. The skill does the rest, unchanged:
-   - gathers the body in the agent-prompt shape, with the follow-up-specific blocks first (Parent PR/branch — **required**, What's already done, What's been tried or ruled out, Related issues, Why deferred) ahead of the standard tail (Locus, Constraints, Acceptance, Verify);
+   - gathers the body in the agent-prompt shape, with the follow-up-specific blocks first (Parent PR/branch — **required**, What's already done, What's been tried or ruled out, Related issues, Why deferred), followed by the standard agent-prompt tail for the follow-up's underlying shape — a follow-up is itself bug-shaped (Symptom + Repro + Impact) or feature-shaped (What's missing + Sketch) — plus Goal, Locus, Skills to load, Constraints, Acceptance, Verify;
    - applies the bail criteria, including the origination-specific one — a follow-up with no resolvable parent is just a plain bug or feature, so route it to `/file-bug` or `/file-feature` instead;
    - resolves the backend from `.claude/issue-tracker.yaml` and dispatches `create_issue` (with the `followup` label plus its underlying type/area labels) through `backends/<backend>.md`.
 
