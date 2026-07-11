@@ -7,16 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.5.1] - 2026-07-11
+## [1.6.0] - 2026-07-11
 
-### Changed
+### Added
 
-- **`/work-issue` no longer prescribes a merge gate.** The "the PR is the
-  human gate — `/work-issue` NEVER auto-merges" constraint is removed.
-  The command still finishes by opening a PR (or a draft with `--draft`);
-  whether and by whom that PR is merged is governed by the operator's
-  instructions for the run, not by the command. Historical changelog
-  entries below describe the old behavior as released and are unchanged.
+- **`/work-issue --merge` — explicit operator override of the merge gate.**
+  The default is unchanged: the PR is the human gate and `/work-issue`
+  does not merge it. Passing `--merge` authorizes the finish step to merge
+  the ready-for-review PR after verification passes — arming the git
+  host's auto-merge where supported (GitHub: `gh pr merge --squash
+  --auto`, so required checks still gate the merge) with a direct
+  squash-merge fallback. `--merge` combines with `--start`; it is
+  mutually exclusive with `--draft` (refused, not guessed). Never merges
+  on red. The override governs only this command's behavior — the
+  harness's own permission layer still applies independently.
 
 ## [1.5.0] - 2026-06-17
 

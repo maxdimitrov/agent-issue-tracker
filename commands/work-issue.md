@@ -2,7 +2,7 @@
 description: Drive ONE named issue end-to-end through the full mandated agent pipeline — read, scope, worktree, brainstorm → plan → execute → verify → PR.
 ---
 
-# /work-issue <ref> [--start] [--draft]
+# /work-issue <ref> [--start] [--draft | --merge]
 
 Take a single named issue and drive it to a PR through the full mandated agent workflow. `/work-issue` is the single-issue counterpart to [`/resume-initiative`](resume-initiative.md): where `/resume-initiative` is epic/initiative-oriented (it walks an initiative tree and picks the next workable leaf), `/work-issue` takes ONE issue you name and runs it end-to-end — read the body, assess scope, create an isolated worktree, then brainstorm → plan → execute → verify → open a PR. The configured backend is resolved from `.claude/issue-tracker.yaml` in the consumer project, the same as `/resume-initiative`.
 
@@ -29,8 +29,9 @@ The third row describes the *class* of command some consumer projects ship — a
 | `/work-issue <ref>` | Read the issue, assess scope, derive the branch name, and **create (or enter) the worktree**. Then **wait** — report the scope verdict + worktree path and pause for the operator to confirm before running the pipeline. |
 | `/work-issue <ref> --start` | Same read + scope + worktree, then proceed **straight into the inline workflow** without pausing for confirmation (mirrors `/resume-initiative --start`). |
 | `/work-issue <ref> --draft` | Modifier (combinable with `--start`). The finish step opens a **draft** PR instead of a ready-for-review PR. Everything else is identical. |
+| `/work-issue <ref> --merge` | Modifier (combinable with `--start`). **Explicit operator override of the default merge gate:** after verification passes and the ready-for-review PR is open, the finish step also merges it via the git host — arm auto-merge where the repo supports it (GitHub: `gh pr merge --squash --auto`, so required checks still gate the actual merge), falling back to a direct squash-merge only when auto-merge is unavailable. Mutually exclusive with `--draft`: if both are passed, refuse with a clear message instead of guessing. |
 
-`--start` and `--draft` are orthogonal: `/work-issue #42 --start --draft` runs the whole pipeline inline and finishes with a draft PR.
+`--start` and `--draft` are orthogonal: `/work-issue #42 --start --draft` runs the whole pipeline inline and finishes with a draft PR. `--merge` combines with `--start` the same way (`--start --merge` runs inline and merges on green) but never with `--draft` — a draft PR is by definition not ready to merge.
 
 ## What you should do
 
@@ -99,7 +100,7 @@ Run `superpowers:finishing-a-development-branch`: open a PR whose body links the
 - **GitHub** (see `backends/github.md` "PR close-on-merge convention") — include the literal `Fixes <ref>` line in the PR body for a `bug`, or `Closes <ref>` for a non-bug (enhancement / docs). Both phrasings auto-close on merge to the default branch; honour the consumer's `github.default_pr_close_syntax` if set.
 - **Jira** (see `backends/jira.md` "PR close-on-merge convention") — Jira does not auto-close from PR keywords; the close-on-merge transition is the consumer's DVCS smart-commit / branch-name convention. Render the consumer's `jira.close_on_merge_hint` into the PR body as the advisory line (omit if empty).
 
-`--draft` opens a **draft** PR. Merge handling is not prescribed by this command — whether the PR is merged, and by whom, is governed by the operator's instructions for the run. With `--start`, the run proceeds straight from worktree creation (Step 3) through Steps 4–6 inline without pausing for confirmation, mirroring `/resume-initiative --start`. Without `--start`, the run pauses at the end of Step 3 for the operator to confirm before Step 4.
+`--draft` opens a **draft** PR. The PR is the **human gate by default** — `/work-issue` does **not** merge the PR, on any backend, in any mode, **unless the operator passed `--merge`** (the explicit per-invocation override; see Invocation modes). Even with `--merge`, never merge on red: if Step 5 verification did not pass, no ready-for-review PR exists to merge in the first place. Note the override authorizes only this command's behavior — the harness's own permission layer may still require its own approval for the merge action, and that layer is the operator's to configure, not this command's to bypass. With `--start`, the run proceeds straight from worktree creation (Step 3) through Steps 4–6 inline without pausing for confirmation, mirroring `/resume-initiative --start`. Without `--start`, the run pauses at the end of Step 3 for the operator to confirm before Step 4.
 
 ## Conventions assumed
 
