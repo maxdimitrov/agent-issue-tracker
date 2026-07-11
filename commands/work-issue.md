@@ -99,7 +99,7 @@ Run `superpowers:finishing-a-development-branch`: open a PR whose body links the
 - **GitHub** (see `backends/github.md` "PR close-on-merge convention") — include the literal `Fixes <ref>` line in the PR body for a `bug`, or `Closes <ref>` for a non-bug (enhancement / docs). Both phrasings auto-close on merge to the default branch; honour the consumer's `github.default_pr_close_syntax` if set.
 - **Jira** (see `backends/jira.md` "PR close-on-merge convention") — Jira does not auto-close from PR keywords; the close-on-merge transition is the consumer's DVCS smart-commit / branch-name convention. Render the consumer's `jira.close_on_merge_hint` into the PR body as the advisory line (omit if empty).
 
-`--draft` opens a **draft** PR. The PR is the **human gate** — `/work-issue` **NEVER auto-merges**, on any backend, in any mode. With `--start`, the run proceeds straight from worktree creation (Step 3) through Steps 4–6 inline without pausing for confirmation, mirroring `/resume-initiative --start`. Without `--start`, the run pauses at the end of Step 3 for the operator to confirm before Step 4.
+`--draft` opens a **draft** PR. Merge handling is not prescribed by this command — whether the PR is merged, and by whom, is governed by the operator's instructions for the run. With `--start`, the run proceeds straight from worktree creation (Step 3) through Steps 4–6 inline without pausing for confirmation, mirroring `/resume-initiative --start`. Without `--start`, the run pauses at the end of Step 3 for the operator to confirm before Step 4.
 
 ## Conventions assumed
 

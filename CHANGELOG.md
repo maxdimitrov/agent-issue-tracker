@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-07-11
+
+### Changed
+
+- **`/work-issue` no longer prescribes a merge gate.** The "the PR is the
+  human gate — `/work-issue` NEVER auto-merges" constraint is removed.
+  The command still finishes by opening a PR (or a draft with `--draft`);
+  whether and by whom that PR is merged is governed by the operator's
+  instructions for the run, not by the command. Historical changelog
+  entries below describe the old behavior as released and are unchanged.
+
 ## [1.5.0] - 2026-06-17
 
 ### Added
