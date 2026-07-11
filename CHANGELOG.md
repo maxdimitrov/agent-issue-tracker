@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-11
+
+### Added
+
+- **`/work-issue --merge` — explicit operator override of the merge gate.**
+  The default is unchanged: the PR is the human gate and `/work-issue`
+  does not merge it. Passing `--merge` authorizes the finish step to merge
+  the ready-for-review PR after verification passes — arming the git
+  host's auto-merge where supported (GitHub: `gh pr merge --squash
+  --auto`, so required checks still gate the merge) with a direct
+  squash-merge fallback. `--merge` combines with `--start`; it is
+  mutually exclusive with `--draft` (refused, not guessed). Never merges
+  on red. The override governs only this command's behavior — the
+  harness's own permission layer still applies independently.
+
 ## [1.5.0] - 2026-06-17
 
 ### Added
