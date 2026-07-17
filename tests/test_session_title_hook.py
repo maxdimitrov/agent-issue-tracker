@@ -14,7 +14,7 @@ CONFIG_GITHUB = "schema_version: 1\nbackend: github\ngithub:\n  repo: acme/widge
 
 def git(proj, *args):
     subprocess.run(
-        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-C", str(proj), *args],
+        ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-C", str(proj), *args],
         check=True, capture_output=True,
     )
 
@@ -209,3 +209,33 @@ def test_emitted_title_is_recorded_in_state(project, hook_env):
     git(project, "switch", "-c", "max/WB-7657-subscription-gates")
     title_of(run_hook(payload_for(project, session_id="rec1"), hook_env))
     assert (state_dir_of(hook_env) / "rec1").read_text() == "WB-7657 subscription-gates"
+
+
+# --- Task 3: manual-rename respect ------------------------------------------
+
+def test_rename_after_our_title_pins_forever(project, hook_env):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    sid = "cycle1"
+    # 1st run: we set the title.
+    assert title_of(run_hook(payload_for(project, session_id=sid), hook_env)) is not None
+    # 2nd run: user renamed since — incoming title differs from what we set.
+    r = run_hook(
+        payload_for(project, session_id=sid, session_title="my epic notes"), hook_env
+    )
+    assert r.stdout == ""
+    assert (state_dir_of(hook_env) / f"{sid}.pinned").exists()
+    # 3rd run: pinned stays pinned even with no incoming title.
+    r = run_hook(payload_for(project, session_id=sid), hook_env)
+    assert r.stdout == ""
+
+
+def test_unchanged_incoming_title_retitles(project, hook_env):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    sid = "cycle2"
+    first = title_of(run_hook(payload_for(project, session_id=sid), hook_env))
+    # Incoming title equals what we set → not a manual rename → re-emit fine.
+    second = title_of(
+        run_hook(payload_for(project, session_id=sid, session_title=first), hook_env)
+    )
+    assert second == first
+    assert not (state_dir_of(hook_env) / f"{sid}.pinned").exists()
