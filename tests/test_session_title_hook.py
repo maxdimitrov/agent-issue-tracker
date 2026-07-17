@@ -145,3 +145,19 @@ def test_platform_default_title_is_not_pinned(project, hook_env):
     )
     assert r.returncode == 0
     assert not (state_dir_of(hook_env) / "pin2.pinned").exists()
+
+
+def test_default_title_with_regex_metachar_dirname(tmp_path):
+    # "proj+abc-3f" must be recognized as the platform default for dir "proj+abc".
+    proj = tmp_path / "proj+abc"
+    proj.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main", str(proj)], check=True)
+    git(proj, "commit", "--allow-empty", "-m", "init")
+    (proj / ".claude").mkdir()
+    (proj / ".claude" / "issue-tracker.yaml").write_text(CONFIG_GITHUB)
+    env = dict(os.environ)
+    env["XDG_CACHE_HOME"] = str(tmp_path / "cache")
+    env["AIT_TITLE_NO_AI"] = "1"
+    r = run_hook(payload_for(proj, session_id="meta1", session_title="proj+abc-3f"), env)
+    assert r.returncode == 0
+    assert not (Path(env["XDG_CACHE_HOME"]) / "agent-issue-tracker" / "session-titles" / "meta1.pinned").exists()

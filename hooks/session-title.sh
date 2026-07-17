@@ -37,6 +37,7 @@ src="$(field '.source')"
 current_title="$(field '.session_title')"
 
 [ -n "$session_id" ] || exit 0
+case "$session_id" in */* | *..*) exit 0 ;; esac
 [ -d "$cwd" ] || exit 0
 case "$src" in startup | resume) : ;; *) exit 0 ;; esac
 
@@ -67,10 +68,13 @@ if [ -f "$state_file" ]; then
 elif [ -n "$current_title" ]; then
   # A title we did not set. The platform default is "<dir>-xx"; anything else
   # is a manual name — pin the session and never touch it.
-  if ! printf '%s' "$current_title" | grep -Eq "^$(basename "$cwd")-[a-z0-9]{2}$"; then
-    : >"$pin_file"
-    exit 0
-  fi
+  case "$current_title" in
+    "$(basename "$cwd")"-[a-z0-9][a-z0-9]) : ;;
+    *)
+      : >"$pin_file"
+      exit 0
+      ;;
+  esac
 fi
 
 # (stages 5-9 land in later tasks)
