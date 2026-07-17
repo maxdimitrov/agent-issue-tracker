@@ -78,6 +78,9 @@ Each path is a recursion; each MUST apply the guards on every hop.
    - Phase breakdown with status (from the body's `## Phases` section)
    - Current branch / worktree (from the Status block's `- **Current branch:**` line)
    - Next-up — resolved down to a **leaf** (see step 4)
+   - If the current session title does not already name this node's ref, a
+     paste-ready rename line the operator can apply immediately (the
+     SessionStart hook catches up on next resume): `` /rename <ref> <slug> ``
 
 3. **Enumerate the child subtree.** The canonical source at each node is its `## Children` task-list mirror. For each unchecked `- [ ] <ref> — <title>` line, parse the ref:
 

@@ -4,14 +4,14 @@ description: Validate `.claude/issue-tracker.yaml`: schema, backend reachability
 
 # /tracker-doctor [--smoke-issue <ref>]
 
-Validate the consumer project's `.claude/issue-tracker.yaml`. Runs three sequential check phases: schema validation (file exists, parses, version and backend present, required fields set per backend, type enum check); backend reachability (proof-of-dispatch via `view_issue` per cross-backend invariant #5 in `backends/_interface.md`); vocabulary sanity (warning-level warnings about missing labels or issue types). Always exits 0 (informational discipline, same pattern as `/audit-skills` and `/audit-pii`). Sibling pair: `/tracker-init` writes the config; `/tracker-doctor` validates it.
+Validate the consumer project's `.claude/issue-tracker.yaml`. Runs four sequential check phases: schema validation (file exists, parses, version and backend present, required fields set per backend, type enum check); backend reachability (proof-of-dispatch via `view_issue` per cross-backend invariant #5 in `backends/_interface.md`); vocabulary sanity (warning-level warnings about missing labels or issue types); session-title hook prerequisites (WARN-only, never FAILs). Always exits 0 (informational discipline, same pattern as `/audit-skills` and `/audit-pii`). Sibling pair: `/tracker-init` writes the config; `/tracker-doctor` validates it.
 
 ## Invocation modes
 
 | Invocation | Behaviour |
 |---|---|
-| `/tracker-doctor` | Run all three check phases against the current config. Use the default probe ref (`#1` on GitHub / `<jira.project>-1` on Jira). |
-| `/tracker-doctor --smoke-issue <ref>` | Run all three check phases. Override the default reachability probe ref with `<ref>` (useful when the conventional first-issue ref doesn't exist or is restricted). |
+| `/tracker-doctor` | Run all four check phases against the current config. Use the default probe ref (`#1` on GitHub / `<jira.project>-1` on Jira). |
+| `/tracker-doctor --smoke-issue <ref>` | Run all four check phases. Override the default reachability probe ref with `<ref>` (useful when the conventional first-issue ref doesn't exist or is restricted). |
 
 ## What you should do
 
@@ -106,7 +106,18 @@ Two checks, numbered:
 1. For each value in `jira.issue_types.*` (the five mapped issue type names — `Bug`, `Story`, etc.), check whether the issue type exists in the configured Jira project. MCP call (verified live against the Atlassian Remote MCP): `getJiraProjectIssueTypesMetadata({cloudId, projectIdOrKey})` returns the project's configured issue types (the visible-project list itself comes from `getVisibleJiraProjects`); the agent can `ToolSearch` against `jira project metadata` if the tool name has shifted in the current MCP version. `WARN` with "missing issue type `<name>` in project `<projectKey>`; check your Jira project settings or remap in `.claude/issue-tracker.yaml`" for any missing type.
 2. If `jira.area_field: components`, list the project's configured Components (resolve the project-components metadata tool via `ToolSearch` against `jira project components`) and surface them as a `WARN-info` line so the operator knows what areas they can use. No `FAIL` — `area_field` defaults to free-form when components don't match.
 
-### Phase 4 — Summary
+### Phase 4 — session-title hook prerequisites (WARN-only)
+
+The SessionStart session-title hook is cosmetic; nothing here may FAIL.
+
+1. `jq` on PATH → `[PASS] jq found`. Missing → `[WARN] session-title hook
+   inactive: jq not found` + install hint (`brew install jq` / `apt install jq`).
+2. State dir `${XDG_CACHE_HOME:-$HOME/.cache}/agent-issue-tracker/session-titles/`
+   creatable/writable → `[PASS]`; else `[WARN]` with the path.
+3. Config sets `session_titles: false` → `[PASS-WITH-NOTE] session titles
+   disabled by config`.
+
+### Phase 5 — Summary
 
 Always exit 0. The final line aggregates counts:
 
@@ -114,7 +125,7 @@ Always exit 0. The final line aggregates counts:
 Summary: <F> FAIL · <W> WARN · <P> PASS
 ```
 
-`<F>`, `<W>`, `<P>` are the integer counts of `FAIL` / `WARN` / `PASS` lines across Phases 1-3. `PASS-WITH-NOTE` counts as `PASS` for the summary but renders inline as `[PASS] ... (note: <reason>)`.
+`<F>`, `<W>`, `<P>` are the integer counts of `FAIL` / `WARN` / `PASS` lines across Phases 1-4. `PASS-WITH-NOTE` counts as `PASS` for the summary but renders inline as `[PASS] ... (note: <reason>)`.
 
 ## Output format
 
