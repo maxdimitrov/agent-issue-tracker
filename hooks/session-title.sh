@@ -77,5 +77,32 @@ elif [ -n "$current_title" ]; then
   esac
 fi
 
-# (stages 5-9 land in later tasks)
+# --- stage 5: base ref + slug from branch, transcript fallback -----------------
+branch="$(git -C "$cwd" branch --show-current 2>/dev/null)" || branch=""
+ref=""
+slug=""
+if [ -n "$branch" ]; then
+  leaf="${branch##*/}"
+  ref="$(printf '%s' "$leaf" | grep -oE '[A-Z][A-Z0-9]+-[0-9]+' | head -1)" || true
+  if [ -z "$ref" ]; then
+    num="$(printf '%s' "$leaf" | grep -oE '^[0-9]+' | head -1)" || true
+    [ -z "$num" ] && num="$(printf '%s' "$leaf" | grep -oE '(^|-)issue-?[0-9]+' | grep -oE '[0-9]+' | head -1)" || true
+    [ -n "$num" ] && ref="#$num"
+  fi
+  slug="$(printf '%s' "$leaf" \
+    | sed -E 's/[A-Z][A-Z0-9]+-[0-9]+//; s/^[0-9]+//; s/(^|-)issue-?[0-9]+//' \
+    | sed -E 's/^[-_]+//; s/[-_]+$//' | cut -c1-24)"
+fi
+if [ -z "$ref" ] && [ -f "$transcript_path" ]; then
+  ref="$(tail -c 200000 "$transcript_path" 2>/dev/null \
+    | grep -oE '(#[0-9]+|[A-Z][A-Z0-9]+-[0-9]+)' | tail -1)" || true
+  slug=""
+fi
+
+# --- stage 9: compose + emit (REPLACED WHOLESALE by Task 4) ---------------------
+[ -n "$ref" ] || exit 0
+title="$ref"
+[ -n "$slug" ] && title="$ref $slug"
+printf '%s' "$title" >"$state_file"
+jq -cn --arg t "$title" '{hookSpecificOutput:{hookEventName:"SessionStart",sessionTitle:$t}}'
 exit 0

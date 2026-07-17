@@ -161,3 +161,51 @@ def test_default_title_with_regex_metachar_dirname(tmp_path):
     r = run_hook(payload_for(proj, session_id="meta1", session_title="proj+abc-3f"), env)
     assert r.returncode == 0
     assert not (Path(env["XDG_CACHE_HOME"]) / "agent-issue-tracker" / "session-titles" / "meta1.pinned").exists()
+
+
+# --- Task 2: base ref + slug -------------------------------------------------
+
+def test_jira_ref_from_branch(project, hook_env):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t == "WB-7657 subscription-gates"
+
+
+def test_github_ref_from_leading_number_branch(project, hook_env):
+    git(project, "switch", "-c", "feat/42-board-support")
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t == "#42 board-support"
+
+
+def test_issue_prefix_branch(project, hook_env):
+    git(project, "switch", "-c", "issue-88")
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t == "#88"
+
+
+def test_no_ref_anywhere_emits_nothing(project, hook_env):
+    git(project, "switch", "-c", "feat/general-cleanup")
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t is None
+
+
+def test_version_segment_is_not_a_ref(project, hook_env):
+    # "v2" must not become "#2"
+    git(project, "switch", "-c", "feat/v2-cleanup")
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t is None
+
+
+def test_transcript_fallback_ref(project, hook_env):
+    git(project, "switch", "-c", "feat/general-cleanup")
+    (project / "transcript.jsonl").write_text(
+        json.dumps({"type": "user", "message": {"content": "please fix #88 today"}}) + "\n"
+    )
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t is not None and t.startswith("#88")
+
+
+def test_emitted_title_is_recorded_in_state(project, hook_env):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    title_of(run_hook(payload_for(project, session_id="rec1"), hook_env))
+    assert (state_dir_of(hook_env) / "rec1").read_text() == "WB-7657 subscription-gates"
