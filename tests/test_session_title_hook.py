@@ -2,6 +2,7 @@
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -239,3 +240,28 @@ def test_unchanged_incoming_title_retitles(project, hook_env):
     )
     assert second == first
     assert not (state_dir_of(hook_env) / f"{sid}.pinned").exists()
+
+
+# --- Task 4: compose, idle marker, cap ----------------------------------------
+
+def backdate(path, days):
+    ts = time.time() - days * 86400 - 3600
+    os.utime(path, (ts, ts))
+
+
+def test_idle_marker_appended(project, hook_env):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    tp = project / "transcript.jsonl"
+    tp.write_text(json.dumps({"type": "user", "message": {"content": "hi"}}) + "\n")
+    backdate(tp, 3)
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t == "WB-7657 subscription-gates · idle 3d"
+
+
+def test_fresh_transcript_has_no_idle_marker(project, hook_env):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    (project / "transcript.jsonl").write_text(
+        json.dumps({"type": "user", "message": {"content": "hi"}}) + "\n"
+    )
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t == "WB-7657 subscription-gates"

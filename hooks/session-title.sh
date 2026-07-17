@@ -99,10 +99,38 @@ if [ -z "$ref" ] && [ -f "$transcript_path" ]; then
   slug=""
 fi
 
-# --- stage 9: compose + emit (REPLACED WHOLESALE by Task 4) ---------------------
-[ -n "$ref" ] || exit 0
-title="$ref"
-[ -n "$slug" ] && title="$ref $slug"
+# --- stage 6: epic enrichment (populated in a later task) ----------------------
+epic_next=""
+
+# --- stage 7: AI tail (populated in a later task) -------------------------------
+ai_tail=""
+
+# --- stage 8: idle marker --------------------------------------------------------
+idle=""
+if [ -f "$transcript_path" ]; then
+  m="$(file_mtime "$transcript_path")" || m=""
+  if [ -n "$m" ]; then
+    days=$((($(date +%s) - m) / 86400))
+    [ "$days" -ge 1 ] && idle="idle ${days}d"
+  fi
+fi
+
+# --- stage 9: compose + emit ------------------------------------------------------
+[ -n "$ref$ai_tail" ] || exit 0
+anchor="$ref"
+if [ -n "$ref" ] && [ -n "$slug" ]; then anchor="$ref $slug"; fi
+
+title=""
+for part in "$anchor" "$ai_tail" "${epic_next:+next $epic_next}" "$idle"; do
+  [ -n "$part" ] || continue
+  # ai_tail beats "next <ref>": once ai_tail is in, drop epic_next.
+  case "$part" in "next "*) [ -n "$ai_tail" ] && continue ;; esac
+  if [ -n "$title" ]; then candidate="$title · $part"; else candidate="$part"; fi
+  [ "${#candidate}" -le 64 ] || break
+  title="$candidate"
+done
+[ -n "$title" ] || exit 0
+
 printf '%s' "$title" >"$state_file"
 jq -cn --arg t "$title" '{hookSpecificOutput:{hookEventName:"SessionStart",sessionTitle:$t}}'
 exit 0
