@@ -348,3 +348,76 @@ def test_prefix_branch_does_not_match_epic(project, hook_env, tmp_path):
     t = title_of(run_hook(payload_for(project), hook_env, stub_bin=stub_bin))
     assert t is None          # no epic match, and the branch has no ref shape of its own
     assert calls.exists()     # stage 6 really ran and called gh
+
+
+# --- Task 6: AI tail -------------------------------------------------------------
+
+TRANSCRIPT = "\n".join([
+    json.dumps({"type": "user", "message": {"content": "let's wire the webhook"}}),
+    json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "wiring the board webhook now"}]}}),
+]) + "\n"
+
+
+def ai_env(hook_env):
+    env = dict(hook_env)
+    env.pop("AIT_TITLE_NO_AI")
+    return env
+
+
+def claude_stub(tmp_path, phrase="wiring board webhook"):
+    return make_stub(tmp_path, "claude", f'cat > /dev/null\necho "{phrase}"')
+
+
+def test_ai_tail_on_resume(project, hook_env, tmp_path):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    (project / "transcript.jsonl").write_text(TRANSCRIPT)
+    stub = claude_stub(tmp_path)
+    t = title_of(run_hook(payload_for(project, source="resume"), ai_env(hook_env), stub_bin=stub))
+    assert t == "WB-7657 subscription-gates · wiring board webhook"
+
+
+def test_no_ai_tail_on_startup(project, hook_env, tmp_path):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    (project / "transcript.jsonl").write_text(TRANSCRIPT)
+    stub = claude_stub(tmp_path)
+    t = title_of(run_hook(payload_for(project, source="startup"), ai_env(hook_env), stub_bin=stub))
+    assert t == "WB-7657 subscription-gates"
+
+
+def test_no_ai_env_flag_respected(project, hook_env, tmp_path):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    (project / "transcript.jsonl").write_text(TRANSCRIPT)
+    stub = claude_stub(tmp_path)
+    t = title_of(run_hook(payload_for(project, source="resume"), hook_env, stub_bin=stub))
+    assert t == "WB-7657 subscription-gates"
+
+
+def test_overlong_ai_output_is_dropped(project, hook_env, tmp_path):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    (project / "transcript.jsonl").write_text(TRANSCRIPT)
+    stub = claude_stub(tmp_path, "this is a rambling seven word answer here")
+    t = title_of(run_hook(payload_for(project, source="resume"), ai_env(hook_env), stub_bin=stub))
+    assert t == "WB-7657 subscription-gates"
+
+
+def test_ai_tail_suppresses_next_ref(project, hook_env, gh_stub, tmp_path):
+    stub_bin, _ = gh_stub
+    git(project, "switch", "-c", "feat/board-support")
+    (project / "transcript.jsonl").write_text(TRANSCRIPT)
+    claude_bin = claude_stub(tmp_path)
+    env = ai_env(hook_env)
+    env["PATH"] = f"{claude_bin}:{env['PATH']}"
+    t = title_of(run_hook(payload_for(project, source="resume"), env, stub_bin=stub_bin))
+    assert t == "#42 board-support · wiring board webhook"
+
+
+def test_cap_drops_overflowing_part_and_after(project, hook_env, tmp_path):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates-and-billing")
+    tp = project / "transcript.jsonl"
+    tp.write_text(TRANSCRIPT)
+    backdate(tp, 2)
+    stub = claude_stub(tmp_path, "reworking the whole subscription")
+    t = title_of(run_hook(payload_for(project, source="resume"), ai_env(hook_env), stub_bin=stub))
+    # anchor (31) + tail (32) + separators > 64 → tail and idle both dropped.
+    assert t == "WB-7657 subscription-gates-and-b"

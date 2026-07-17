@@ -139,8 +139,25 @@ if [ "$backend" = "github" ] && [ -n "$branch" ] && command -v gh >/dev/null 2>&
   fi
 fi
 
-# --- stage 7: AI tail (populated in a later task) -------------------------------
+# --- stage 7: AI tail (resume only; hard-bounded; recursion-guarded) -------------
 ai_tail=""
+if [ "$src" = "resume" ] && [ -z "${AIT_TITLE_NO_AI:-}" ] && [ -s "$transcript_path" ] \
+  && command -v claude >/dev/null 2>&1; then
+  excerpt="$(jq -r '
+      select(.type == "user" or .type == "assistant") | .message.content
+      | if type == "string" then .
+        elif type == "array" then (.[] | select(type == "object" and .type == "text") | .text)
+        else empty end' "$transcript_path" 2>/dev/null | tail -n 40 | tail -c 4000)" || excerpt=""
+  if [ -n "$excerpt" ]; then
+    prompt="Output ONLY a lowercase phrase of at most 5 words describing what this coding session is working on right now. No punctuation, no quotes."
+    ai_tail="$(printf '%s\n\n<session-excerpt>\n%s\n</session-excerpt>\n' "$prompt" "$excerpt" \
+      | AIT_TITLE_GUARD=1 tmo 8 claude -p --model haiku 2>/dev/null)" || ai_tail=""
+    ai_tail="$(printf '%s' "$ai_tail" | head -1 \
+      | sed -E "s/^[\"' ]+//; s/[\"' .]+\$//" | cut -c1-40)"
+    words="$(printf '%s' "$ai_tail" | wc -w | tr -d ' ')"
+    [ "${words:-0}" -gt 5 ] && ai_tail=""
+  fi
+fi
 
 # --- stage 8: idle marker --------------------------------------------------------
 idle=""
