@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`/resume-initiative` drift reconciliation (#85).** Every resumed
+  node now diffs its `## Children` mirror against the backend's
+  `list_child_issues` (one added call per node) and prints a drift
+  report above the child tree — unmirrored native children and dead
+  mirror entries surface immediately; a consistent epic prints nothing.
+  Mode 1 roots gain a `· ⚠ drift: N` annotation. Epics may opt in to a
+  body-declared `## Scope probe` command whose output is diffed against
+  enumerated scope; unenumerated items get an offered (never automatic)
+  `followup-tracking` filing with the new `drift` deferral reason.
+  Resume stays read-only except that confirmed filing; mirror repair
+  remains `initiative-tracking`'s adoption procedure. No new backend
+  contract operation.
+
 ## [1.6.0] - 2026-07-11
 
 ### Added
