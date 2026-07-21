@@ -120,6 +120,20 @@ leaf. The authoritative signal is still that the child carries the
 the command falls back to the label check. The leading
 `- [ ] <ref> — <title>` grammar is unchanged.
 
+## Scope probe
+OMIT this whole section unless the initiative enumerates a countable
+ground-truth work set (a test migration, a lint sweep). When present,
+`/resume-initiative` runs the command below on resume and diffs its
+output (one item per line) against this node's enumerated scope,
+surfacing unenumerated items — see the `initiative-tracking` skill's
+"Scope probe — optional ground-truth hook" for the exact spec and
+trust model. The first fenced code block under this heading holds the
+command; it runs from the consumer repo root.
+<one line saying what the probe enumerates>
+```sh
+<command printing one ground-truth item per line>
+```
+
 ## Decision log
 Append-only — each entry is dated and one paragraph. Record
 non-trivial decisions made during a sub-issue's PR: the rationale
