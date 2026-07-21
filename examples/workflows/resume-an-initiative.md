@@ -47,6 +47,24 @@ Children:
 Pick up the next-up child (#203), pick a specific one, or stop?
 ```
 
+If the mirror had drifted — say `#205` was filed and natively linked as
+a child but never added to the `## Children` mirror — a drift report
+prints above the children (a fully-consistent epic prints nothing):
+
+```text
+Drift report — #200 extract shared logging into obs/logging
+  ⚠ #205 — "obs/logging metrics shim" (open) — in tracker, missing from ## Children mirror
+  → reconcile via initiative-tracking's adoption procedure (tracker wins)
+```
+
+Epics that enumerate a countable work set can additionally declare a
+`## Scope probe` (see [`initiative-tracking`](../../skills/initiative-tracking/SKILL.md)
+"Scope probe — optional ground-truth hook"): a body-declared command
+whose output `/resume-initiative` diffs against the enumerated scope,
+offering a [`followup-tracking`](../../skills/followup-tracking/SKILL.md)
+filing (`Why deferred: drift`) for each unenumerated item. Declining
+files nothing — resume never writes except the confirmed filing.
+
 You answer "next-up" — recurses into Mode 3 with `#203`.
 
 ## Mode 3 — `<ref> --start`: enter the worktree for the next child
@@ -87,6 +105,7 @@ This is the canonical cross-backend index. Native sub-issue API queries (e.g. Gi
 - **No machine-readable Status block** — if the epic body was hand-edited away from the canonical four-line format, the command reports "epic exists but has no machine-readable status; update via the `initiative-tracking` skill or use `view_issue` directly" and stops.
 - **No open epics** — Mode 1 reports "no open epics" and exits cleanly.
 - **`Next up: none`** — Mode 3 (`--start`) refuses to create a worktree from nothing; reports "no next-up child to start" and exits.
+- **Drifted mirror** — a native child missing from the `## Children` mirror (or a dead mirror entry) prints a drift report above the child tree; remediation is `initiative-tracking`'s adoption procedure, never an auto-edit. A live mirror entry without a native link is NOT flagged (cross-repo / past the backend's native ceiling is legitimate — invariant 6).
 
 ## See also
 
