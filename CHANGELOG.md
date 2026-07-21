@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`/work-issue` start-side initiative status lifecycle (#86).** Step 3 now
+  reflects "work has started" into initiative state on any configured backend,
+  all best-effort (WARN-and-continue, never blocking the run): it discovers the
+  parent epic from the child body's `## Parent epic` block (portable — not the
+  backend's `parent?` field), syncs the epic Status block's `Current branch` +
+  `Last updated` via read-modify-write `edit_body`, and marks the child in
+  progress via per-backend **optional affordances** — GitHub Projects board
+  Status → `In Progress` when `github.project` is set; a Jira workflow
+  transition via the new optional `jira.in_progress_transition` config key
+  (default unset = no-op, resolved by name to a workflow-scoped id at runtime).
+  Documented in `skills/initiative-tracking/SKILL.md` ("In-progress status
+  (optional affordances)"), `backends/jira.md` ("In-progress transition
+  (optional)"), `backends/github.md`, `backends/_interface.md`, and
+  `examples/issue-tracker.yaml.example`. **No** backend-contract change — the
+  eight operations are untouched (op-parity CI stays green). The close-side
+  half (epic `## Children`/`Phase`/`Next up` maintenance after a child closes)
+  is deferred to follow-up #87 and the `/resume-initiative --start` affordance
+  parity to follow-up #88, both coordinated with the in-flight #85.
+
 ## [1.6.0] - 2026-07-11
 
 ### Added
