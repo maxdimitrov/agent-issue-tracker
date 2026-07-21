@@ -497,6 +497,20 @@ sub-epic is just an epic that also has a parent.
 | Closed | initiative shipped | preserved as history; design spec link still valid |
 | Closed + reason `not_planned` | abandoned | comment explains why; surviving children get triaged separately via `bug-tracking` / `feature-request` / `followup-tracking` |
 
+## Session titles
+
+Sessions in a configured project are auto-titled at start/resume by the
+plugin's SessionStart hook (`<ref> <slug> · <what it was doing> · idle Nd`).
+Hooks cannot retitle a running session — so when the working focus shifts to
+a different issue/epic mid-session, or the issue being driven completes,
+offer the operator a paste-ready rename line, e.g.:
+
+    /rename #42 board-support — done
+
+Agents cannot run `/rename`; only the operator can paste it. Offer once per
+focus shift, not on every message. If the operator manually renames a
+session, the hook never overwrites their name.
+
 ## Returning the epic ref
 
 When the skill is invoked as part of a brainstorm →

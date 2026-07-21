@@ -24,7 +24,7 @@ A vague body wastes an agent run. A structured body gets a draft PR back.
 
 ## Release process
 
-Before any release tag is pushed, the seven smoke scenarios must run against a real GitHub-backed repo and a real Jira project, then against the published plugin install on a clean machine:
+Before any release tag is pushed, the eight smoke scenarios must run against a real GitHub-backed repo and a real Jira project, then against the published plugin install on a clean machine:
 
 1. **GitHub backend smoke** — file one bug, one feature, one followup, and one epic-with-sub-issue against `maxdimitrov/agent-issue-tracker` itself. Verify labels, body shape, and sub-issue linkage. Close all five after verification.
 2. **Jira backend smoke** — same five-issue flow against a real Jira project (the operator's work project or a dedicated `agent-issue-tracker-smoketest` subproject). Verify field mappings, parent link, and ADF rendering.
@@ -33,10 +33,14 @@ Before any release tag is pushed, the seven smoke scenarios must run against a r
 5. **`/resume-initiative` against a real existing epic** — verify the parser handles its Status block, `## Children` task-list mirror, and Decision log.
 6. **Install path against the published repo (added v1.0.1, #35)** — on a clean machine, `claude plugin marketplace add maxdimitrov/agent-issue-tracker` and `claude plugin install agent-issue-tracker` both exit 0; `~/.claude/plugins/installed_plugins.json` records the just-tagged version. Catches `marketplace.json` regressions.
 7. **Plugin loads enabled post-install (added v1.0.2, #37)** — same clean-machine session, `claude plugin list` shows the plugin as `Status: ✔ enabled` (not `✘ failed to load`); `claude plugin details agent-issue-tracker` reports all 9 components (6 skills + 3 commands); in a fresh CC session opened against the install, `/tracker-doctor`, `/tracker-init`, and `/resume-initiative` are resolvable as slash commands. Catches `plugin.json.dependencies` cross-marketplace-resolution regressions.
+8. **Session-title hook** — in a real configured repo, resume a stale
+   session and confirm the tab title carries `<ref> <slug>` (+ `idle Nd`);
+   manually rename it, resume again, confirm the hook left the manual name
+   untouched.
 
 Record each smoke's outcome under the new release's `### Release-gate smokes` sub-section in `CHANGELOG.md`. The release tag's annotation message must name the smoke gate and any deferrals.
 
-If smoke 2 (Jira) cannot run in the release session (Atlassian connector not configured), document the deferral with reason. The other six MUST pass before tagging — a failed smoke blocks the tag with no exception. Smokes 6 and 7 specifically require a tag candidate to exist (so the marketplace-add + install pull the candidate); the practical sequence is: smokes 1-5 pass → push candidate tag to a feature branch → run smokes 6-7 → if green, tag `main` at the merge commit.
+If smoke 2 (Jira) cannot run in the release session (Atlassian connector not configured), document the deferral with reason. The other seven MUST pass before tagging — a failed smoke blocks the tag with no exception. Smokes 6 and 7 specifically require a tag candidate to exist (so the marketplace-add + install pull the candidate); the practical sequence is: smokes 1-5 pass → push candidate tag to a feature branch → run smokes 6-7 → if green, tag `main` at the merge commit.
 
 Then tag:
 
