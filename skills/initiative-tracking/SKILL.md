@@ -23,7 +23,7 @@ description: >-
   tree; see "Nested initiatives". An epic may declare an optional
   `## Scope probe` (an operator-authored ground-truth command) that
   `/resume-initiative` diffs against enumerated scope on resume,
-  surfacing drift — see "Scope probe".
+  surfacing drift — see "Scope probe — optional ground-truth hook".
 ---
 
 # Initiative Tracking — Multi-Week Effort as Epic + Sub-Issues

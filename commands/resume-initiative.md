@@ -87,11 +87,14 @@ failed`) and skips reconciliation for that node; never crash.
 ### Part 2 — `## Scope probe` ground truth (opt-in, Mode 2/3 only)
 
 If the node's body declares a `## Scope probe` section (spec: the
-`initiative-tracking` skill's "Scope probe" section), run it: the
-**first fenced code block** under the heading holds an operator-authored
-shell command; execute it from the consumer repo root (the session CWD)
-under the session's normal tool permissions, showing the command to the
-operator first. Its stdout is the ground-truth work set, one item per
+`initiative-tracking` skill's "Scope probe — optional ground-truth hook"
+section), run it: the **first fenced code block** under the heading
+holds an operator-authored shell command; execute it from the consumer
+repo root (the session CWD) under the session's normal tool permissions,
+showing the command to the operator first — this is untrusted
+operator-authored shell embedded in an issue body; see the
+`initiative-tracking` skill's "Scope probe — optional ground-truth
+hook" Trust model. Its stdout is the ground-truth work set, one item per
 line, blank lines ignored. Diff it against the declaring node's subtree:
 
 - An item is **enumerated** iff its text appears as a literal
@@ -137,7 +140,8 @@ Drift report — #123 engine/operator split
   ⚠ probe: 4 items present but unenumerated:
       Tests/AccountTests.swift
       Tests/BillingTests.swift
-      …and 2 more
+      Tests/CheckoutTests.swift
+      Tests/InventoryTests.swift
   → mirror findings: reconcile via initiative-tracking's adoption procedure (tracker wins)
   → unenumerated items: file follow-ups? [all / pick / none]
 ```
@@ -161,9 +165,9 @@ probe → print nothing.
 
 4. **Resolve next-up to a leaf and roll up progress.** If a root's `Next up` ref is itself a sub-epic (carries `epic`), drill into it per "Tree traversal" until you reach a leaf, and remember the path. Separately, walk the subtree to compute the rolled-up `<closed-leaves>/<total-leaves>` for display. Honour all three "Tree traversal" guards (depth cap, cycle guard, mixed-backend skip) on every hop of both the Next-up drill and the subtree walk.
 
-During the same walk, run the drift reconciliation **Part 1** diff per
-node (see "Drift reconciliation (per node)"; probes never run in
-Mode 1) and count findings across the subtree.
+   During the same walk, run the drift reconciliation **Part 1** diff per
+   node (see "Drift reconciliation (per node)"; probes never run in
+   Mode 1) and count findings across the subtree.
 
 5. Render a compact list to the operator — show the root's direct-child phase count, the rolled-up leaf count, and the next-up **leaf** (with its drill path when nested). Append `· ⚠ drift: <N>` to a root's line when its subtree has N > 0 mirror-vs-native findings; N = 0 renders nothing:
    ```
@@ -221,9 +225,9 @@ Mode 1) and count findings across the subtree.
 
 1. Run Mode 2 to resolve the next-up **leaf** — drilling through any intermediate sub-epics per "Tree traversal" (step 5 of Mode 2). The target MUST be a leaf (a non-`epic`-labelled child); a sub-epic is never directly startable. If the resolved `Next up` is the literal `none`, the subtree has no open leaves, or no leaf can be located, STOP — report `no next-up leaf to start; <ref> has no open leaves` and exit. Do NOT attempt worktree creation from nothing. Report the drill path (`<ref> ▸ … ▸ <leaf>`) so the operator sees which leaf was chosen.
 
-Mode 2's drift report prints as part of this run; when it offers
-follow-up filings, ask **once** before entering the worktree —
-declining proceeds straight into the leaf.
+   Mode 2's drift report prints as part of this run; when it offers
+   follow-up filings, ask **once** before entering the worktree —
+   declining proceeds straight into the leaf.
 
 2. If a worktree for that child already exists (convention: `.claude/worktrees/<branch-with-slash-replaced-by-plus>`), report its path and stop. Otherwise:
 
