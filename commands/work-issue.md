@@ -6,7 +6,7 @@ description: Drive ONE named issue end-to-end through the full mandated agent pi
 
 Take a single named issue and drive it to a PR through the full mandated agent workflow. `/work-issue` is the single-issue counterpart to [`/resume-initiative`](resume-initiative.md): where `/resume-initiative` is epic/initiative-oriented (it walks an initiative tree and picks the next workable leaf), `/work-issue` takes ONE issue you name and runs it end-to-end — read the body, assess scope, create an isolated worktree, then brainstorm → plan → execute → verify → open a PR. The configured backend is resolved from `.claude/issue-tracker.yaml` in the consumer project, the same as `/resume-initiative`.
 
-It is **backend-agnostic**: it dispatches ONLY through the contract operations in [`backends/_interface.md`](../backends/_interface.md) — `view_issue` (always) and, where the workflow surfaces a label/close action, `add_label` / `close_issue`. It never adds a new operation and never reaches past the contract into a backend's raw CLI / MCP. `<ref>` is opaque: `#N`, `owner/repo#N` (cross-repo GitHub), or `PROJ-123` (Jira) — only the backend parses it. See `backends/<backend>.md` for the literal calls.
+It is **backend-agnostic**: it dispatches ONLY through the contract operations in [`backends/_interface.md`](../backends/_interface.md) — `view_issue` (always); `edit_body` (start-side epic Status sync, best-effort); and, where the workflow surfaces a label/close action, `add_label` / `close_issue`. It never adds a new operation and never reaches past the contract into a backend's raw CLI / MCP. `<ref>` is opaque: `#N`, `owner/repo#N` (cross-repo GitHub), or `PROJ-123` (Jira) — only the backend parses it. See `backends/<backend>.md` for the literal calls.
 
 ## Why a slash command, not a subagent
 
@@ -16,7 +16,7 @@ It is **backend-agnostic**: it dispatches ONLY through the contract operations i
 
 | Command | Scope | Pipeline | Backend | Session | Bail behaviour |
 |---|---|---|---|---|---|
-| `/work-issue <ref>` | ONE named issue | Full mandated pipeline (scope-graded: trivial → TDD-implement-verify; non-trivial → brainstorm → plan → execute) | Backend-agnostic (`view_issue`, optional `add_label` / `close_issue`) | Main session (creates worktrees, dispatches implementer subagents) | **Never bails for size** — a non-trivial verdict *escalates rigor*, it does not refuse |
+| `/work-issue <ref>` | ONE named issue | Full mandated pipeline (scope-graded: trivial → TDD-implement-verify; non-trivial → brainstorm → plan → execute) | Backend-agnostic (`view_issue`, best-effort `edit_body`, optional `add_label` / `close_issue`) | Main session (creates worktrees, dispatches implementer subagents) | **Never bails for size** — a non-trivial verdict *escalates rigor*, it does not refuse |
 | `/resume-initiative <ref>` | An epic **tree** → its next-up **leaf** | Walks the tree, resolves the next workable leaf, then hands that leaf into the same pipeline | Backend-agnostic (`list_open_issues`, `view_issue`) | Main session (enters the leaf's worktree, hands off inline) | Stops only when there is no open leaf to start |
 | A consumer's trivial-only headless auto-fixer | ONE issue, **only if trivially scoped** | Triages, fixes inline if trivial, opens a draft PR | Typically project-local + GitHub-specific | Headless (no operator) | **Bails** to manual handling the moment scope is non-trivial (open design question, fuzzy acceptance, large blast radius) |
 
@@ -73,6 +73,32 @@ Reuse `/resume-initiative` Mode-3's worktree mechanics **verbatim**:
 
    The worktree directory keeps its `<sanitized>` name (matching the on-disk convention `feat+<slug>`); only the branch is renamed.
 
+**Start-side initiative sync (best-effort).** Immediately after the worktree
+exists, reflect "work has started" into the initiative state. Every step here is
+best-effort: a failure emits a WARN and never blocks the run, the worktree, or the
+eventual PR. With no `.claude/issue-tracker.yaml`, skip the whole block (fail-open).
+
+1. **Discover the parent epic — from the body, not the backend.** Parse the issue
+   body (fetched at Step 1) for a `## Parent epic` block; the ref opening its first
+   non-blank line names the immediate parent (`templates/sub-issue-body.md` pins the
+   shape). This is the portable cross-backend signal — do NOT rely on `view_issue`'s
+   `parent?` field, which is absent on GitHub plain reads (`backends/_interface.md`).
+   No `## Parent epic` block → not an initiative child; skip step 2 (step 3's
+   in-progress marking still applies).
+2. **Sync the epic Status block.** `view_issue(parent)` → read-modify-write per
+   cross-backend invariant 2: set the Status block's `- **Current branch:**` line to
+   the new branch name and `- **Last updated:**` to today (`YYYY-MM-DD`), then
+   `edit_body(parent, new_body)`. Touch NOTHING else — not `Phase`, not `Next up`,
+   not the `## Children` mirror; those are close-side Maintenance
+   (`skills/initiative-tracking/SKILL.md`, tracked as follow-up #87). Parent
+   unfetchable, or its body has no Status block → WARN and skip.
+3. **Mark the issue in progress** via the backend's configured affordance — see
+   `skills/initiative-tracking/SKILL.md` "In-progress status (optional affordances)":
+   GitHub with `github.project` set → board item Status `In Progress`
+   (`backends/github.md`); Jira with `jira.in_progress_transition` set → fire that
+   workflow transition (`backends/jira.md`). Neither configured → no-op; the
+   `Current branch` line from step 2 is the fallback signal.
+
 `EnterWorktree` switches the session's CWD into the worktree — do **NOT** stop and tell the operator to open a new window. The driver continues inline in the same session.
 
 ### Step 4 — Execute
@@ -105,7 +131,7 @@ Run `superpowers:finishing-a-development-branch`: open a PR whose body links the
 ## Conventions assumed
 
 - **The issue body is an agent prompt.** Every issue this plugin files carries the agent-prompt shape (Goal, Locus, Skills to load, Constraints, Acceptance, Verify) per the `bug-tracking` / `feature-request` / `followup-tracking` skills. `/work-issue` uses that body as starting context; it does not re-derive the problem. A body too vague to drive a run is itself the finding — report it and stop rather than inventing scope.
-- **`.claude/issue-tracker.yaml` selects the backend.** The same config `/resume-initiative` and `/tracker-doctor` read. `/work-issue` dispatches `view_issue` (and any `add_label` / `close_issue`) through `backends/<backend>.md`; it never calls a backend's raw CLI / MCP directly.
+- **`.claude/issue-tracker.yaml` selects the backend.** The same config `/resume-initiative` and `/tracker-doctor` read. `/work-issue` dispatches `view_issue`, the start-side sync's `edit_body`, and any `add_label` / `close_issue` through `backends/<backend>.md`; it never calls a backend's raw CLI / MCP directly.
 - **Worktree-first.** All work happens in an isolated worktree on a `feat/` | `fix/` | `docs/` branch — never on `main` in the primary working tree. This keeps the operator's primary checkout stable for any long-running processes while the run proceeds.
 
 ## Failure modes
@@ -116,3 +142,4 @@ Run `superpowers:finishing-a-development-branch`: open a PR whose body links the
 - **A worktree for this issue already exists** → enter it (`.claude/worktrees/<branch-with-slash-replaced-by-plus>`) instead of creating a duplicate; report its path and continue.
 - **The issue body is too vague to drive a run** (no locus, fuzzy acceptance, an unresolved open design question) → report that the body is unfileable-as-an-agent-prompt and stop. The fix is to enrich the issue (or file a `needs-design` issue first), not to invent scope. `/work-issue` escalating rigor for a *non-trivial-but-well-specified* issue is different from a *vague* one — the former gets the full pipeline, the latter gets reported back.
 - **Cross-repo `owner/repo#N` ref** → the worktree is created in the consumer's current working directory regardless; only the `view_issue` body fetch hits the child's repo via the backend. The backend module documents how it handles cross-repo refs.
+- **Start-side initiative sync fails** (parent epic unfetchable, Status block missing, board write or transition rejected) → WARN and continue; status writes never block the run. The epic catches up on the close side (follow-up #87).
