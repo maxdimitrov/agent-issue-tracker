@@ -52,6 +52,10 @@ One of:
 - **clarity** — open design question; tag `needs-design`.
 - **dependency** — blocked on <issue / PR / external ref>.
 - **time** — capacity, not unreadiness.
+- **drift** — surfaced by drift reconciliation: `/resume-initiative`'s
+  scope probe found the item in ground truth but it was never
+  enumerated in the initiative's scope. Parent = the epic node whose
+  reconciliation surfaced it.
 
 The next agent uses this to judge whether the deferral was about
 capacity (do it now if you have time) or unreadiness (don't touch
