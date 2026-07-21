@@ -28,8 +28,9 @@ for the literal `gh project` calls and scope setup
   task-list mirror" section), add it to the board and set Status `Todo`. Applies
   to every node: root epic, sub-epics, and leaves, including cross-repo
   `owner/repo#N` children (added by full issue URL).
-- **In Progress** — set by `/resume-initiative --start` when a child's worktree is
-  entered. See `commands/resume-initiative.md`.
+- **In Progress** — set when a driver starts work on a child and its worktree is
+  entered — `/resume-initiative --start` (see `commands/resume-initiative.md`) or
+  `/work-issue` (see `commands/work-issue.md`).
 - **Done** — when a child closes (see `SKILL.md` "Maintenance" step 6), set Status
   `Done`.
 

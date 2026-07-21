@@ -229,8 +229,9 @@ URL — the same call works regardless of which repo the issue lives in.
 
 ### Set Status on an item already on the board
 
-When the issue was added earlier (close -> `Done`; `--start` -> `In Progress`),
-resolve its item id by content URL first:
+When the issue was added earlier (close -> `Done`; work-start -> `In Progress` —
+set by `/resume-initiative --start` or `/work-issue`), resolve its item id by
+content URL first:
 
     ITEM_ID=$(gh project item-list <N> --owner <owner> --format json -L 200 \
       --jq '.items[] | select(.content.url=="<issue-url>") | .id')
@@ -243,5 +244,6 @@ Best-effort: if the item isn't in the fetched page, WARN and skip.)
 Every `gh project` call here is **best-effort**. Any failure — missing `project`
 scope, unreachable board, GraphQL error, absent `Status` field — is a WARN, never a
 block: the underlying `create_issue` / `link_sub_issue` / `close_issue` /
-`/resume-initiative --start` operation still succeeds. The `## Children` mirror is
-the source of truth; a degraded board never blocks an initiative operation.
+`/resume-initiative --start` / `/work-issue` operation still succeeds. The
+`## Children` mirror is the source of truth; a degraded board never blocks an
+initiative operation.
