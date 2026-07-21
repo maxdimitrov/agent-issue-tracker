@@ -465,8 +465,35 @@ markdown→ADF translation handled by the MCP) satisfy the
 destructive-edit invariant.
 
 Optional — a CI job that does steps 1-3 automatically on
-issue-closed events. Out of scope for this skill; a candidate
-follow-up `feature-request`.
+issue-closed events. Out of scope for this skill; the close-side
+automation/reconcile work is tracked as follow-up #87
+(coordinated with #85).
+
+## In-progress status (optional affordances)
+
+"This issue is being worked" has no cross-backend primitive —
+`close_issue` is the contract's only state-change operation. The
+in-progress signal is therefore a per-backend **optional
+affordance** (see `backends/_interface.md` "Optional
+backend-specific capabilities"), set by a driver when work starts
+(`/work-issue` Step 3 today; `/resume-initiative --start` via
+follow-up #88):
+
+- **GitHub** — `github.project` configured → set the child's
+  board item Status to `In Progress` (see `backends/github.md`).
+- **Jira** — `jira.in_progress_transition` configured → fire that
+  workflow transition (see `backends/jira.md` "In-progress
+  transition (optional)").
+- **Neither configured** — the parent epic's Status block
+  `- **Current branch:**` line (set by `/work-issue`'s start-side
+  sync, alongside a `Last updated` bump) is the fallback signal;
+  a parentless issue gets no marker. No-op, run proceeds.
+
+Every such write is best-effort: a failure WARNs and never blocks
+the run, the worktree, or the file operation. Start-side writes
+touch ONLY `Current branch` + `Last updated` — never `Phase`,
+`Next up`, or the `## Children` mirror (those are close-side
+Maintenance, above).
 
 ## GitHub Projects board (optional)
 
@@ -477,9 +504,9 @@ task-list mirror stays the source of truth, and every board write is best-effort
 (a failure WARNs and never blocks the issue operation). With `github.project`
 unset, skip it entirely; behaviour is unchanged.
 
-The three-state lifecycle (`Todo` on file/link, `In Progress` on
-`/resume-initiative --start`, `Done` on close) and the backfill procedure for an
-existing tree are documented in
+The three-state lifecycle (`Todo` on file/link, `In Progress` when a driver
+starts work — `/resume-initiative --start` or `/work-issue` — `Done` on close)
+and the backfill procedure for an existing tree are documented in
 `skills/initiative-tracking/references/github-projects-board.md`. The literal
 `gh project` calls live in `backends/github.md` "GitHub Projects v2 board
 (optional)". Load the reference only when `github.project` is set.
