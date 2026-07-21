@@ -18,7 +18,9 @@ tmo() { # tmo <seconds> <cmd...> — timeout(1) if available, else run unbounded
   shift
   if command -v timeout >/dev/null 2>&1; then timeout "$s" "$@"; else "$@"; fi
 }
-file_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
+# GNU first: on Linux, BSD-style `stat -f %m` succeeds with filesystem info
+# (garbage here) instead of failing, so it cannot be the probe.
+file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
 hash_key() { if command -v shasum >/dev/null 2>&1; then shasum -a 256; else sha256sum; fi; }
 
 # --- stage 1: recursion + dependency guards -----------------------------------
@@ -86,7 +88,9 @@ if [ -n "$branch" ]; then
   ref="$(printf '%s' "$leaf" | grep -oE '[A-Z][A-Z0-9]+-[0-9]+' | head -1)" || true
   if [ -z "$ref" ]; then
     num="$(printf '%s' "$leaf" | grep -oE '^[0-9]+' | head -1)" || true
-    [ -z "$num" ] && num="$(printf '%s' "$leaf" | grep -oE '(^|-)issue-?[0-9]+' | grep -oE '[0-9]+' | head -1)" || true
+    if [ -z "$num" ]; then
+      num="$(printf '%s' "$leaf" | grep -oE '(^|-)issue-?[0-9]+' | grep -oE '[0-9]+' | head -1)" || true
+    fi
     [ -n "$num" ] && ref="#$num"
   fi
   slug="$(printf '%s' "$leaf" \
@@ -110,6 +114,7 @@ if [ "$backend" = "github" ] && [ -n "$branch" ] && command -v gh >/dev/null 2>&
   fresh=""
   if [ -f "$cache_file" ]; then
     cm="$(file_mtime "$cache_file")" || cm=0
+    case "$cm" in '' | *[!0-9]*) cm=0 ;; esac
     [ $(($(date +%s) - cm)) -lt 86400 ] && fresh=1
   fi
   if [ -z "$fresh" ]; then
@@ -167,6 +172,7 @@ fi
 idle=""
 if [ -f "$transcript_path" ]; then
   m="$(file_mtime "$transcript_path")" || m=""
+  case "$m" in *[!0-9]*) m="" ;; esac
   if [ -n "$m" ]; then
     days=$((($(date +%s) - m) / 86400))
     [ "$days" -ge 1 ] && idle="idle ${days}d"
