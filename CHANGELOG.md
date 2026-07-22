@@ -61,6 +61,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   change. Design:
   `docs/superpowers/specs/2026-07-16-session-titles-design.md`.
 
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", run 2026-07-23 (the release
+commit landed 2026-07-22 via #93/#94; the tag waited on this gate).
+
+- **1. GitHub backend smoke — PASS.** Filed bug (#95), feature (#96),
+  followup (#97), and an epic (#98) with a linked sub-issue (#99) against
+  this repo. Verified labels (`bug`; `enhancement`; `enhancement`+`followup`;
+  `epic`; `enhancement`), `edit_body` (epic `#TBD` → `#99` rewrite), and
+  native sub-issue linkage (#98 → #99 via the typed-integer `sub_issues`
+  API, confirmed by GET). All five closed after verification.
+- **2. Jira backend smoke — DEFERRED.** Atlassian connector not configured
+  this session; `backends/jira.md` is unchanged this release, so Jira
+  dispatch is identical to 1.6.0.
+- **3. `/tracker-init` from blank state — PASS (GitHub static slice).**
+  `examples/issue-tracker.yaml.example` parses and carries the new
+  `session_titles:` key; the GitHub-shape config was live-validated via
+  smoke 4's PASS path. Interactive Jira scaffold deferred with smoke 2.
+- **4. `/tracker-doctor` — PASS.** All three routings verified: valid
+  config → Phase 2 probes 1–3 PASS live (`gh auth status`, `gh repo view`,
+  `view_issue(#1)` returned a structured issue); missing-area config →
+  Phase 3 WARN route (label search for a nonexistent area returns empty →
+  paste-able `gh label create` remediation); malformed YAML → parse error
+  at its line, Phase 1 FAIL stops Phases 2–3, summary still prints, exit 0.
+  New Phase 4 prerequisites: `jq` 1.8.1 found, state dir writable.
+- **5. `/resume-initiative` against real epic #59 — PASS.** Status block
+  (all four fields), `## Phases`, `## Children` mirror, and Decision log
+  all parse; next-up #56 correctly surfaced as `needs-design`-blocked. New
+  drift reconciliation: mirror (5 × `[x]`, 1 × `[ ]`) diffed against
+  `list_child_issues` natives (5 closed, 1 open) — fully consistent, drift
+  report correctly empty.
+- **6. Install path — PASS (isolated-config-dir variant).** No clean
+  machine available; substituted a bare `CLAUDE_CONFIG_DIR`. `claude
+  plugin marketplace add maxdimitrov/agent-issue-tracker` and `claude
+  plugin install agent-issue-tracker` both exit 0; the install records
+  version **1.7.0**. (Sim note: a deep temp path first tripped Windows
+  MAX_PATH during the marketplace clone — environment artifact, default
+  `~/.claude` paths are unaffected.)
+- **7. Plugin loads enabled post-install — PASS.** In the same isolated
+  dir: with the `superpowers@claude-plugins-official` dependency absent
+  the plugin reports `failed to load` with the exact remediation string
+  (dependency-error path verified); after `marketplace add
+  anthropics/claude-plugins-official` + dependency install, `claude plugin
+  list` shows `✔ enabled` and `claude plugin details` reports all
+  sixteen components (6 skills + 9 commands + 1 SessionStart hook) at
+  1.7.0. Fresh-session slash-command resolution covered by the details
+  inventory (no interactive session in a headless gate).
+- **8. Session-title hook — PASS.** End-to-end against a real temp git
+  repo + tracker config via Git Bash: fresh start on branch
+  `max/87-close-side` with a 3-day-old transcript emitted
+  `#87 close-side · idle 3d`; a simulated operator rename made the next
+  run silent and wrote the `.pinned` state file; a third run stayed
+  silent (pin held). All exits 0 (`AIT_TITLE_NO_AI=1` for determinism —
+  the Haiku tail stage is soft-dependency by design).
+
 ## [1.6.0] - 2026-07-11
 
 ### Added
