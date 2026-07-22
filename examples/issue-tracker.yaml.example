@@ -54,6 +54,11 @@ triage:
   needs_design_label: needs-design   # default
   needs_triage_label: needs-triage   # default
 
+# Optional. Set false to disable the SessionStart session-title hook for this
+# project (the hook is already a no-op in projects without this config file).
+# Default: true.
+session_titles: true
+
 # REQUIRED if `backend: github`. GitHub backend config.
 github:
   # REQUIRED. The "owner/repo" of the tracker repo (where issues are filed).

@@ -1,6 +1,6 @@
 # agent-issue-tracker
 
-Portable issue-tracking skills + slash commands for Claude Code. Six skills, nine slash commands, two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
+Portable issue-tracking skills + slash commands for Claude Code. Six skills, nine slash commands, one session-title hook, two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
 
 ## What this is
 
@@ -81,6 +81,21 @@ Enable the Atlassian connector in [claude.ai](https://claude.ai) → Settings �
 Every consuming project commits one `.claude/issue-tracker.yaml`. It declares the backend, the project's vocabulary (areas, subsystems), and any backend-specific overrides (Jira issue-type mapping, parent-link style, custom workflow transitions). The fully-commented schema lives at [`examples/issue-tracker.yaml.example`](examples/issue-tracker.yaml.example) — read it once; you'll override maybe three keys.
 
 `.claude/issue-tracker.yaml` is the only configuration surface. No env-var overrides in v1; no global `~/.claude/issue-tracker.yaml`. Both are filed as v2 follow-on issues.
+
+## Session titles
+
+In a configured project, a `SessionStart` hook titles each Claude Code
+session (the VS Code tab name) at start/resume: issue/epic ref from the git
+branch, the epic's next-up child when the GitHub backend can resolve it, a
+≤5-word Haiku summary of what the session was last doing, and an `idle Nd`
+staleness marker. Example: `#42 board-support · wiring webhook · idle 3d`.
+
+Fail-open by design: no `.claude/issue-tracker.yaml` → no-op; manual renames
+are never overwritten; any failure (no `jq`, no network, no `gh`) leaves the
+title alone. Disable per-project with `session_titles: false`. Titles update
+only at start/resume — mid-session focus shifts get a paste-ready `/rename`
+suggestion from the `initiative-tracking` skill instead. Jira projects get
+branch refs + AI summaries but no epic enrichment (hooks cannot reach MCP).
 
 ## Walkthroughs
 
