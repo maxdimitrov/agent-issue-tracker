@@ -149,6 +149,7 @@ Emit the following blocks conditionally:
   - `epic_link_field: customfield_10014` — emit ONLY if `parent_link_style: epic_link`
   - `done_transition: Done` (render explicitly; this is the schema default)
   - `close_on_merge_hint: ""` (render explicitly with empty string; advisory text for the operator)
+  - `in_progress_transition` — omit entirely (optional, default unset; the in-progress affordance is opt-in — see `backends/jira.md` "In-progress transition (optional)"). The operator adds it later per the schema example if wanted.
 
 Omit `types:` block entirely (v1 does not prompt for this; plugin defaults apply).
 Omit `triage:` block entirely (same reason).

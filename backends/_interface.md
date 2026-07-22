@@ -148,6 +148,18 @@ initiative's issue tree onto a GitHub Projects board as a human-facing view. It 
 GitHub-only; `backends/jira.md` records it as n/a. It adds **no** contract
 operation: the eight ops stay eight, and op-parity remains green.
 
+The second is **in-progress status marking** — the "this issue is being worked"
+signal a driver sets when work starts (`/work-issue` Step 3 today;
+`/resume-initiative --start` via follow-up #88). It is an affordance, not a ninth
+operation, because it cannot be uniformly implemented: GitHub has no native
+issue-level status (its mechanism is the Projects-board Status field above), while
+Jira's is a workflow transition (`jira.in_progress_transition` — see
+`backends/jira.md` "In-progress transition (optional)"). With neither configured,
+the fallback signal is the parent epic's Status block `Current branch` line,
+written by `/work-issue`'s start-side sync; a parentless issue with nothing
+configured gets no marker — a documented no-op. Every such write is best-effort —
+WARN, never block.
+
 ---
 
 ## Adding a new backend

@@ -64,8 +64,9 @@ github:
   default_pr_close_syntax: "Fixes #N"
 
   # Optional. A user- or org-level GitHub Projects (v2) board URL. When set,
-  # initiative-tracking mirrors the initiative tree onto this board, and
-  # /resume-initiative --start sets a child's Status to In Progress. Best-effort:
+  # initiative-tracking mirrors the initiative tree onto this board, and drivers
+  # that start work on a child (/resume-initiative --start, /work-issue) set its
+  # Status to In Progress. Best-effort:
   # the `## Children` task-list mirror stays canonical; a board failure never
   # blocks an issue operation. Omit for no board behaviour (default).
   # Needs the `project` token scope: gh auth refresh -s project,read:project
@@ -111,6 +112,13 @@ jira:
   # Optional. The transition name to "Done" state in your project's workflow.
   # Default: Done.
   done_transition: Done
+
+  # Optional. The transition name a driver fires to mark an issue "in progress"
+  # when work starts on it (/work-issue Step 3). Resolved by name to a
+  # workflow-scoped id at runtime, per issue. Unset (default) = never
+  # transition — the plugin only fires transitions you opt into. Best-effort:
+  # a failure WARNs and never blocks the run.
+  # in_progress_transition: "In Progress"
 
   # Optional. Advisory text rendered into PR descriptions, telling reviewers
   # how your Jira-PR integration triggers auto-close. Plugin does not enforce
