@@ -233,10 +233,41 @@ The skill prose (`feature-request`, `bug-tracking`) renders `jira.close_on_merge
 3. **`getJiraIssue({cloudId, issueIdOrKey: "<jira.project>-1"})`** — the canonical reachability probe per cross-backend invariant #5. PASS if returns; PASS-WITH-NOTE on 404 (project reachable but `<PROJECT>-1` doesn't exist); FAIL on 401 / 403 (auth wrong, or `cloud_id` doesn't match `site`).
 4. **Vocabulary sanity (WARN-level):** `getJiraProjectIssueTypesMetadata({cloudId, projectIdOrKey})` returns the project's configured issue types (the visible-project list itself comes from `getVisibleJiraProjects`). WARN if any value in `jira.issue_types.*` (the consumer's mappings for the five plugin type keys — `bug`, `feature`, `epic`, `sub`, `followup` — to their Jira issue type names, e.g. `Bug`, `Story`, `Epic`, `Sub-task`, `Task`) is missing from the project's issue type list. No FAIL — vocabulary mismatches are operator setup tasks surfaced informationally; the plugin still works without them (the next `create_issue` will fail noisily at the MCP layer, with a more actionable error message than the plugin could compose preemptively).
 
+## In-progress transition (optional)
+
+**Optional, Jira-only. Not a contract operation** — see [`_interface.md`](_interface.md)
+"Optional backend-specific capabilities". When the consumer's
+`.claude/issue-tracker.yaml` sets `jira.in_progress_transition`, a driver that
+starts work on an issue (`/work-issue` Step 3 today; `/resume-initiative --start`
+once parity follow-up #88 lands) marks the issue in progress by firing the named
+workflow transition:
+
+```
+# Resolve the workflow-scoped transition id at runtime (same rule as close_issue --
+# ids differ per workflow; never hardcode a numeric id)
+transitions = getTransitionsForJiraIssue({cloudId, issueIdOrKey: <ref>})
+id = <the transition whose name matches jira.in_progress_transition>
+
+transitionJiraIssue({cloudId, issueIdOrKey: <ref>, transition: {id: <id>}})
+```
+
+- **Default: unset → no-op.** The plugin never fires a workflow transition the
+  consumer didn't opt into. There is deliberately no `In Progress` default —
+  `done_transition` defaults to `Done` because `close_issue` is a contract
+  operation the skills already invoke; in-progress marking is new, optional
+  behaviour.
+- **Best-effort.** Any failure — the named transition absent from the issue's
+  current workflow state, a permission error, an MCP error — is a WARN, never a
+  block: the driver's run continues unaffected.
+- If `getTransitionsForJiraIssue` does not offer the named transition (already in
+  that state, or the workflow lacks it), WARN and skip — do not hunt for an
+  alternative transition.
+
 ## GitHub Projects v2 board (optional) -- n/a for Jira
 
 Projects-board population is a GitHub-specific affordance (see
 `backends/github.md` "GitHub Projects v2 board (optional)" and `_interface.md`
 "Optional backend-specific capabilities"). It is **not applicable to Jira** -- use
 Jira's own boards. No Jira behaviour change; the `github.project` config key is
-ignored when `backend: jira`.
+ignored when `backend: jira`. The Jira-side in-progress affordance is the
+workflow transition above ("In-progress transition (optional)"), not a board.
