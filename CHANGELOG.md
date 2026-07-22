@@ -56,8 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paste-ready `/rename` nudge for mid-session focus shifts (hooks cannot
   retitle a running session). Tested via pytest subprocess fixtures
   (`tests/test_session_title_hook.py`) riding the existing `python-tests`
-  CI job (a `shellcheck` CI job follows in #92 — the sync could not carry
-  workflow-file changes for token-scope reasons). No backend-contract
+  CI job, plus a `shellcheck` CI job (landed separately via #92 — the
+  sync branch could not carry workflow-file changes). No backend-contract
   change. Design:
   `docs/superpowers/specs/2026-07-16-session-titles-design.md`.
 
