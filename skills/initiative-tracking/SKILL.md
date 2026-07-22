@@ -20,7 +20,10 @@ description: >-
   the *index* over many issues. Initiatives may nest more than one
   level — a child of an epic can itself be an epic (a "sub-epic")
   with its own children — and `/resume-initiative` walks the whole
-  tree; see "Nested initiatives".
+  tree; see "Nested initiatives". An epic may declare an optional
+  `## Scope probe` (an operator-authored ground-truth command) that
+  `/resume-initiative` diffs against enumerated scope on resume,
+  surfacing drift — see "Scope probe — optional ground-truth hook".
 ---
 
 # Initiative Tracking — Multi-Week Effort as Epic + Sub-Issues
@@ -329,6 +332,71 @@ updates `Phase` to `Phase 2 · 2/3 sub-issues closed`, recomputes
 `Next up` to the next open child, bumps `Last updated`, and flips
 the `## Children` task-list entry for `#43` to
 `[x] #43 — ... — closed 2026-05-27`.
+
+## Scope probe — optional ground-truth hook
+
+For enumerate-the-work initiatives (a test migration, a lint sweep —
+epics whose children mirror a countable artifact set), the enumerated
+batch drifts as the codebase moves: files land after the list was
+frozen. An epic node MAY declare a `## Scope probe` section so
+`/resume-initiative` can diff enumerated scope against ground truth on
+every resume (see that command's "Drift reconciliation (per node)").
+
+Exact block spec:
+
+- Heading: `## Scope probe`, anywhere in the epic body (by convention
+  after `## Children`).
+- The **first fenced code block** under the heading holds a shell
+  command; the language tag is advisory. Prose around the fence is
+  ignored by the runner (use it to say what the probe enumerates).
+- The command runs from the **consumer repo root** (the resuming
+  session's CWD), under the session's normal tool permissions, and is
+  shown to the operator before it runs.
+- stdout is the ground-truth work set, **one item per line**; blank
+  lines ignored. Non-zero exit → `/resume-initiative` soft-warns and
+  skips the diff.
+- Scope: the declaring node's own subtree. A sub-epic may declare its
+  own probe.
+- Omit the section entirely when the initiative has no countable ground
+  truth — behaviour is then exactly as before (the probe is opt-in;
+  mirror-vs-linkage reconciliation runs regardless).
+
+**Trust model:** the probe is operator-authored shell embedded in an
+issue body — anyone who can edit the body can put a command there. Only
+declare/run probes on epics whose authorship you trust; the harness's
+own permission layer still gates execution.
+
+### Worked example
+
+The iOS Swift-Testing migration epic that motivated the feature — the
+batch was frozen at 9 files while the directory grew to 13:
+
+````markdown
+## Scope probe
+Lists the in-scope XCTest files still to migrate or already migrated.
+```sh
+git ls-files 'MyAppTests/**/*Tests.swift'
+```
+````
+
+On resume, the four files that landed after the freeze surface as
+`present but unenumerated`, and `/resume-initiative` offers a
+`followup-tracking` filing for each (`Why deferred: drift`, parent =
+this epic). Items matched by a `## Children` mirror line or a live
+child title (literal case-sensitive substring) count as enumerated.
+
+### What resume reconciles even without a probe
+
+`/resume-initiative` always diffs each node's `## Children` mirror
+against the backend's `list_child_issues` — the same invariant the
+adoption procedure enforces ("Reconcile, tracker wins"): the mirror is
+the canonical traversal index, but the tracker's native linkage is
+authoritative for *membership*. Drift (an unmirrored native child, a
+dead mirror entry) is **reported, never auto-repaired** — resume stays
+read-only; the repair path is this skill's adoption procedure. A live
+mirror entry without a native link is NOT drift (invariant 6: native
+linkage is best-effort — cross-repo children and children past a
+backend's ceiling live in the mirror alone).
 
 ## Creating sub-issues
 

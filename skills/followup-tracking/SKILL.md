@@ -95,6 +95,8 @@ Strong triggers:
 - A bug fix exposes a related-but-distinct defect.
 - A feature ships in a minimal form and the next slice has obvious
   work.
+- `/resume-initiative`'s drift report surfaced an unenumerated in-scope
+  item and the operator confirmed filing it.
 
 Do **not** file when:
 
@@ -163,7 +165,11 @@ whether the deferred work is bug-shaped or feature-shaped.
   time. Saves the agent a search round-trip.
 - **Why deferred** — tells the agent whether to pick it up at all. A
   `clarity` deferral with `needs-design` is a hard skip for
-  autonomous agents.
+  autonomous agents. A `drift` deferral marks work surfaced by
+  `/resume-initiative`'s drift reconciliation (an in-scope item the
+  initiative never enumerated) — normally workable immediately, and a
+  candidate for adoption as a proper child of the parent epic via
+  `initiative-tracking`.
 - **Locus + Skills + Constraints + Acceptance + Verify** — same bail
   criteria as plain bugs/features. A great parent block doesn't save
   a follow-up with no acceptance criteria.

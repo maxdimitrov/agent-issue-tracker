@@ -1,0 +1,4 @@
+Tests/AccountTests.swift
+Tests/BillingTests.swift
+Tests/CheckoutTests.swift
+Tests/InventoryTests.swift
