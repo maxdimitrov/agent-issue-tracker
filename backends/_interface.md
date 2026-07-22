@@ -65,7 +65,7 @@ Eight operations. Inputs are tracker-agnostic field names; the backend module tr
 
 ### `list_child_issues`
 
-**Purpose:** List the children of a parent issue — the read-inverse of `link_sub_issue`. Used by `initiative-tracking` to adopt a pre-existing epic (one whose body has no `## Children` mirror yet, or a stale one) and to reconcile the mirror against the tracker's actual parent-child linkage. This is the operation that lets the skill answer "what are this epic's children?" from the tracker instead of trusting the epic body's prose.
+**Purpose:** List the children of a parent issue — the read-inverse of `link_sub_issue`. Used by `initiative-tracking` to adopt a pre-existing epic (one whose body has no `## Children` mirror yet, or a stale one) and to reconcile the mirror against the tracker's actual parent-child linkage. This is the operation that lets the skill answer "what are this epic's children?" from the tracker instead of trusting the epic body's prose. It is also the operation `/resume-initiative`'s drift reconciliation dispatches once per epic node to diff the `## Children` mirror against the tracker's native linkage — no new capability was needed; the existing return shape (direct children, open AND closed) is exactly the diff's input.
 
 **Inputs:**
 - `parent_ref` — the parent issue ref
