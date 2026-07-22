@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.7.0] - 2026-07-22
 
 ### Added
 
@@ -40,6 +40,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Resume stays read-only except that confirmed filing; mirror repair
   remains `initiative-tracking`'s adoption procedure. No new backend
   contract operation.
+
+- **Initiative-aware session titles — the plugin's first hook.** A
+  `SessionStart` hook (`hooks/hooks.json` + `hooks/session-title.sh`) titles
+  sessions in tracker-configured projects at start/resume:
+  `<ref> <slug> · <AI tail> · idle Nd`, from the git branch, the epic Status
+  block (`- **Current branch:**` match via `gh`, 24h cache, GitHub backend
+  only — hooks cannot reach MCP for Jira), and a ≤5-word Haiku summary of
+  the transcript tail. Fail-open everywhere: no config → no-op; manual
+  renames pin the session forever; every dependency (`jq` hard; `git`/`gh`/
+  `claude` soft) degrades to "leave the title alone"; the script always
+  exits 0. New optional top-level config key `session_titles:` (default
+  true; no `schema_version` bump). `/tracker-doctor` gains a WARN-only
+  prerequisite phase; `initiative-tracking` + `/resume-initiative` gain a
+  paste-ready `/rename` nudge for mid-session focus shifts (hooks cannot
+  retitle a running session). Tested via pytest subprocess fixtures
+  (`tests/test_session_title_hook.py`) riding the existing `python-tests`
+  CI job (a `shellcheck` CI job follows in #92 — the sync could not carry
+  workflow-file changes for token-scope reasons). No backend-contract
+  change. Design:
+  `docs/superpowers/specs/2026-07-16-session-titles-design.md`.
 
 ## [1.6.0] - 2026-07-11
 
