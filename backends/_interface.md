@@ -89,7 +89,7 @@ Ten operations. Inputs are tracker-agnostic field names; the backend module tran
 
 ### `edit_body`
 
-**Purpose:** Replace the body of an existing issue (destructive whole-body replace). Used by `initiative-tracking` to update the epic's Status block after a child closes.
+**Purpose:** Replace the body of an existing issue (destructive whole-body replace). Used for evergreen-epic description edits (goal/scope changes), `/resume-initiative --adopt`'s body rewrite, and legacy-epic Status-block maintenance. (Under the evergreen model a child closing writes nothing anywhere — see `commands/resume-initiative.md` "Deriving child state" — so this op is no longer used to reconcile an epic body after a child closes.)
 
 **Inputs:**
 - `ref` — issue ref
