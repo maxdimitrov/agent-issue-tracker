@@ -91,5 +91,7 @@ The heading stays `## Parent epic` for backward-compatibility, but
 `<parent-ref>` names this sub-issue's **immediate** parent — which
 may itself be a sub-epic, not the root of the initiative. In a
 nested tree, follow `## Parent epic` refs upward to walk to the
-root; `/resume-initiative` walks the `## Children` mirrors downward
-from the root.
+root; `/resume-initiative` walks each node's own persistent
+structure downward from the root — native children plus the
+machine-block `## Phases` map for evergreen-shape epics, the
+`## Children` mirror for legacy-shape epics.
