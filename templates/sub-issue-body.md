@@ -67,11 +67,21 @@ expression and avoids drift if the base templates change.
 ---
 
 ## Parent epic
+
+**For leaf children** (feature or bug):
+```
 <parent-ref> — <one-line parent title> (Phase <N>)
 
 <optional: one sentence on which slice of the parent this sub-issue
 covers. Keep it short — the parent's `## Phases` section has the
 full breakdown.>
+```
+
+**For sub-epics** — omit this block. The parent pointer lives in the
+sub-epic's machine-block comment (`## Parent epic` section in
+`templates/epic-machine-block.md`) instead.
+
+---
 
 The heading stays `## Parent epic` for backward-compatibility, but
 `<parent-ref>` names this sub-issue's **immediate** parent — which
