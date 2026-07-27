@@ -86,9 +86,9 @@ eventual PR. With no `.claude/issue-tracker.yaml`, skip the whole block (fail-op
    No `## Parent epic` block → not an initiative child; skip step 2 (step 3's
    in-progress marking still applies).
 2. **Sync the parent's in-progress signal — branch on shape.** `view_issue(parent)`
-   determines shape (`skills/initiative-tracking/SKILL.md` "Two epic shapes" /
-   `commands/resume-initiative.md` "Two epic shapes" — a `## Status block` heading
-   in the body means legacy; its absence means evergreen).
+   determines shape (`commands/resume-initiative.md` "Two epic shapes" — a
+   `## Status block` heading in the body means legacy; its absence means
+   evergreen).
    - **Legacy parent** (body has `## Status block`) — unchanged: read-modify-write
      per cross-backend invariant 2 — set the Status block's `- **Current branch:**`
      line to the new branch name and `- **Last updated:**` to today (`YYYY-MM-DD`),
