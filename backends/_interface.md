@@ -6,7 +6,7 @@ The contract is THE source of truth. If a backend module diverges from this cont
 
 ## Operations
 
-Eight operations. Inputs are tracker-agnostic field names; the backend module translates them into tracker-specific fields (label vs component vs custom field, etc.).
+Ten operations. Inputs are tracker-agnostic field names; the backend module translates them into tracker-specific fields (label vs component vs custom field, etc.).
 
 ### `create_issue`
 
@@ -65,7 +65,7 @@ Eight operations. Inputs are tracker-agnostic field names; the backend module tr
 
 ### `list_child_issues`
 
-**Purpose:** List the children of a parent issue — the read-inverse of `link_sub_issue`. Used by `initiative-tracking` to adopt a pre-existing epic (one whose body has no `## Children` mirror yet, or a stale one) and to reconcile the mirror against the tracker's actual parent-child linkage. This is the operation that lets the skill answer "what are this epic's children?" from the tracker instead of trusting the epic body's prose. It is also the operation `/resume-initiative`'s drift reconciliation dispatches once per epic node to diff the `## Children` mirror against the tracker's native linkage — no new capability was needed; the existing return shape (direct children, open AND closed) is exactly the diff's input.
+**Purpose:** List the children of a parent issue — the read-inverse of `link_sub_issue`. Used by `initiative-tracking` to adopt a pre-existing epic (one whose body has no `## Children` mirror yet, or a stale one) and to reconcile the mirror against the tracker's actual parent-child linkage. This is the operation that lets the skill answer "what are this epic's children?" from the tracker instead of trusting the epic body's prose. It is also the operation `/resume-initiative`'s drift reconciliation dispatches once per epic node to diff the `## Children` mirror against the tracker's native linkage — no new capability was needed; the existing return shape (direct children, open AND closed) is exactly the diff's input. As of the evergreen-epic model this operation is **load-bearing for `/resume-initiative`**: it is the authoritative child-set source on every resume, not just adoption/drift tooling.
 
 **Inputs:**
 - `parent_ref` — the parent issue ref
@@ -101,6 +101,32 @@ Eight operations. Inputs are tracker-agnostic field names; the backend module tr
 
 ---
 
+### `read_comments`
+
+**Purpose:** Read an issue's comments in chronological order. Used by `initiative-tracking` / `/resume-initiative` to locate the machine-block comment (see "Machine-block comment convention" below) and to surface decision/blocker comments on resume.
+
+**Inputs:**
+- `ref` — issue ref
+
+**Output:** list of `{id, author, author_trust, body, created}` entries, oldest first. `author_trust` is a boolean the backend derives from its own metadata — GitHub maps `authorAssociation` ∈ {OWNER, MEMBER, COLLABORATOR} to true; Jira returns true by default (org-internal instances; see `backends/jira.md` trust note). Skills never re-derive trust; they consume the flag.
+
+---
+
+### `upsert_comment`
+
+**Purpose:** Create or update a marker-tagged comment — the write half of the machine-block convention.
+
+**Inputs:**
+- `ref` — issue ref
+- `marker` — literal sentinel string the comment must contain
+- `body` — full replacement comment text (marker included)
+
+**Output:** (void)
+
+**Note:** Destructive whole-comment replace — cross-backend invariant 2 applies to comments exactly as to bodies: `read_comments` first, modify in memory, write back the whole comment. Semantics: find the **earliest trusted** comment containing `marker`; if found, replace its body; else create a new comment.
+
+---
+
 ### `close_issue`
 
 **Purpose:** Mark an issue resolved.
@@ -120,7 +146,7 @@ Every backend module MUST satisfy these. They are not negotiable.
 
 1. **Body format is markdown.** GitHub renders markdown bodies natively; Jira accepts markdown via the Atlassian Remote MCP's ADF-translation layer. Skills produce markdown only — never ADF, never wiki markup, never HTML.
 
-2. **Whole-body edits are destructive.** Both trackers' description fields are replaced entirely on edit. The skill reads the current body, modifies it in memory, then writes back. There is no append-only API.
+2. **Whole-body edits are destructive.** Both trackers' description fields are replaced entirely on edit. The skill reads the current body, modifies it in memory, then writes back. There is no append-only API. The same rule applies to `upsert_comment` — comments are replaced whole.
 
 3. **Sub-issue linkage is uniform from the skill's POV.** `link_sub_issue(parent_ref, child_ref)` works the same regardless of backend. The backend module handles the per-tracker mechanism — GitHub's native sub-issue API (`POST repos/.../issues/<parent>/sub_issues`); Jira's `parent` field on the sub-task or the legacy Epic Link customfield.
 
@@ -132,9 +158,15 @@ Every backend module MUST satisfy these. They are not negotiable.
 
 ---
 
+## Machine-block comment convention
+
+Epic nodes under the evergreen model (see `skills/initiative-tracking/SKILL.md`) keep their non-derivable structure in ONE comment carrying the literal sentinel `<!-- agent-issue-tracker:machine-block -->`. Format: `templates/epic-machine-block.md`. Readers select the **earliest marker-carrying comment whose `author_trust` is true** (via `read_comments`) and ignore untrusted marker comments with a one-line WARN. Writers go through `upsert_comment` only. Every machine-block read or write is best-effort — WARN and continue, never block a resume or a filing.
+
+---
+
 ## Optional backend-specific capabilities
 
-The eight operations above are the entire contract. A backend MAY document
+The ten operations above are the entire contract. A backend MAY document
 additional, backend-specific affordances that are NOT contract operations and are
 NOT required of any other backend. Such affordances live under plain `##` headings
 in the backend module — never a `` ### `op` `` operation heading — so the
@@ -146,7 +178,7 @@ The first such affordance is **GitHub Projects (v2) board population** — see
 `backends/github.md` "GitHub Projects v2 board (optional)". It mirrors an
 initiative's issue tree onto a GitHub Projects board as a human-facing view. It is
 GitHub-only; `backends/jira.md` records it as n/a. It adds **no** contract
-operation: the eight ops stay eight, and op-parity remains green.
+operation: the ten ops stay ten, and op-parity remains green.
 
 The second is **in-progress status marking** — the "this issue is being worked"
 signal a driver sets when work starts (`/work-issue` Step 3 today;
@@ -155,10 +187,10 @@ operation, because it cannot be uniformly implemented: GitHub has no native
 issue-level status (its mechanism is the Projects-board Status field above), while
 Jira's is a workflow transition (`jira.in_progress_transition` — see
 `backends/jira.md` "In-progress transition (optional)"). With neither configured,
-the fallback signal is the parent epic's Status block `Current branch` line,
-written by `/work-issue`'s start-side sync; a parentless issue with nothing
-configured gets no marker — a documented no-op. Every such write is best-effort —
-WARN, never block.
+the fallback signal is now the parent epic's machine-block comment `## Current
+branch` section (legacy epics: the body Status block line); a parentless issue
+with nothing configured gets no marker — a documented no-op. Every such write is
+best-effort — WARN, never block.
 
 ---
 
@@ -167,7 +199,7 @@ WARN, never block.
 To add a new backend (GitLab, Linear, Jira Server, plain-file, etc.):
 
 1. Create `backends/<name>.md`.
-2. For each of the eight operations above, document the literal CLI command, MCP tool call, or API request that implements it. Use the same field names as the contract; translate to tracker-specific fields inside the documentation.
+2. For each of the ten operations above, document the literal CLI command, MCP tool call, or API request that implements it. Use the same field names as the contract; translate to tracker-specific fields inside the documentation.
 3. Document how the six cross-backend invariants are satisfied — including invariant 6 (where the new backend's native parent-child linkage ceiling sits, so `initiative-tracking` knows how deep native augmentation goes before the body mirror is the sole record).
 4. Add a `<name>` block to the config schema in `examples/issue-tracker.yaml.example` with all required + optional fields.
 5. Ship a minimal `examples/<name>-config.yaml`.

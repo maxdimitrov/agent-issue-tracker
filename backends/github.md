@@ -1,6 +1,6 @@
 # GitHub Backend
 
-Backend module for [`gh` CLI](https://cli.github.com/) — the dispatch surface for the `github` backend. Implements the eight operations from [`_interface.md`](_interface.md).
+Backend module for [`gh` CLI](https://cli.github.com/) — the dispatch surface for the `github` backend. Implements the ten operations from [`_interface.md`](_interface.md).
 
 ## Auth
 
@@ -20,6 +20,8 @@ For GitHub Enterprise, `gh auth login --hostname <enterprise-host>`. The `github
 | List children | `gh api --paginate repos/OWNER/REPO/issues/PARENT_N/sub_issues` |
 | View | `gh issue view N --repo OWNER/REPO --json body,labels,state` |
 | Edit body (destructive) | `gh issue edit N --repo OWNER/REPO --body-file PATH` |
+| Read comments | `gh issue view N --repo OWNER/REPO --json comments` |
+| Upsert comment | `gh api -X PATCH repos/OWNER/REPO/issues/comments/COMMENT_ID -f body=BODY` (update) / `gh issue comment N --repo OWNER/REPO --body BODY` (create) |
 | Close | `gh issue close N --repo OWNER/REPO --comment "REASON"` |
 
 ---
@@ -135,6 +137,35 @@ rm .tmp_current_body.md
 ```
 
 Destructive replace. There is no append-only API on `gh`. The Status-block-update path in `initiative-tracking` uses exactly this read-modify-write shape.
+
+---
+
+### `read_comments`
+
+```sh
+gh issue view "$N" --repo "$GITHUB_REPO" \
+  --json comments \
+  --jq '[.comments[] | {id: .id, author: .author.login,
+         author_trust: (.authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR"),
+         body: .body, created: .createdAt}]'
+```
+
+Comments return oldest-first. `author_trust` maps `authorAssociation` — OWNER/MEMBER/COLLABORATOR are trusted; CONTRIBUTOR/FIRST_TIME_CONTRIBUTOR/NONE are not (drive-by accounts can comment on any public issue).
+
+---
+
+### `upsert_comment`
+
+Two-step: locate the earliest trusted comment containing the marker via `read_comments`, then PATCH it; create if absent.
+
+```sh
+# update (id from read_comments):
+gh api -X PATCH "repos/$GITHUB_REPO/issues/comments/$COMMENT_ID" -f body="$BODY"
+# create (no trusted marker comment exists):
+gh issue comment "$N" --repo "$GITHUB_REPO" --body "$BODY"
+```
+
+Destructive whole-comment replace — read-modify-write per invariant 2.
 
 ---
 
