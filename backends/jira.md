@@ -1,6 +1,6 @@
 # Jira Backend
 
-Backend module for the [Atlassian Remote MCP](https://www.atlassian.com/blog/announcements/remote-mcp-server) — the dispatch surface for the `jira` backend. Implements the eight operations from [`_interface.md`](_interface.md). Sibling implementation: [`github.md`](github.md).
+Backend module for the [Atlassian Remote MCP](https://www.atlassian.com/blog/announcements/remote-mcp-server) — the dispatch surface for the `jira` backend. Implements the ten operations from [`_interface.md`](_interface.md). Sibling implementation: [`github.md`](github.md).
 
 ## Auth
 
@@ -20,6 +20,8 @@ If `/tracker-doctor`'s Phase 2 step 1 reports the Atlassian MCP missing from the
 | List open | `searchJiraIssuesUsingJql` | JQL: `project = <key> AND statusCategory != Done` plus optional `issuetype` / `labels` filters |
 | View | `getJiraIssue` | returns `{key, summary, description, status, labels, components, parent}` |
 | Edit body | `editJiraIssue` | set `fields.description` to markdown string; MCP translates to ADF |
+| Read comments | `getJiraIssue` | request `fields: ["comment"]`; unwrap `fields.comment.comments[]` |
+| Upsert comment | `addCommentToJiraIssue` | with `commentId` set, updates; without it, creates |
 | Close | `transitionJiraIssue` | `transition: {id}` — numeric id resolved via `getTransitionsForJiraIssue` (ids are workflow-scoped, not global); no `comment` param — post a reason via `addCommentToJiraIssue({commentBody})` |
 
 Tool names and call shapes verified live against the Atlassian Remote MCP (project MP, 2026-06-03). Transition ids are **workflow-scoped**, not global — the numeric id for a given transition name differs between workflows (e.g. the Story/Sub-task/Bug workflow vs the Epic workflow), so resolve them per-issue via `getTransitionsForJiraIssue` rather than hardcoding any numeric id. (Illustrative datum from that run: id `131` = "In Code Review" in MP's Story/Sub-task/Bug workflow — an example of *why* ids must be resolved at runtime, not a value to reuse.)
@@ -171,6 +173,29 @@ editJiraIssue({
 ```
 
 **Destructive whole-body replace.** The `description` field is overwritten in one call; there is no append-only API on the MCP. Read-modify-write is the canonical pattern: `getJiraIssue` to fetch current description → modify in memory → `editJiraIssue` to write the full body back. Same shape as GitHub's `gh issue view --json body` → modify → `gh issue edit --body-file`. Cross-backend invariant #2 documented once across both backends.
+
+---
+
+### `read_comments`
+
+```text
+getJiraIssue({cloudId, issueIdOrKey: <ref>, fields: ["comment"]})
+```
+
+Unwrap `fields.comment.comments[]` → `{id, author: author.displayName, author_trust: true, body, created}`. **Trust note:** Jira Cloud instances are org-internal — any commenter is a licensed org user, so `author_trust` is true by default; consumers running rare anonymous-access projects should treat the machine block as untrusted input and rely on the show-before-run gate for probes.
+
+---
+
+### `upsert_comment`
+
+```text
+# update (id of the earliest trusted marker comment, from read_comments):
+addCommentToJiraIssue({cloudId, issueIdOrKey: <ref>, commentId: <id>, commentBody: <body>})
+# create (no marker comment exists):
+addCommentToJiraIssue({cloudId, issueIdOrKey: <ref>, commentBody: <body>})
+```
+
+Markdown body; the MCP's ADF translation applies (invariant 1). Destructive whole-comment replace per invariant 2.
 
 ---
 
