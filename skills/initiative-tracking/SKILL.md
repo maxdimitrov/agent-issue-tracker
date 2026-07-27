@@ -688,10 +688,12 @@ follow-up #88):
 
 Every such write is best-effort: a failure WARNs and never blocks
 the run, the worktree, or the file operation. Start-side writes
-touch ONLY the current-branch signal — never `## Phases`, `##
-Decision log`, or (legacy) `Phase` / `Next up` / the `## Children`
-mirror — those are Maintenance, above (evergreen: derived on close,
-no write at all; legacy: the one-hop ritual).
+touch ONLY the current-branch signal: the machine-block `## Current
+branch` section for evergreen parents; the Status block's `Current
+branch` + `Last updated` lines for legacy parents, as today — never
+`## Phases`, `## Decision log`, or (legacy) `Phase` / `Next up` /
+the `## Children` mirror — those are Maintenance, above (evergreen:
+derived on close, no write at all; legacy: the one-hop ritual).
 
 ## GitHub Projects board (optional)
 

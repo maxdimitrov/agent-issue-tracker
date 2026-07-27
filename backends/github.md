@@ -114,7 +114,7 @@ gh api --paginate repos/"$GITHUB_REPO"/issues/"$PARENT_N"/sub_issues \
 
 **Cross-repo children** (`owner/repo#N`): a child in another repo lives under *its* repo's endpoint — call `gh api repos/<that-owner>/<that-repo>/issues/<N>/sub_issues` for that child's repo, not the configured `github.repo`.
 
-**Nesting (invariant 6):** GitHub sub-issues nest arbitrarily deep, so this call returns the true direct children at every level — there is no native ceiling below the body mirror's reach (contrast Jira). The skill recurses one node at a time via the `## Children` mirror.
+**Nesting (invariant 6):** GitHub sub-issues nest arbitrarily deep, so this call returns the true direct children at every level — there is no native ceiling below persistent structure's reach (contrast Jira). The skill recurses one node at a time via each node's own persistent structure: the machine-block `## Phases` map for evergreen-shape epics, the body `## Children` mirror for legacy-shape epics.
 
 ---
 
@@ -211,7 +211,9 @@ consumer's `.claude/issue-tracker.yaml` sets `github.project`, `initiative-track
 mirrors the initiative tree onto that GitHub Projects (v2) board: it adds the root
 epic, every sub-epic, and every leaf child as items and reflects each child's
 lifecycle in the board's built-in **Status** field. The board is a human-facing
-view; the epic body's `## Children` task-list mirror stays canonical. With
+view; membership stays canonical via the tracker itself — derived live from
+native linkage + the machine-block `## Phases` map for evergreen-shape epics,
+or the epic body's `## Children` task-list mirror for legacy-shape epics. With
 `github.project` unset, none of this runs.
 
 GitHub Projects v2 is GraphQL-only; the `gh project` subcommands wrap it and need
@@ -276,6 +278,7 @@ Best-effort: if the item isn't in the fetched page, WARN and skip.)
 Every `gh project` call here is **best-effort**. Any failure — missing `project`
 scope, unreachable board, GraphQL error, absent `Status` field — is a WARN, never a
 block: the underlying `create_issue` / `link_sub_issue` / `close_issue` /
-`/resume-initiative --start` / `/work-issue` operation still succeeds. The
-`## Children` mirror is the source of truth; a degraded board never blocks an
-initiative operation.
+`/resume-initiative --start` / `/work-issue` operation still succeeds. Native
+linkage — the machine-block `## Phases` map for evergreen-shape epics, the
+`## Children` mirror for legacy-shape epics — is the source of truth; a
+degraded board never blocks an initiative operation.
