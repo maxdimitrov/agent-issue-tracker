@@ -83,18 +83,17 @@ Epic nodes under the evergreen model (see `skills/initiative-tracking/SKILL.md`)
 ### `read_comments`
 
 ```sh
-gh issue view "$N" --repo "$GITHUB_REPO" \
-  --json comments \
-  --jq '[.comments[] | {id: .id, author: .author.login,
-         author_trust: (.authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR"),
-         body: .body, created: .createdAt}]'
+gh api --paginate "repos/$GITHUB_REPO/issues/$N/comments" \
+  --jq '[.[] | {id: .id, author: .user.login,
+         author_trust: (.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR"),
+         body: .body, created: .created_at}]'
 ```
 
-Comments return oldest-first. `author_trust` maps `authorAssociation` — OWNER/MEMBER/COLLABORATOR are trusted; CONTRIBUTOR/FIRST_TIME_CONTRIBUTOR/NONE are not (drive-by accounts can comment on any public issue).
+Uses the REST comments endpoint (not `gh issue view --json comments`, which returns GraphQL node IDs — those are not accepted by the REST PATCH `upsert_comment` uses below, so update would 404). REST returns oldest-first. `author_trust` maps `author_association` — OWNER/MEMBER/COLLABORATOR are trusted; CONTRIBUTOR/FIRST_TIME_CONTRIBUTOR/NONE are not (drive-by accounts can comment on any public issue).
 
 ### `upsert_comment`
 
-Two-step: locate the earliest trusted comment containing the marker via `read_comments`, then PATCH it; create if absent.
+Two-step: locate the earliest trusted comment containing the marker via `read_comments`, then PATCH it; create if absent. The PATCH consumes the numeric REST comment id `read_comments` returns — the two calls share the same id space by construction.
 
 ```sh
 # update (id from read_comments):
