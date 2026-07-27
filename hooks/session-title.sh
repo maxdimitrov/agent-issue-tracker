@@ -103,6 +103,49 @@ if [ -z "$ref" ] && [ -f "$transcript_path" ]; then
   slug=""
 fi
 
+# --- machine-block second pass (stage 6 helper) ---------------------------------
+# New-shape epics carry no "- **Current branch:**" line in the body (that
+# signal now lives in the marker-tagged machine-block comment). Bounded to
+# the first 10 epics; every gh call is tmo-bounded; any failure yields no
+# match and never breaks the title. Trust: authorAssociation must be one of
+# OWNER/MEMBER/COLLABORATOR; the earliest qualifying marker comment wins.
+machine_block_epic_line() {
+  local mb_epics_json="$1" mb_branch="$2" mb_cwd="$3"
+  local mb_num="" mb_title="" mb_comments="" mb_body="" mb_phases=""
+  local mb_next="" mb_checked=0 mb_ref="" mb_refnum="" mb_state="" mb_line=""
+  while IFS=$'\t' read -r mb_num mb_title; do
+    [ -n "$mb_num" ] || continue
+    mb_comments="$(cd "$mb_cwd" && tmo 5 gh issue view "$mb_num" --json comments 2>/dev/null)" \
+      || mb_comments=""
+    [ -n "$mb_comments" ] || continue
+    mb_body="$(printf '%s' "$mb_comments" | jq -r --arg b "$mb_branch" '
+      [.comments[]
+       | select(.body | contains("<!-- agent-issue-tracker:machine-block -->"))
+       | select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER"
+                or .authorAssociation == "COLLABORATOR")][0] // empty
+      | select(.body | split("\n") | index("- " + $b))
+      | .body' 2>/dev/null)" || mb_body=""
+    [ -n "$mb_body" ] || continue
+    mb_phases="$(printf '%s' "$mb_body" | awk '/^## Phases/{f=1; next} /^## /{if (f) exit} f')"
+    mb_next=""
+    mb_checked=0
+    for mb_ref in $(printf '%s' "$mb_phases" | grep -oE '#[0-9]+'); do
+      mb_checked=$((mb_checked + 1))
+      [ "$mb_checked" -le 5 ] || break
+      mb_refnum="${mb_ref#\#}"
+      mb_state="$(cd "$mb_cwd" && tmo 5 gh issue view "$mb_refnum" --json state --jq .state \
+        2>/dev/null)" || mb_state=""
+      if [ "$mb_state" = "OPEN" ]; then
+        mb_next="$mb_ref"
+        break
+      fi
+    done
+    mb_line="$(printf '#%s\t%s\t%s' "$mb_num" "$mb_title" "$mb_next")"
+    break
+  done < <(printf '%s' "$mb_epics_json" | jq -r '.[:10][] | [(.number|tostring), .title] | @tsv')
+  printf '%s' "$mb_line"
+}
+
 # --- stage 6: epic enrichment (GitHub backend only; 24h cache; read-only) -------
 epic_next=""
 backend="$(grep -E '^backend:' "$config" 2>/dev/null | head -1 | awk '{print $2}')" || backend=""
@@ -128,6 +171,13 @@ if [ "$backend" = "github" ] && [ -n "$branch" ] && command -v gh >/dev/null 2>&
         | @tsv' >"$cache_file" 2>/dev/null || : >"$cache_file"
     else
       : >"$cache_file"
+    fi
+    # New-shape epics have no body "- **Current branch:**" line (it now lives
+    # in the machine-block comment). When the legacy body-match above found
+    # nothing, run a bounded second pass over the same epic list.
+    if [ ! -s "$cache_file" ] && [ -n "$epics_json" ]; then
+      mb_line="$(machine_block_epic_line "$epics_json" "$branch" "$cwd")" || mb_line=""
+      [ -n "$mb_line" ] && printf '%s' "$mb_line" >"$cache_file" 2>/dev/null
     fi
   fi
   if [ -s "$cache_file" ]; then
