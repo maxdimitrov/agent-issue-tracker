@@ -208,3 +208,11 @@ def test_adopt_round_trip_strips_moved_sections_and_builds_block():
     assert MARKER in block
     assert "## Phases" in block
     assert "## Current branch" in block      # fixture branch != none
+
+
+def test_phase_line_bullet_glyph_is_tolerated():
+    # Jira's ADF round-trip flips `-` to `*`; the grammar must not care.
+    for glyph in "-*+":
+        line = f"{glyph} **Phase 1** — rollout — #132, PROJ-9"
+        m = PHASE_LINE.match(line)
+        assert m and REF.findall(m.group("refs")) == ["#132", "PROJ-9"]
