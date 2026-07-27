@@ -124,11 +124,13 @@ List the direct children of a parent issue (open **and** closed).
 ```
 searchJiraIssuesUsingJql({
   cloudId: <jira.cloud_id>,
-  jql: 'parent = "<parent_ref>" ORDER BY key ASC'
+  jql: 'parent = "<parent_ref>" ORDER BY Rank ASC'
 })
 ```
 
 **Field mapping:** `parent_ref` → the JQL `parent = "<ref>"` clause. Note there is deliberately **no** `statusCategory != Done` filter — unlike `list_open_issues`, this op returns closed children too, because adoption needs them to render `[x] … — closed` mirror lines. Translate each returned issue to `{ref: key, title: summary, status: status.name}`.
+
+**Return order:** `ORDER BY Rank ASC` returns the epic's rank order, which is the native child order `/resume-initiative` uses for unphased/flat ordering (Fork #4 of `docs/superpowers/specs/2026-07-27-evergreen-epics-design.md`).
 
 **Pagination:** `searchJiraIssuesUsingJql` pages its results (`nextPageToken` / `pageInfo.hasNextPage`). Follow the token until exhausted — a truncated page silently drops children from the adopted `## Children` mirror. Request only the fields you need (`["summary", "status"]`) so a many-child epic's descriptions don't blow the response size.
 

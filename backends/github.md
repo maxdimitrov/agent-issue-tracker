@@ -110,6 +110,8 @@ gh api --paginate repos/"$GITHUB_REPO"/issues/"$PARENT_N"/sub_issues \
 
 `--paginate` is required: the endpoint pages at 30, and a silently truncated list would drop children from the adopted `## Children` mirror. Each item carries `state` (`open` / `closed`) — adoption needs the closed ones to render `[x] … — closed` lines. The skill translates each row to `{ref: #number, title, status}`.
 
+**Return order:** the `sub_issues` endpoint returns the sub-issue list's UI order — operator-reorderable in GitHub's UI — which is the native order `/resume-initiative` uses for unphased/flat children (Fork #4 of the evergreen-epics design).
+
 **Cross-repo children** (`owner/repo#N`): a child in another repo lives under *its* repo's endpoint — call `gh api repos/<that-owner>/<that-repo>/issues/<N>/sub_issues` for that child's repo, not the configured `github.repo`.
 
 **Nesting (invariant 6):** GitHub sub-issues nest arbitrarily deep, so this call returns the true direct children at every level — there is no native ceiling below the body mirror's reach (contrast Jira). The skill recurses one node at a time via the `## Children` mirror.
