@@ -581,7 +581,7 @@ Worker/queue redesign ships behind a feature flag.
 - [ ] #43 — extract retry-policy into table (Phase 2)
 ```
 
-- [ ] **Step 4: Run to verify green** — `pytest -q tests/test_evergreen_fixtures.py` — Expected: 11 passed. Then `pytest -q` — Expected: full suite green (existing drift/legacy tests untouched).
+- [ ] **Step 4: Run to verify green** — `pytest -q tests/test_evergreen_fixtures.py` — Expected: 10 passed. Then `pytest -q` — Expected: full suite green (existing drift/legacy tests untouched).
 
 - [ ] **Step 5: Commit** — `test(evergreen): executable spec for machine-block grammar + union reconcile (#100)`
 
