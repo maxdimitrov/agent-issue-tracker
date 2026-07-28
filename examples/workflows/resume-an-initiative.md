@@ -25,7 +25,7 @@ You type:
 
 > /resume-initiative #200
 
-The command calls `view_issue({ref: #200})` to fetch the evergreen description (`## Goal` / `## Scope` / `## Success criteria` / `## Design spec` — no phase state, no child list to parse there), `read_comments({ref: #200})` to locate the marker-tagged machine-block comment, and `list_child_issues({parent_ref: #200})` to fetch the native child set. Child titles and open/closed status come from `view_issue` on each child. Membership is the union of native linkage and the machine block's `## Phases` ref map.
+The command calls `view_issue({ref: #200})` to fetch the evergreen description (`## Goal` / `## Scope` / `## Success criteria` / `## Design spec` — no phase state, no child list to parse there), `read_comments({ref: #200})` to locate the marker-tagged machine-block comment, and `list_child_issues({parent_ref: #200})` to fetch the native child set — native children already carry `{ref, title, status}` from that call. `view_issue` on each child then confirms whether it carries the `epic` label (sub-epic vs. leaf), and is also how a live-but-`unlinked` phase-map-only ref gets its title/status filled in. Membership is the union of native linkage and the machine block's `## Phases` ref map.
 
 Output:
 
@@ -43,15 +43,14 @@ Children:
   [ ] #203 — api + worker cutover (Phase 1) — OPEN
   [ ] #204 — scheduler cutover + delete legacy loggers (Phase 1) — OPEN
 
-Comments (2 total):
-  2026-05-28 · you — Epic filed. Cutover-style sequencing: Phase 0
-    ships skeleton + spec; Phase 1 cuts over all three subsystems in
-    one PR (no per-subsystem feature flag — design spec §6).
+Comments (1 total):
+  2026-05-30 · teammate — Blocked on infra ticket TICKET-42 for the
+    api cutover — holding off on #203 until that lands.
 
 Pick up the next-up child (#203), pick a specific one, or stop?
 ```
 
-That "Comments" section is the machine block's own `## Decision log` entry, surfaced as a non-machine-comment-shaped read for convenience — genuinely separate, non-machine-block comments on the issue (a reviewer's note, a blocker someone flagged) would print here too, latest few plus a total count. This is derive-live membership, not a stored count: closing `#203` next week changes this output with no epic write in between.
+That "Comments" section explicitly excludes the selected machine-block comment — its `## Phases` / `## Decision log` content already rendered above (as the phase progress and next-up), so re-printing it here would be redundant. Only genuine, non-machine comments on the issue surface here: the latest few plus a total count of that non-machine set. This is a live re-read, not a stored value — a teammate posting a new comment, or `#203` closing, changes this output on the next resume with no epic write in between.
 
 If a live child had been natively linked but never added to the machine block's phase map, it renders `unphased` rather than as drift — the phase map is an organizing hint, not the membership source. A drift finding looks different: a phase-map ref that no longer resolves at all.
 
@@ -79,14 +78,16 @@ You can also skip Mode 2 by passing `--start`:
 
 The command:
 
-1. Re-runs Mode 2 to identify the next-up child (`#203`).
+1. Re-runs Mode 2 to identify the next-up leaf (`#203`) — its drift report and comment surfacing print as part of this run; a follow-up offer, if any, is asked once before entering the worktree.
 2. Checks for an existing worktree at `.claude/worktrees/<branch-slug>`. If absent:
 3. Creates a worktree via the `superpowers:using-git-worktrees` skill (or the native `EnterWorktree` tool). Branch name inferred from the child issue body's `Branch:` line, else from the type label (`feat/<short-slug>` for enhancements, `fix/<short-slug>` for bugs).
 4. After `EnterWorktree`, renames the branch from the tool's default `worktree-<sanitized>` shape to the conventional `feat/<slug>`.
-5. Calls `view_issue({ref: #203})` to fetch the sub-issue body, and best-effort `upsert_comment` on the parent's machine block to set `## Current branch` to the new branch name — the in-progress fallback signal.
-6. Hands off to `superpowers:brainstorming` inline with the sub-issue body as starting context. The body is already an agent prompt (Goal / Locus / Sketch / Acceptance / Verify); brainstorming uses it as input, not re-derivation.
+5. Reports the new worktree path — the session's CWD already switched into it. If `github.project` is configured (GitHub backend), best-effort sets `#203`'s board item Status to `In Progress` — a failure WARNs and does NOT abort the handoff; with `github.project` unset, this step is skipped entirely.
+6. Calls `view_issue({ref: #203})` to fetch the leaf issue body, then hands off to `superpowers:brainstorming` inline with it as starting context. The body is already an agent prompt (Goal / Locus / Sketch / Acceptance / Verify); brainstorming uses it as input, not re-derivation.
 
 The session is now inside the worktree, brainstorming the sub-issue. You did NOT need to open a new window.
+
+**No epic write happens here.** `--start` does not touch the parent's machine block on this branch — matching the `## Current branch` in-progress signal that `/work-issue` Step 3 sets is `--start`'s own follow-up (#88), not yet shipped. Today `--start` only optionally syncs the child's board item, as above.
 
 ## Three ref shapes — all work
 
