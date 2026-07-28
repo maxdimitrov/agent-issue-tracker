@@ -181,8 +181,8 @@ GitHub-only; `backends/jira.md` records it as n/a. It adds **no** contract
 operation: the ten ops stay ten, and op-parity remains green.
 
 The second is **in-progress status marking** — the "this issue is being worked"
-signal a driver sets when work starts (`/work-issue` Step 3 today;
-`/resume-initiative --start` via follow-up #88). It is an affordance, not an eleventh
+signal a driver sets when work starts (`/work-issue` Step 3;
+`/resume-initiative --start` Mode 3). It is an affordance, not an eleventh
 operation, because it cannot be uniformly implemented: GitHub has no native
 issue-level status (its mechanism is the Projects-board Status field above), while
 Jira's is a workflow transition (`jira.in_progress_transition` — see

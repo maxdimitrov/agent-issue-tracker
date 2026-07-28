@@ -93,6 +93,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   post-hoc-attacker cases), flat-epic native ordering, and the legacy
   reader — plus fixtures, and 3 new `hooks/session-title.sh` tests for
   the machine-block second pass.
+- **`/resume-initiative --start` in-progress affordance parity (#88).**
+  Mode 3's start step now marks the started leaf in progress the same
+  way `/work-issue` Step 3 does, replacing the GitHub-board-only
+  "(Optional board sync.)" paragraph with the full cross-backend
+  dispatch from `skills/initiative-tracking/SKILL.md` "In-progress
+  status (optional affordances)": GitHub Projects board Status →
+  `In Progress` when `github.project` is set (unchanged behaviour,
+  now phrased via the shared section); the `jira.in_progress_transition`
+  workflow transition when configured (new); and the parent epic's
+  `## Current branch` fallback signal (machine-block `upsert_comment`
+  for evergreen parents, Status-block `edit_body` for legacy — new).
+  All best-effort: a failure WARNs and never aborts the brainstorm
+  handoff. Closes the "once parity follow-up #88 lands" caveats in
+  `backends/jira.md`, `backends/_interface.md`,
+  `skills/initiative-tracking/SKILL.md`, and
+  `examples/workflows/resume-an-initiative.md`.
 
 ### Notes
 

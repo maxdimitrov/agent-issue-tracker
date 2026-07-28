@@ -265,8 +265,8 @@ The skill prose (`feature-request`, `bug-tracking`) renders `jira.close_on_merge
 **Optional, Jira-only. Not a contract operation** — see [`_interface.md`](_interface.md)
 "Optional backend-specific capabilities". When the consumer's
 `.claude/issue-tracker.yaml` sets `jira.in_progress_transition`, a driver that
-starts work on an issue (`/work-issue` Step 3 today; `/resume-initiative --start`
-once parity follow-up #88 lands) marks the issue in progress by firing the named
+starts work on an issue (`/work-issue` Step 3; `/resume-initiative --start`
+Mode 3) marks the issue in progress by firing the named
 workflow transition:
 
 ```

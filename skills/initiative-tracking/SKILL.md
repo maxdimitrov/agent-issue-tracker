@@ -678,8 +678,7 @@ destructive-edit invariant.
 in-progress signal is therefore a per-backend **optional
 affordance** (see `backends/_interface.md` "Optional
 backend-specific capabilities"), set by a driver when work starts
-(`/work-issue` Step 3 today; `/resume-initiative --start` via
-follow-up #88):
+(`/work-issue` Step 3; `/resume-initiative --start` Mode 3):
 
 - **GitHub** — `github.project` configured → set the child's
   board item Status to `In Progress` (see `backends/github.md`).

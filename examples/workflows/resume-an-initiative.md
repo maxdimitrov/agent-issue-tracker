@@ -82,12 +82,12 @@ The command:
 2. Checks for an existing worktree at `.claude/worktrees/<branch-slug>`. If absent:
 3. Creates a worktree via the `superpowers:using-git-worktrees` skill (or the native `EnterWorktree` tool). Branch name inferred from the child issue body's `Branch:` line, else from the type label (`feat/<short-slug>` for enhancements, `fix/<short-slug>` for bugs).
 4. After `EnterWorktree`, renames the branch from the tool's default `worktree-<sanitized>` shape to the conventional `feat/<slug>`.
-5. Reports the new worktree path — the session's CWD already switched into it. If `github.project` is configured (GitHub backend), best-effort sets `#203`'s board item Status to `In Progress` — a failure WARNs and does NOT abort the handoff; with `github.project` unset, this step is skipped entirely.
+5. Reports the new worktree path — the session's CWD already switched into it. Then marks `#203` in progress via the backend's configured affordance (`skills/initiative-tracking/SKILL.md` "In-progress status (optional affordances)"): `github.project` set → board item Status `In Progress`; `jira.in_progress_transition` set → that workflow transition fires; neither configured → no board/Jira write. Best-effort — a failure WARNs and does NOT abort the handoff.
 6. Calls `view_issue({ref: #203})` to fetch the leaf issue body, then hands off to `superpowers:brainstorming` inline with it as starting context. The body is already an agent prompt (Goal / Locus / Sketch / Acceptance / Verify); brainstorming uses it as input, not re-derivation.
 
 The session is now inside the worktree, brainstorming the sub-issue. You did NOT need to open a new window.
 
-**No epic write happens here.** `--start` does not touch the parent's machine block on this branch — matching the `## Current branch` in-progress signal that `/work-issue` Step 3 sets is `--start`'s own follow-up (#88), not yet shipped. Today `--start` only optionally syncs the child's board item, as above.
+**The epic's `## Current branch` signal syncs too.** `--start` matches `/work-issue` (#88): besides the optional board/Jira affordance, it sets this epic's machine-block `## Current branch` section to the new branch via `upsert_comment` (legacy epics: the Status block's `Current branch` + `Last updated` lines via `edit_body`) — best-effort, per the affordance section's start-side write rules.
 
 ## Three ref shapes — all work
 
