@@ -1,6 +1,6 @@
 # Jira Backend
 
-Backend module for the [Atlassian Remote MCP](https://www.atlassian.com/blog/announcements/remote-mcp-server) — the dispatch surface for the `jira` backend. Implements the eight operations from [`_interface.md`](_interface.md). Sibling implementation: [`github.md`](github.md).
+Backend module for the [Atlassian Remote MCP](https://www.atlassian.com/blog/announcements/remote-mcp-server) — the dispatch surface for the `jira` backend. Implements the ten operations from [`_interface.md`](_interface.md). Sibling implementation: [`github.md`](github.md).
 
 ## Auth
 
@@ -20,6 +20,8 @@ If `/tracker-doctor`'s Phase 2 step 1 reports the Atlassian MCP missing from the
 | List open | `searchJiraIssuesUsingJql` | JQL: `project = <key> AND statusCategory != Done` plus optional `issuetype` / `labels` filters |
 | View | `getJiraIssue` | returns `{key, summary, description, status, labels, components, parent}` |
 | Edit body | `editJiraIssue` | set `fields.description` to markdown string; MCP translates to ADF |
+| Read comments | `getJiraIssue` | request `fields: ["comment"]`; unwrap `fields.comment.comments[]` |
+| Upsert comment | `addCommentToJiraIssue` | with `commentId` set, updates; without it, creates |
 | Close | `transitionJiraIssue` | `transition: {id}` — numeric id resolved via `getTransitionsForJiraIssue` (ids are workflow-scoped, not global); no `comment` param — post a reason via `addCommentToJiraIssue({commentBody})` |
 
 Tool names and call shapes verified live against the Atlassian Remote MCP (project MP, 2026-06-03). Transition ids are **workflow-scoped**, not global — the numeric id for a given transition name differs between workflows (e.g. the Story/Sub-task/Bug workflow vs the Epic workflow), so resolve them per-issue via `getTransitionsForJiraIssue` rather than hardcoding any numeric id. (Illustrative datum from that run: id `131` = "In Code Review" in MP's Story/Sub-task/Bug workflow — an example of *why* ids must be resolved at runtime, not a value to reuse.)
@@ -122,17 +124,19 @@ List the direct children of a parent issue (open **and** closed).
 ```
 searchJiraIssuesUsingJql({
   cloudId: <jira.cloud_id>,
-  jql: 'parent = "<parent_ref>" ORDER BY key ASC'
+  jql: 'parent = "<parent_ref>" ORDER BY Rank ASC'
 })
 ```
 
 **Field mapping:** `parent_ref` → the JQL `parent = "<ref>"` clause. Note there is deliberately **no** `statusCategory != Done` filter — unlike `list_open_issues`, this op returns closed children too, because adoption needs them to render `[x] … — closed` mirror lines. Translate each returned issue to `{ref: key, title: summary, status: status.name}`.
 
+**Return order:** `ORDER BY Rank ASC` returns the epic's rank order, which is the native child order `/resume-initiative` uses for unphased/flat ordering (Fork #4 of `docs/superpowers/specs/2026-07-27-evergreen-epics-design.md`).
+
 **Pagination:** `searchJiraIssuesUsingJql` pages its results (`nextPageToken` / `pageInfo.hasNextPage`). Follow the token until exhausted — a truncated page silently drops children from the adopted `## Children` mirror. Request only the fields you need (`["summary", "status"]`) so a many-child epic's descriptions don't blow the response size.
 
 **Search-index lag (eventual consistency):** `searchJiraIssuesUsingJql` reads Jira's **search index**, which is *eventually* consistent — a child created or re-parented seconds earlier can be absent from the FIRST query even though it already exists. This is distinct from pagination: a child can be missing even when `pageInfo.hasNextPage` is `false`. Adoption is exactly when this bites (you query an epic's children right after filing them), so when children were just filed, re-query until the child count is stable, and/or cross-check membership via `getJiraIssue(child).fields.parent` — `getJiraIssue` is strongly consistent, while the JQL search index is not.
 
-**Hierarchy ceiling (invariant 6):** the JQL `parent` field resolves the unified parent linkage Jira Cloud maintains down to its three-level cap (Epic → Story/Task → Sub-task). On `jira.parent_link_style: native` this returns a node's direct children at every level the native hierarchy reaches; nesting deeper than the cap is body-mirror-only and is neither returned nor required here. On classic `jira.parent_link_style: epic_link` projects, where Epic → Story linkage lives in the Epic Link customfield rather than `parent`, fall back to `'"Epic Link" = <parent_ref>'` (or the configured `jira.epic_link_field`).
+**Hierarchy ceiling (invariant 6):** the JQL `parent` field resolves the unified parent linkage Jira Cloud maintains down to its three-level cap (Epic → Story/Task → Sub-task). On `jira.parent_link_style: native` this returns a node's direct children at every level the native hierarchy reaches; nesting deeper than the cap is body-mirror-only and is neither returned nor required here. On classic `jira.parent_link_style: epic_link` projects, where Epic → Story linkage lives in the Epic Link customfield rather than `parent`, fall back to `'"Epic Link" = <parent_ref> ORDER BY Rank ASC'` (or the configured `jira.epic_link_field`) — same load-bearing return-order rule as the native path above.
 
 ---
 
@@ -174,6 +178,29 @@ editJiraIssue({
 
 ---
 
+### `read_comments`
+
+```text
+getJiraIssue({cloudId, issueIdOrKey: <ref>, fields: ["comment"]})
+```
+
+Unwrap `fields.comment.comments[]` → `{id, author: author.displayName, author_trust: true, body, created}`. **Trust note:** Jira Cloud instances are org-internal — any commenter is a licensed org user, so `author_trust` is true by default; consumers running rare anonymous-access projects should treat the machine block as untrusted input and rely on the show-before-run gate for probes.
+
+---
+
+### `upsert_comment`
+
+```text
+# update (id of the earliest trusted marker comment, from read_comments):
+addCommentToJiraIssue({cloudId, issueIdOrKey: <ref>, commentId: <id>, commentBody: <body>})
+# create (no marker comment exists):
+addCommentToJiraIssue({cloudId, issueIdOrKey: <ref>, commentBody: <body>})
+```
+
+Markdown body; the MCP's ADF translation applies (invariant 1). Destructive whole-comment replace per invariant 2.
+
+---
+
 ### `close_issue`
 
 Mark an issue resolved by transitioning to the project's done state.
@@ -205,7 +232,7 @@ addCommentToJiraIssue({cloudId, issueIdOrKey: <ref>, commentBody: <reason>})
 3. **Sub-issue linkage** — Jira Cloud's modern unified `parent` field (set via `editJiraIssue` on the child) is the recommended path. The classic Epic Link customfield (`customfield_10014` by convention) is a per-project fallback for older Jira projects that pre-date the unified parent field. Branched by `jira.parent_link_style` in `.claude/issue-tracker.yaml` — `native` (recommended) vs `epic_link` (classic compatibility).
 4. **Issue refs are opaque** — Jira refs are `<PROJECT>-<N>` (e.g. `TRADE-42`). Skills treat refs as opaque strings; only this backend module knows the syntax. The plugin's `commands/resume-initiative.md` accepts both `#N` (GitHub) and `<PROJECT>-<N>` (Jira) in the Status block's `Next up:` line per `skills/initiative-tracking/SKILL.md`.
 5. **`/tracker-doctor` reachability** — `view_issue({ref: "<jira.project>-1"})` (the default smoke ref; `--smoke-issue <ref>` overrides) dispatches to `getJiraIssue`. PASS if the call returns a structured response; PASS-WITH-NOTE on 404 (project reachable but no `<PROJECT>-1` filed yet — common in greenfield projects); FAIL on 401 / 403 (auth wrong, or `cloud_id` doesn't match `site`).
-6. **Initiative nesting** — Jira's standard issue hierarchy spans **three levels**: Epic → Story/Task → Sub-task, and a Sub-task has no children of its own. So when `initiative-tracking` nests a "sub-epic" under a parent epic, the **interior nodes (root epic + sub-epics) map to issue types that can parent** — Epic at the root, Story/Task for sub-epics — linked via the unified `parent` field (`jira.parent_link_style: native`); only the **leaves** map to Sub-task. **This cap is enforcement-soft on the create/parent path: the MCP `createJiraIssue` `parent` path silently accepts a Sub-task parented directly under an Epic — the Epic → Sub-task level-skip is NOT bounced on create** (verified live, project MP, 2026-06-03: a Sub-task created with `parent` an Epic succeeded and the parent stuck). Do not rely on a rejection — the **skill**, not the tracker, must enforce the leaf-of-Epic = Story convention (see `initiative-tracking` §"Depth and backend ceilings"). Enforcement is also non-uniform: the *same-level* Story → Story `parent` link IS rejected (`"Given parent work item does not belong to appropriate hierarchy"`), while the Epic → Sub-task level-skip is not. Native linkage reaches as far as that three-level cap, after which the recursive `## Children` body mirror is the **sole** record of any deeper nesting (per cross-backend invariant 6) and `/resume-initiative` still traverses it correctly. Classic projects on `jira.parent_link_style: epic_link` can only express Epic → Story (the Epic Link field is meaningful only there); they cannot represent sub-epics natively at all and MUST use `native` parent linkage to get past one level — for `epic_link` projects, deep nesting is body-mirror-only. Teams needing native linkage beyond three levels need Jira Premium's Advanced Roadmaps custom hierarchy, which is outside this plugin's scope. `getJiraIssue` returns `fields.parent.key`, so root-vs-nested detection MAY use it here — but the portable signal remains the `## Parent epic` block in the body.
+6. **Initiative nesting** — Jira's standard issue hierarchy spans **three levels**: Epic → Story/Task → Sub-task, and a Sub-task has no children of its own. So when `initiative-tracking` nests a "sub-epic" under a parent epic, the **interior nodes (root epic + sub-epics) map to issue types that can parent** — Epic at the root, Story/Task for sub-epics — linked via the unified `parent` field (`jira.parent_link_style: native`); only the **leaves** map to Sub-task. **This cap is enforcement-soft on the create/parent path: the MCP `createJiraIssue` `parent` path silently accepts a Sub-task parented directly under an Epic — the Epic → Sub-task level-skip is NOT bounced on create** (verified live, project MP, 2026-06-03: a Sub-task created with `parent` an Epic succeeded and the parent stuck). Do not rely on a rejection — the **skill**, not the tracker, must enforce the leaf-of-Epic = Story convention (see `initiative-tracking` §"Depth and backend ceilings"). Enforcement is also non-uniform: the *same-level* Story → Story `parent` link IS rejected (`"Given parent work item does not belong to appropriate hierarchy"`), while the Epic → Sub-task level-skip is not. Native linkage reaches as far as that three-level cap, after which the depth-of-record for any deeper nesting is the machine-block comment's `## Phases` ref map for evergreen-shape epics (children listed there but not natively linkable render `unlinked`) or the recursive `## Children` body mirror for legacy-shape epics (per cross-backend invariant 6), and `/resume-initiative` still traverses either correctly. Classic projects on `jira.parent_link_style: epic_link` can only express Epic → Story (the Epic Link field is meaningful only there); they cannot represent sub-epics natively at all and MUST use `native` parent linkage to get past one level — for `epic_link` projects, deep nesting is body-mirror-only. Teams needing native linkage beyond three levels need Jira Premium's Advanced Roadmaps custom hierarchy, which is outside this plugin's scope. `getJiraIssue` returns `fields.parent.key`, so root-vs-nested detection MAY use it here — but the portable signal remains the presence of a `## Parent epic` section in the machine-block comment (evergreen shape) or the body (legacy shape); a root has it in neither.
 
 ---
 

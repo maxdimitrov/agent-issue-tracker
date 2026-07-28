@@ -5,6 +5,109 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Evergreen epics (#100).** The epic description is now **evergreen** —
+  `## Goal`, `## Scope`, `## Success criteria`, `## Design spec` only —
+  edited when the initiative's own goal or scope changes, never per
+  child. Child membership, per-child open/closed status, direct-child
+  counts, rolled-up leaf counts, and next-up are no longer written
+  anywhere; `/resume-initiative` derives them live on every read from
+  the backend's native parent-child linkage (`list_child_issues` +
+  per-child `view_issue`), so **closing a child now triggers no epic
+  body or comment write** (the optional GitHub Projects-board `Done`
+  sync remains) — the next resume just reflects it. This supersedes the
+  hand-maintained `## Status block` + `## Children` task-list mirror
+  that rotted the instant a child was added, renamed, or closed without
+  the ceremony.
+- **Backend contract 8 → 10: `read_comments` + `upsert_comment`
+  (#100).** Two new cross-backend operations join `backends/_interface.md`
+  — `read_comments(ref)` returns an issue's comments with a derived
+  `author_trust` field (GitHub: `authorAssociation` ∈ OWNER/MEMBER/
+  COLLABORATOR; Jira: trusted by default on org-internal instances);
+  `upsert_comment(ref, marker, body)` finds the earliest trusted
+  comment containing `marker` and destructively replaces it, or creates
+  one if none exists (cross-backend invariant 2 — read-modify-write —
+  now extends to comments). `list_child_issues` is re-annotated as
+  **load-bearing for `/resume-initiative`**, not just adoption/drift
+  tooling.
+- **Machine-block comment convention (#100).** Structure that isn't
+  natively derivable — phase name + ordered child refs (`## Phases`),
+  a sub-epic's immediate parent (`## Parent epic`), the in-progress
+  fallback signal (`## Current branch`), an optional ground-truth
+  hook (`## Scope probe`), and an append-only `## Decision log`) —
+  lives in a single comment carrying the HTML sentinel
+  `<!-- agent-issue-tracker:machine-block -->`. The comment is omitted
+  entirely when every section is empty. **Trust rule:** the machine
+  block is the **earliest** marker-carrying comment from a **trusted**
+  author, so a legitimately-upserted block can never be shadowed by a
+  later attacker comment on a public repo; untrusted marker comments
+  are ignored with a one-line WARN. New template:
+  `templates/epic-machine-block.md`.
+- **`/resume-initiative` derive-live read model (#100).** Child set is
+  the union of native linkage and any live phase-map refs (a
+  phase-map-only ref that's live renders flagged `unlinked` with a
+  `link_sub_issue` fix pointer where the backend allows; a phase-map
+  ref that resolves to nothing is a drift finding) — this keeps Jira
+  trees deeper than the Epic → Story/Task → Sub-task ceiling working,
+  since those edges can't be natively linked. Native-but-unmapped
+  children render flagged `unphased`. Ordering for unphased children
+  and flat epics is native return order (`list_child_issues`'s own
+  order — GitHub: operator-reorderable sub-issue list order; Jira:
+  rank order via `ORDER BY Rank ASC`). Modes 2/3 now also surface
+  **non-machine** comments — the latest few plus a total count — for
+  the resumed node and the resolved next-up leaf, absorbing #56. A
+  **legacy reader** keeps parsing today's `## Status block` +
+  `## Children` mirror shape byte-for-byte, selected whenever a body
+  still carries a `## Status block` heading — no forced migration.
+  New **`--adopt <ref>`** mode converts a legacy epic in place:
+  reconciles + natively links live mirror-only children, builds the
+  machine block from the legacy body's `## Phases` / mirror
+  annotations, rewrites the description to the evergreen shape
+  (unfoldable remainder preserved under `## Notes (pre-adoption)`,
+  never dropped), then drops the retired sections — the machine-block
+  write and the body rewrite are ordered, not independently
+  best-effort: a failed `upsert_comment` aborts before the body is
+  touched, so a partial `--adopt` never leaves an epic in neither
+  shape.
+- **`/work-issue` start-side sync targets the machine block (#100).**
+  Step 3's parent-epic "work has started" sync now branches on shape:
+  evergreen parents get `upsert_comment` setting the machine block's
+  `## Current branch` section; legacy parents keep the unchanged
+  `edit_body` path against the body's Status block.
+- **Session-title hook reads the machine block (#100).**
+  `hooks/session-title.sh` gains a second pass for new-shape epics —
+  locate the trusted marker comment via the comments API, extract the
+  derived `next` value, tolerant of CRLF machine-block bodies. Legacy
+  epics keep the existing body-parse path.
+- **Templates rewritten for the evergreen shape (#100).**
+  `templates/epic-body.md` now specifies the evergreen description
+  only; new `templates/epic-machine-block.md` specifies the
+  marker-tagged comment format; `templates/sub-issue-body.md`'s
+  composition guidance is updated for both epic shapes.
+- **Tests.** `tests/test_evergreen_fixtures.py` — 11 executable-spec
+  tests covering union membership, `unphased` / `unlinked` flags,
+  earliest-trusted-marker selection (including untrusted-shadow and
+  post-hoc-attacker cases), flat-epic native ordering, and the legacy
+  reader — plus fixtures, and 3 new `hooks/session-title.sh` tests for
+  the machine-block second pass.
+
+### Notes
+
+- **Supersedes #87** — the close-side reconcile-on-read follow-up is
+  moot by construction: there is no close-side body edit left to
+  automate. Closed as superseded by #100.
+- **Absorbs #56** — `/resume-initiative` now surfaces non-machine
+  comments on resume; the "contract field vs display affordance"
+  question #56 left open is resolved as the `read_comments` op.
+- **#88 unaffected** — the `--start` in-progress-affordance parity
+  work proceeds unchanged; where it writes the fallback signal, it
+  now targets the machine block on new-shape parents, exactly as
+  `/work-issue` does.
+- Design record: `docs/superpowers/specs/2026-07-27-evergreen-epics-design.md`.
+
 ## [1.7.0] - 2026-07-22
 
 ### Added

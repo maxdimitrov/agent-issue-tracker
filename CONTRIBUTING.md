@@ -30,7 +30,7 @@ Before any release tag is pushed, the eight smoke scenarios must run against a r
 2. **Jira backend smoke** — same five-issue flow against a real Jira project (the operator's work project or a dedicated `agent-issue-tracker-smoketest` subproject). Verify field mappings, parent link, and ADF rendering.
 3. **`/tracker-init` from blank state** — both backends. Verify the scaffolder produces valid YAML matching `examples/<backend>-config.yaml` shape and the next-step panel is correct.
 4. **`/tracker-doctor`** — run against a valid config (PASS path), a config with missing-on-tracker areas labels (WARN path), and a malformed YAML (FAIL path). Verify the routing.
-5. **`/resume-initiative` against a real existing epic** — verify the parser handles its Status block, `## Children` task-list mirror, and Decision log.
+5. **`/resume-initiative` against both epic shapes** — an **evergreen** epic (machine-block comment → derived children, verifying the `unphased` / `unlinked` flags render correctly) and a **legacy** epic (body `## Status block` + `## Children` mirror, parsed via the legacy reader). Verify both shapes resolve next-up and render their child tree correctly.
 6. **Install path against the published repo (added v1.0.1, #35)** — on a clean machine, `claude plugin marketplace add maxdimitrov/agent-issue-tracker` and `claude plugin install agent-issue-tracker` both exit 0; `~/.claude/plugins/installed_plugins.json` records the just-tagged version. Catches `marketplace.json` regressions.
 7. **Plugin loads enabled post-install (added v1.0.2, #37)** — same clean-machine session, `claude plugin list` shows the plugin as `Status: ✔ enabled` (not `✘ failed to load`); `claude plugin details agent-issue-tracker` reports all 9 components (6 skills + 3 commands); in a fresh CC session opened against the install, `/tracker-doctor`, `/tracker-init`, and `/resume-initiative` are resolvable as slash commands. Catches `plugin.json.dependencies` cross-marketplace-resolution regressions.
 8. **Session-title hook** — in a real configured repo, resume a stale
@@ -53,7 +53,7 @@ Annotated tags only (`-a`). Tag the squash-merge commit of the release PR, not t
 
 ## Adding a backend
 
-The contract every backend implements lives in [`backends/_interface.md`](backends/_interface.md) — eight operations (`create_issue`, `add_label`, `link_sub_issue`, `list_open_issues`, `list_child_issues`, `view_issue`, `edit_body`, `close_issue`) with identical tracker-agnostic inputs, plus five cross-backend invariants every backend must satisfy.
+The contract every backend implements lives in [`backends/_interface.md`](backends/_interface.md) — ten operations (`create_issue`, `add_label`, `link_sub_issue`, `list_open_issues`, `list_child_issues`, `view_issue`, `edit_body`, `read_comments`, `upsert_comment`, `close_issue`) with identical tracker-agnostic inputs, plus six cross-backend invariants every backend must satisfy.
 
 A new backend ships as a single `backends/<backend>.md` file documenting how each contract operation maps to that backend's native API. The reference implementations are [`backends/github.md`](backends/github.md) (via the `gh` CLI) and [`backends/jira.md`](backends/jira.md) (via the Atlassian Remote MCP). Both follow the same section structure — Auth, Reference table, per-operation block, Cross-backend invariants, PR close-on-merge convention, Setup verification — and a new backend should mirror it.
 

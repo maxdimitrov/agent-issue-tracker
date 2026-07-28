@@ -6,7 +6,7 @@ description: Drive ONE named issue end-to-end through the full mandated agent pi
 
 Take a single named issue and drive it to a PR through the full mandated agent workflow. `/work-issue` is the single-issue counterpart to [`/resume-initiative`](resume-initiative.md): where `/resume-initiative` is epic/initiative-oriented (it walks an initiative tree and picks the next workable leaf), `/work-issue` takes ONE issue you name and runs it end-to-end — read the body, assess scope, create an isolated worktree, then brainstorm → plan → execute → verify → open a PR. The configured backend is resolved from `.claude/issue-tracker.yaml` in the consumer project, the same as `/resume-initiative`.
 
-It is **backend-agnostic**: it dispatches ONLY through the contract operations in [`backends/_interface.md`](../backends/_interface.md) — `view_issue` (always); `edit_body` (start-side epic Status sync, best-effort); and, where the workflow surfaces a label/close action, `add_label` / `close_issue`. It never adds a new operation and never reaches past the contract into a backend's raw CLI / MCP; the start-side sync's in-progress marking uses the per-backend **optional affordances** (not contract operations — see `backends/_interface.md` "Optional backend-specific capabilities"), likewise dispatched through the backend module. `<ref>` is opaque: `#N`, `owner/repo#N` (cross-repo GitHub), or `PROJ-123` (Jira) — only the backend parses it. See `backends/<backend>.md` for the literal calls.
+It is **backend-agnostic**: it dispatches ONLY through the contract operations in [`backends/_interface.md`](../backends/_interface.md) — `view_issue` (always); `edit_body` (start-side epic Status sync, best-effort, legacy parents); `read_comments` / `upsert_comment` (start-side epic machine-block sync, best-effort, evergreen parents); and, where the workflow surfaces a label/close action, `add_label` / `close_issue`. It never adds a new operation and never reaches past the contract into a backend's raw CLI / MCP; the start-side sync's in-progress marking uses the per-backend **optional affordances** (not contract operations — see `backends/_interface.md` "Optional backend-specific capabilities"), likewise dispatched through the backend module. `<ref>` is opaque: `#N`, `owner/repo#N` (cross-repo GitHub), or `PROJ-123` (Jira) — only the backend parses it. See `backends/<backend>.md` for the literal calls.
 
 ## Why a slash command, not a subagent
 
@@ -85,19 +85,37 @@ eventual PR. With no `.claude/issue-tracker.yaml`, skip the whole block (fail-op
    `parent?` field, which is absent on GitHub plain reads (`backends/_interface.md`).
    No `## Parent epic` block → not an initiative child; skip step 2 (step 3's
    in-progress marking still applies).
-2. **Sync the epic Status block.** `view_issue(parent)` → read-modify-write per
-   cross-backend invariant 2: set the Status block's `- **Current branch:**` line to
-   the new branch name and `- **Last updated:**` to today (`YYYY-MM-DD`), then
-   `edit_body(parent, new_body)`. Touch NOTHING else — not `Phase`, not `Next up`,
-   not the `## Children` mirror; those are close-side Maintenance
-   (`skills/initiative-tracking/SKILL.md`, tracked as follow-up #87). Parent
-   unfetchable, or its body has no Status block → WARN and skip.
+2. **Sync the parent's in-progress signal — branch on shape.** `view_issue(parent)`
+   determines shape (`commands/resume-initiative.md` "Two epic shapes" — a
+   `## Status block` heading in the body means legacy; its absence means
+   evergreen).
+   - **Legacy parent** (body has `## Status block`) — unchanged: read-modify-write
+     per cross-backend invariant 2 — set the Status block's `- **Current branch:**`
+     line to the new branch name and `- **Last updated:**` to today (`YYYY-MM-DD`),
+     then `edit_body(parent, new_body)`. Touch NOTHING else — not `Phase`, not
+     `Next up`, not the `## Children` mirror; those are legacy Maintenance
+     (`skills/initiative-tracking/SKILL.md`). Parent unfetchable, or its body has no
+     Status block → WARN and skip.
+   - **Evergreen parent** (no `## Status block`) — `read_comments(parent)` to
+     locate the machine-block comment (earliest marker-carrying comment from a
+     trusted author — `backends/_interface.md` "Machine-block comment
+     convention"), then `upsert_comment(parent, marker, new_body)` setting the
+     `## Current branch` section to the new branch name. No TRUSTED marker-carrying comment
+     found → create one (`templates/epic-machine-block.md`'s marker
+     `<!-- agent-issue-tracker:machine-block -->`); the newly created block then
+     carries only the marker plus the `## Current branch` section. Touch NOTHING
+     else — not `## Phases`, `## Decision log`, or `## Parent epic`. Parent
+     unfetchable, or the comment read/write fails → WARN and skip. Close-side
+     maintenance is obsolete for evergreen parents: there is no close-side body
+     edit to automate — child state is derived at read time under the evergreen
+     model (superseding follow-up #87). Legacy parents still follow
+     `initiative-tracking`'s legacy close-side Maintenance ritual, unchanged.
 3. **Mark the issue in progress** via the backend's configured affordance — see
    `skills/initiative-tracking/SKILL.md` "In-progress status (optional affordances)":
    GitHub with `github.project` set → board item Status `In Progress`
    (`backends/github.md`); Jira with `jira.in_progress_transition` set → fire that
    workflow transition (`backends/jira.md`). Neither configured → no-op; the
-   `Current branch` line from step 2 is the fallback signal.
+   `Current branch` signal set in step 2 is the fallback.
 
 `EnterWorktree` switches the session's CWD into the worktree — do **NOT** stop and tell the operator to open a new window. The driver continues inline in the same session.
 
@@ -131,7 +149,7 @@ Run `superpowers:finishing-a-development-branch`: open a PR whose body links the
 ## Conventions assumed
 
 - **The issue body is an agent prompt.** Every issue this plugin files carries the agent-prompt shape (Goal, Locus, Skills to load, Constraints, Acceptance, Verify) per the `bug-tracking` / `feature-request` / `followup-tracking` skills. `/work-issue` uses that body as starting context; it does not re-derive the problem. A body too vague to drive a run is itself the finding — report it and stop rather than inventing scope.
-- **`.claude/issue-tracker.yaml` selects the backend.** The same config `/resume-initiative` and `/tracker-doctor` read. `/work-issue` dispatches `view_issue`, the start-side sync's `edit_body`, and any `add_label` / `close_issue` through `backends/<backend>.md`; it never calls a backend's raw CLI / MCP directly.
+- **`.claude/issue-tracker.yaml` selects the backend.** The same config `/resume-initiative` and `/tracker-doctor` read. `/work-issue` dispatches `view_issue`, the start-side sync's `edit_body` (legacy parents) / `read_comments` + `upsert_comment` (evergreen parents), and any `add_label` / `close_issue` through `backends/<backend>.md`; it never calls a backend's raw CLI / MCP directly.
 - **Worktree-first.** All work happens in an isolated worktree on a `feat/` | `fix/` | `docs/` branch — never on `main` in the primary working tree. This keeps the operator's primary checkout stable for any long-running processes while the run proceeds.
 
 ## Failure modes
@@ -142,4 +160,4 @@ Run `superpowers:finishing-a-development-branch`: open a PR whose body links the
 - **A worktree for this issue already exists** → enter it (`.claude/worktrees/<branch-with-slash-replaced-by-plus>`) instead of creating a duplicate; report its path and continue.
 - **The issue body is too vague to drive a run** (no locus, fuzzy acceptance, an unresolved open design question) → report that the body is unfileable-as-an-agent-prompt and stop. The fix is to enrich the issue (or file a `needs-design` issue first), not to invent scope. `/work-issue` escalating rigor for a *non-trivial-but-well-specified* issue is different from a *vague* one — the former gets the full pipeline, the latter gets reported back.
 - **Cross-repo `owner/repo#N` ref** → the worktree is created in the consumer's current working directory regardless; only the `view_issue` body fetch hits the child's repo via the backend. The backend module documents how it handles cross-repo refs.
-- **Start-side initiative sync fails** (parent epic unfetchable, Status block missing, board write or transition rejected) → WARN and continue; status writes never block the run. The epic catches up on the close side (follow-up #87).
+- **Start-side initiative sync fails** (parent epic unfetchable; legacy parent — Status block missing; evergreen parent — machine-block comment read/write rejected; board write or transition rejected) → WARN and continue; status writes never block the run. Legacy parents catch up on the close side via `initiative-tracking`'s legacy Maintenance ritual (formerly tracked as follow-up #87). For evergreen parents, #87 is superseded: there is no close-side body edit left to catch up with — child membership, status, and counts are all derived at read time.

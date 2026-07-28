@@ -1,6 +1,6 @@
 # GitHub Backend
 
-Backend module for [`gh` CLI](https://cli.github.com/) — the dispatch surface for the `github` backend. Implements the eight operations from [`_interface.md`](_interface.md).
+Backend module for [`gh` CLI](https://cli.github.com/) — the dispatch surface for the `github` backend. Implements the ten operations from [`_interface.md`](_interface.md).
 
 ## Auth
 
@@ -20,6 +20,8 @@ For GitHub Enterprise, `gh auth login --hostname <enterprise-host>`. The `github
 | List children | `gh api --paginate repos/OWNER/REPO/issues/PARENT_N/sub_issues` |
 | View | `gh issue view N --repo OWNER/REPO --json body,labels,state` |
 | Edit body (destructive) | `gh issue edit N --repo OWNER/REPO --body-file PATH` |
+| Read comments | `gh api --paginate repos/OWNER/REPO/issues/N/comments` |
+| Upsert comment (destructive) | `gh api -X PATCH repos/OWNER/REPO/issues/comments/COMMENT_ID -f body=BODY` (update) / `gh issue comment N --repo OWNER/REPO --body BODY` (create) |
 | Close | `gh issue close N --repo OWNER/REPO --comment "REASON"` |
 
 ---
@@ -108,9 +110,11 @@ gh api --paginate repos/"$GITHUB_REPO"/issues/"$PARENT_N"/sub_issues \
 
 `--paginate` is required: the endpoint pages at 30, and a silently truncated list would drop children from the adopted `## Children` mirror. Each item carries `state` (`open` / `closed`) — adoption needs the closed ones to render `[x] … — closed` lines. The skill translates each row to `{ref: #number, title, status}`.
 
+**Return order:** the `sub_issues` endpoint returns the sub-issue list's UI order — operator-reorderable in GitHub's UI — which is the native order `/resume-initiative` uses for unphased/flat children (Fork #4 of the evergreen-epics design).
+
 **Cross-repo children** (`owner/repo#N`): a child in another repo lives under *its* repo's endpoint — call `gh api repos/<that-owner>/<that-repo>/issues/<N>/sub_issues` for that child's repo, not the configured `github.repo`.
 
-**Nesting (invariant 6):** GitHub sub-issues nest arbitrarily deep, so this call returns the true direct children at every level — there is no native ceiling below the body mirror's reach (contrast Jira). The skill recurses one node at a time via the `## Children` mirror.
+**Nesting (invariant 6):** GitHub sub-issues nest arbitrarily deep, so this call returns the true direct children at every level — there is no native ceiling below persistent structure's reach (contrast Jira). The skill recurses one node at a time via each node's own persistent structure: the machine-block `## Phases` map for evergreen-shape epics, the body `## Children` mirror for legacy-shape epics.
 
 ---
 
@@ -138,6 +142,36 @@ Destructive replace. There is no append-only API on `gh`. The Status-block-updat
 
 ---
 
+### `read_comments`
+
+```sh
+gh api --paginate "repos/$GITHUB_REPO/issues/$N/comments" \
+  --jq '.[] | {id: .id, author: .user.login,
+         author_trust: (.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR"),
+         body: .body, created: .created_at}' | jq -s .
+```
+
+Uses the REST comments endpoint (not `gh issue view --json comments`, which returns GraphQL node IDs — those are not accepted by the REST PATCH `upsert_comment` uses below, so update would 404). REST returns oldest-first. `author_trust` maps `author_association` — OWNER/MEMBER/COLLABORATOR are trusted; CONTRIBUTOR/FIRST_TIME_CONTRIBUTOR/NONE are not (drive-by accounts can comment on any public issue).
+
+**Critical gotcha:** `gh api --paginate` applies `--jq` **per page**, not once over the assembled result — with a bare `[.[] | {...}]` wrapper, an issue with more than one page of comments (>30) would emit one JSON array **per page** instead of one array overall, which is malformed as a single JSON value. Emitting one object per line (`--jq '.[] | {...}'`, no wrapping brackets) and piping the whole stream through `jq -s .` to assemble the single array afterward avoids the per-page wrapping entirely.
+
+---
+
+### `upsert_comment`
+
+Two-step: locate the earliest trusted comment containing the marker via `read_comments`, then PATCH it; create if absent. The PATCH consumes the numeric REST comment id `read_comments` returns — the two calls share the same id space by construction.
+
+```sh
+# update (id from read_comments):
+gh api -X PATCH "repos/$GITHUB_REPO/issues/comments/$COMMENT_ID" -f body="$BODY"
+# create (no trusted marker comment exists):
+gh issue comment "$N" --repo "$GITHUB_REPO" --body "$BODY"
+```
+
+Destructive whole-comment replace — read-modify-write per invariant 2.
+
+---
+
 ### `close_issue`
 
 ```bash
@@ -155,7 +189,7 @@ For `reason: not_planned`, pass `--reason "not planned"`. For `reason: duplicate
 3. **Sub-issue linkage** — GitHub's native sub-issue API (the `sub_issues` endpoint). Implemented per `link_sub_issue` above.
 4. **Issue refs are opaque** — GitHub refs are `#N`, where `N` is the per-repo issue number. The skill treats this as opaque; only this backend module knows the syntax.
 5. **`/tracker-doctor` reachability** — runs `gh auth status` + `gh repo view "$GITHUB_REPO"`. Both must succeed.
-6. **Initiative nesting** — GitHub's native sub-issue API nests **arbitrarily deep**: a sub-issue can itself own sub-issues via the same `POST repos/.../issues/<parent>/sub_issues` call (`link_sub_issue`), so native linkage never hits a ceiling that `initiative-tracking`'s body mirror exceeds. Root-vs-nested detection still uses the cross-backend signal (a `## Parent epic` block in the body) rather than the native relation, because `gh issue view` does not return a parent field — see `view_issue` above, which resolves a parent only via the extra `gh api .../issues/<N> --jq '.sub_issue_id // empty'` call.
+6. **Initiative nesting** — GitHub's native sub-issue API nests **arbitrarily deep**: a sub-issue can itself own sub-issues via the same `POST repos/.../issues/<parent>/sub_issues` call (`link_sub_issue`), so native linkage never hits a ceiling that `initiative-tracking`'s body mirror exceeds. Root-vs-nested detection still uses the cross-backend signal (a `## Parent epic` section in the machine-block comment for evergreen-shape epics, or the body for legacy-shape epics — a root has it in neither) rather than the native relation, because `gh issue view` does not return a parent field — see `view_issue` above, which resolves a parent only via the extra `gh api .../issues/<N> --jq '.sub_issue_id // empty'` call.
 
 ## PR close-on-merge convention
 
@@ -179,7 +213,9 @@ consumer's `.claude/issue-tracker.yaml` sets `github.project`, `initiative-track
 mirrors the initiative tree onto that GitHub Projects (v2) board: it adds the root
 epic, every sub-epic, and every leaf child as items and reflects each child's
 lifecycle in the board's built-in **Status** field. The board is a human-facing
-view; the epic body's `## Children` task-list mirror stays canonical. With
+view; membership stays canonical via the tracker itself — derived live from
+native linkage + the machine-block `## Phases` map for evergreen-shape epics,
+or the epic body's `## Children` task-list mirror for legacy-shape epics. With
 `github.project` unset, none of this runs.
 
 GitHub Projects v2 is GraphQL-only; the `gh project` subcommands wrap it and need
@@ -244,6 +280,7 @@ Best-effort: if the item isn't in the fetched page, WARN and skip.)
 Every `gh project` call here is **best-effort**. Any failure — missing `project`
 scope, unreachable board, GraphQL error, absent `Status` field — is a WARN, never a
 block: the underlying `create_issue` / `link_sub_issue` / `close_issue` /
-`/resume-initiative --start` / `/work-issue` operation still succeeds. The
-`## Children` mirror is the source of truth; a degraded board never blocks an
-initiative operation.
+`/resume-initiative --start` / `/work-issue` operation still succeeds. Native
+linkage — the machine-block `## Phases` map for evergreen-shape epics, the
+`## Children` mirror for legacy-shape epics — is the source of truth; a
+degraded board never blocks an initiative operation.

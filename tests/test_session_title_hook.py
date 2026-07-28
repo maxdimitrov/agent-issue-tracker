@@ -444,3 +444,69 @@ def test_quotes_and_trailing_period_are_stripped(project, hook_env, tmp_path):
     stub = claude_stub(tmp_path, "\\\"wiring board webhook.\\\"")
     t = title_of(run_hook(payload_for(project, source="resume"), ai_env(hook_env), stub_bin=stub))
     assert t == "WB-7657 subscription-gates · wiring board webhook"
+
+
+# --- Task 7: machine-block epic enrichment (new-shape epics) -----------------
+# New-shape epics carry no "- **Current branch:**" line in the body; that
+# signal now lives in the marker-tagged machine-block comment instead. The
+# stub below dispatches on "$*" so distinct `gh` calls (issue list, comment
+# fetch, per-ref state checks) return distinct canned payloads.
+
+GH_STUB_MACHINE_BLOCK = """case "$*" in
+  *"issue list"*)
+    printf '%s' '[{"number": 7, "title": "epic: obs rollout", "body": "## Goal\\nx"}]' ;;
+  *"issue view 7"*comments*)
+    printf '%s' '{"comments": [{"id": 1, "author": {"login": "maxd"}, "authorAssociation": "OWNER", "createdAt": "2026-07-01T00:00:00Z", "body": "<!-- agent-issue-tracker:machine-block -->\\n\\n## Phases\\n- **Phase 0** - x - #8, #9\\n\\n## Current branch\\n- feat/obs"}]}' ;;
+  *"issue view 8"*state*)  printf '%s' 'CLOSED' ;;
+  *"issue view 9"*state*)  printf '%s' 'OPEN' ;;
+  *) exit 1 ;;
+esac"""
+
+
+def test_new_shape_epic_matched_via_machine_block(project, hook_env, tmp_path):
+    """Body has no Status block; the machine-block comment carries
+    `## Current branch` = the session's branch. Title anchors to the epic
+    ref+slug and `next` comes from the first OPEN phase-map ref."""
+    stub_bin = make_stub(tmp_path, "gh", GH_STUB_MACHINE_BLOCK)
+    git(project, "checkout", "-q", "-b", "feat/obs")
+    t = title_of(run_hook(payload_for(project), hook_env, stub_bin=stub_bin))
+    assert t == "#7 obs-rollout · next #9"
+
+
+def test_untrusted_machine_block_comment_is_ignored(project, hook_env, tmp_path):
+    """Same as above but the only marker comment has authorAssociation NONE
+    -> no epic match. The branch itself has no derivable ref, so the title
+    falls back to whatever a branch-derived anchor would be (silence here) -
+    the point under test is that #7 never leaks into the title either way."""
+    untrusted = GH_STUB_MACHINE_BLOCK.replace(
+        '"authorAssociation": "OWNER"', '"authorAssociation": "NONE"'
+    )
+    stub_bin = make_stub(tmp_path, "gh", untrusted)
+    git(project, "checkout", "-q", "-b", "feat/obs")
+    t = title_of(run_hook(payload_for(project), hook_env, stub_bin=stub_bin))
+    assert t is None or "#7" not in t
+
+
+GH_STUB_MACHINE_BLOCK_CRLF = """case "$*" in
+  *"issue list"*)
+    printf '%s' '[{"number": 7, "title": "epic: obs rollout", "body": "## Goal\\nx"}]' ;;
+  *"issue view 7"*comments*)
+    printf '%s' '{"comments": [{"id": 1, "author": {"login": "maxd"}, "authorAssociation": "OWNER", "createdAt": "2026-07-01T00:00:00Z", "body": "<!-- agent-issue-tracker:machine-block -->\\r\\n\\r\\n## Phases\\r\\n- **Phase 0** - x - #8, #9\\r\\n\\r\\n## Current branch\\r\\n- feat/obs\\r\\n\\r\\n## Decision log\\r\\n- **2026-07-01** - kicked off"}]}' ;;
+  *"issue view 8"*state*)  printf '%s' 'CLOSED' ;;
+  *"issue view 9"*state*)  printf '%s' 'OPEN' ;;
+  *) exit 1 ;;
+esac"""
+
+
+def test_machine_block_branch_match_tolerates_crlf(project, hook_env, tmp_path):
+    """A machine-block comment edited via the GitHub web UI comes back with
+    CRLF line endings. The branch-match jq must rtrimstr("\\r") each split
+    line before comparing, or the "## Current branch" line never matches and
+    the whole new-shape path silently no-ops. The branch line is deliberately
+    NOT the last line in the body (a "## Decision log" section follows) -
+    if it were last, the body might not carry a trailing CRLF on that line
+    at all, which would mask the bug."""
+    stub_bin = make_stub(tmp_path, "gh", GH_STUB_MACHINE_BLOCK_CRLF)
+    git(project, "checkout", "-q", "-b", "feat/obs")
+    t = title_of(run_hook(payload_for(project), hook_env, stub_bin=stub_bin))
+    assert t == "#7 obs-rollout · next #9"

@@ -6,7 +6,7 @@ The contract is THE source of truth. If a backend module diverges from this cont
 
 ## Operations
 
-Eight operations. Inputs are tracker-agnostic field names; the backend module translates them into tracker-specific fields (label vs component vs custom field, etc.).
+Ten operations. Inputs are tracker-agnostic field names; the backend module translates them into tracker-specific fields (label vs component vs custom field, etc.).
 
 ### `create_issue`
 
@@ -65,14 +65,14 @@ Eight operations. Inputs are tracker-agnostic field names; the backend module tr
 
 ### `list_child_issues`
 
-**Purpose:** List the children of a parent issue — the read-inverse of `link_sub_issue`. Used by `initiative-tracking` to adopt a pre-existing epic (one whose body has no `## Children` mirror yet, or a stale one) and to reconcile the mirror against the tracker's actual parent-child linkage. This is the operation that lets the skill answer "what are this epic's children?" from the tracker instead of trusting the epic body's prose. It is also the operation `/resume-initiative`'s drift reconciliation dispatches once per epic node to diff the `## Children` mirror against the tracker's native linkage — no new capability was needed; the existing return shape (direct children, open AND closed) is exactly the diff's input.
+**Purpose:** List the children of a parent issue — the read-inverse of `link_sub_issue`. Used by `initiative-tracking` to adopt a pre-existing epic (a legacy-shape epic with a `## Status block`, or one predating the template) and to reconcile the persistent structure against the tracker's actual parent-child linkage. This is the operation that lets the skill answer "what are this epic's children?" from the tracker instead of trusting the epic's persistent structure. It is also the operation `/resume-initiative`'s drift reconciliation dispatches once per epic node to reconcile the persistent structure (machine-block `## Phases` map for evergreen-shape, body `## Children` mirror for legacy-shape) against the tracker's native linkage — no new capability was needed; the existing return shape (direct children, open AND closed) is exactly the diff's input. As of the evergreen-epic model this operation is **load-bearing for `/resume-initiative`**: it is the authoritative child-set source on every resume, not just adoption/drift tooling.
 
 **Inputs:**
 - `parent_ref` — the parent issue ref
 
-**Output:** list of `{ref, title, status}` entries — the parent's **direct** children only. Includes **both open and closed** children, which is the deliberate difference from `list_open_issues`: adoption needs the closed ones to render them in the `## Children` mirror as `[x] … — closed`. Depth is the skill's concern, not this op's — `initiative-tracking` recurses over each node's `## Children` mirror per invariant 6, calling this op once per node.
+**Output:** list of `{ref, title, status}` entries — the parent's **direct** children only. Includes **both open and closed** children, which is the deliberate difference from `list_open_issues`. Depth is the skill's concern, not this op's — `initiative-tracking` recurses over each node's persistent structure per invariant 6 (machine-block `## Phases` map for evergreen-shape epics, body `## Children` mirror for legacy-shape), calling this op once per node. For adoption of legacy-shape epics, closed children are needed to render them in the body `## Children` mirror as `[x] … — closed`.
 
-**Nesting (invariant 6):** native parent queries reach exactly as far as the backend's linkage ceiling (e.g. Jira's three-level Epic → Story/Task → Sub-task cap). Below that ceiling there are no *native* children to enumerate by construction — deeper nesting lives in the body mirror alone — so this op is reliable precisely where adoption needs it: reconciling one node's direct children at a time. A backend whose native ceiling is shallower than a given tree is NOT in violation; the `## Children` body mirror remains the depth-of-record.
+**Nesting (invariant 6):** native parent queries reach exactly as far as the backend's linkage ceiling (e.g. Jira's three-level Epic → Story/Task → Sub-task cap). Below that ceiling there are no *native* children to enumerate by construction — deeper nesting lives in persistent structure (machine-block `## Phases` for evergreen epics, body `## Children` mirror for legacy) — so this op is reliable precisely where adoption needs it: reconciling one node's direct children at a time. A backend whose native ceiling is shallower than a given tree is NOT in violation; the persistent structure remains the depth-of-record.
 
 ---
 
@@ -83,13 +83,13 @@ Eight operations. Inputs are tracker-agnostic field names; the backend module tr
 **Inputs:**
 - `ref` — issue ref
 
-**Output:** `{ref, title, body, labels[], status, parent?}`. `parent` is present only when the issue is a sub-issue / child, and only on backends whose native API exposes the parent on a plain issue read (GitHub's `gh issue view` does not — see `backends/github.md`). Because of that asymmetry, `initiative-tracking` does NOT rely on `parent?` to identify root vs nested epics; the cross-backend signal is the presence of a `## Parent epic` block in the `body` (a root epic has none). `parent?` is a secondary, best-effort confirmation where the backend supplies it.
+**Output:** `{ref, title, body, labels[], status, parent?}`. `parent` is present only when the issue is a sub-issue / child, and only on backends whose native API exposes the parent on a plain issue read (GitHub's `gh issue view` does not — see `backends/github.md`). Because of that asymmetry, `initiative-tracking` does NOT rely on `parent?` to identify root vs nested epics; the cross-backend signal is the presence of a `## Parent epic` section in the machine-block comment (evergreen shape) or the `body` (legacy shape) — a root has it in neither. `parent?` is a secondary, best-effort confirmation where the backend supplies it.
 
 ---
 
 ### `edit_body`
 
-**Purpose:** Replace the body of an existing issue (destructive whole-body replace). Used by `initiative-tracking` to update the epic's Status block after a child closes.
+**Purpose:** Replace the body of an existing issue (destructive whole-body replace). Used for evergreen-epic description edits (goal/scope changes), `/resume-initiative --adopt`'s body rewrite, and legacy-epic Status-block maintenance. (Under the evergreen model a child closing writes nothing anywhere — see `commands/resume-initiative.md` "Deriving child state" — so this op is no longer used to reconcile an epic body after a child closes.)
 
 **Inputs:**
 - `ref` — issue ref
@@ -98,6 +98,32 @@ Eight operations. Inputs are tracker-agnostic field names; the backend module tr
 **Output:** (void)
 
 **Note:** This operation is destructive. Both GitHub and Jira's edit-issue APIs replace the description in one call; there is no append-only API on either tracker. The skill is responsible for read-modify-write — fetch current body, modify in memory, write back the whole thing.
+
+---
+
+### `read_comments`
+
+**Purpose:** Read an issue's comments in chronological order. Used by `initiative-tracking` / `/resume-initiative` to locate the machine-block comment (see "Machine-block comment convention" below) and to surface decision/blocker comments on resume.
+
+**Inputs:**
+- `ref` — issue ref
+
+**Output:** list of `{id, author, author_trust, body, created}` entries, oldest first. `author_trust` is a boolean the backend derives from its own metadata — GitHub maps `authorAssociation` ∈ {OWNER, MEMBER, COLLABORATOR} to true; Jira returns true by default (org-internal instances; see `backends/jira.md` trust note). Skills never re-derive trust; they consume the flag.
+
+---
+
+### `upsert_comment`
+
+**Purpose:** Create or update a marker-tagged comment — the write half of the machine-block convention.
+
+**Inputs:**
+- `ref` — issue ref
+- `marker` — literal sentinel string the comment must contain
+- `body` — full replacement comment text (marker included)
+
+**Output:** (void)
+
+**Note:** Destructive whole-comment replace — cross-backend invariant 2 applies to comments exactly as to bodies: `read_comments` first, modify in memory, write back the whole comment. Semantics: find the **earliest trusted** comment containing `marker`; if found, replace its body; else create a new comment.
 
 ---
 
@@ -120,7 +146,7 @@ Every backend module MUST satisfy these. They are not negotiable.
 
 1. **Body format is markdown.** GitHub renders markdown bodies natively; Jira accepts markdown via the Atlassian Remote MCP's ADF-translation layer. Skills produce markdown only — never ADF, never wiki markup, never HTML.
 
-2. **Whole-body edits are destructive.** Both trackers' description fields are replaced entirely on edit. The skill reads the current body, modifies it in memory, then writes back. There is no append-only API.
+2. **Whole-body edits are destructive.** Both trackers' description fields are replaced entirely on edit. The skill reads the current body, modifies it in memory, then writes back. There is no append-only API. The same rule applies to `upsert_comment` — comments are replaced whole.
 
 3. **Sub-issue linkage is uniform from the skill's POV.** `link_sub_issue(parent_ref, child_ref)` works the same regardless of backend. The backend module handles the per-tracker mechanism — GitHub's native sub-issue API (`POST repos/.../issues/<parent>/sub_issues`); Jira's `parent` field on the sub-task or the legacy Epic Link customfield.
 
@@ -128,13 +154,19 @@ Every backend module MUST satisfy these. They are not negotiable.
 
 5. **`/tracker-doctor` is the smoke test.** Every backend module MUST work end-to-end against `/tracker-doctor`'s reachability check. `/tracker-doctor` calls `view_issue` against a known-existent ref to prove the backend dispatch path works.
 
-6. **Initiative nesting lives in the body, not the native hierarchy.** `initiative-tracking` supports initiatives nested more than one level deep (an epic whose child is itself an epic — a "sub-epic" — with its own children). The depth-of-record is the recursive `## Children` task-list mirror inside each epic node's body, parsed by `/resume-initiative`. Native `link_sub_issue` linkage is best-effort *augmentation*, applied as deep as the backend's hierarchy allows and then silently capped — GitHub sub-issues nest arbitrarily; Jira Cloud's standard hierarchy stops at Epic → Story/Task → Sub-task (three levels). A backend that cannot link a deep edge natively is NOT in violation: the body mirror still expresses the full tree, so the skill and command keep working uniformly. Backend modules MUST document where their native linkage ceiling sits.
+6. **Initiative nesting lives in persistent structure, not the native hierarchy.** `initiative-tracking` supports initiatives nested more than one level deep (an epic whose child is itself an epic — a "sub-epic" — with its own children). For evergreen-shape epics, the depth-of-record past the backend's native-linkage ceiling is the machine-block comment's `## Phases` ref map (children listed there but not natively linkable render `unlinked`); for legacy-shape epics (body still has a `## Status block`), the depth-of-record is the recursive `## Children` task-list mirror inside the body. Native `link_sub_issue` linkage is best-effort *augmentation*, applied as deep as the backend's hierarchy allows and then silently capped — GitHub sub-issues nest arbitrarily; Jira Cloud's standard hierarchy stops at Epic → Story/Task → Sub-task (three levels). A backend that cannot link a deep edge natively is NOT in violation: the persistent record still expresses the full tree, so the skill and command keep working uniformly. Backend modules MUST document where their native linkage ceiling sits.
+
+---
+
+## Machine-block comment convention
+
+Epic nodes under the evergreen model (see `skills/initiative-tracking/SKILL.md`) keep their non-derivable structure in ONE comment carrying the literal sentinel `<!-- agent-issue-tracker:machine-block -->`. Format: `templates/epic-machine-block.md`. Readers select the **earliest marker-carrying comment whose `author_trust` is true** (via `read_comments`) and ignore untrusted marker comments with a one-line WARN. Writers go through `upsert_comment` only. Every machine-block read or write is best-effort — WARN and continue, never block a resume or a filing — except `--adopt`'s ordered writes (see `commands/resume-initiative.md` Mode 4), which abort rather than half-convert.
 
 ---
 
 ## Optional backend-specific capabilities
 
-The eight operations above are the entire contract. A backend MAY document
+The ten operations above are the entire contract. A backend MAY document
 additional, backend-specific affordances that are NOT contract operations and are
 NOT required of any other backend. Such affordances live under plain `##` headings
 in the backend module — never a `` ### `op` `` operation heading — so the
@@ -146,19 +178,19 @@ The first such affordance is **GitHub Projects (v2) board population** — see
 `backends/github.md` "GitHub Projects v2 board (optional)". It mirrors an
 initiative's issue tree onto a GitHub Projects board as a human-facing view. It is
 GitHub-only; `backends/jira.md` records it as n/a. It adds **no** contract
-operation: the eight ops stay eight, and op-parity remains green.
+operation: the ten ops stay ten, and op-parity remains green.
 
 The second is **in-progress status marking** — the "this issue is being worked"
 signal a driver sets when work starts (`/work-issue` Step 3 today;
-`/resume-initiative --start` via follow-up #88). It is an affordance, not a ninth
+`/resume-initiative --start` via follow-up #88). It is an affordance, not an eleventh
 operation, because it cannot be uniformly implemented: GitHub has no native
 issue-level status (its mechanism is the Projects-board Status field above), while
 Jira's is a workflow transition (`jira.in_progress_transition` — see
 `backends/jira.md` "In-progress transition (optional)"). With neither configured,
-the fallback signal is the parent epic's Status block `Current branch` line,
-written by `/work-issue`'s start-side sync; a parentless issue with nothing
-configured gets no marker — a documented no-op. Every such write is best-effort —
-WARN, never block.
+the fallback signal is now the parent epic's machine-block comment `## Current
+branch` section (legacy epics: the body Status block line); a parentless issue
+with nothing configured gets no marker — a documented no-op. Every such write is
+best-effort — WARN, never block.
 
 ---
 
@@ -167,7 +199,7 @@ WARN, never block.
 To add a new backend (GitLab, Linear, Jira Server, plain-file, etc.):
 
 1. Create `backends/<name>.md`.
-2. For each of the eight operations above, document the literal CLI command, MCP tool call, or API request that implements it. Use the same field names as the contract; translate to tracker-specific fields inside the documentation.
+2. For each of the ten operations above, document the literal CLI command, MCP tool call, or API request that implements it. Use the same field names as the contract; translate to tracker-specific fields inside the documentation.
 3. Document how the six cross-backend invariants are satisfied — including invariant 6 (where the new backend's native parent-child linkage ceiling sits, so `initiative-tracking` knows how deep native augmentation goes before the body mirror is the sole record).
 4. Add a `<name>` block to the config schema in `examples/issue-tracker.yaml.example` with all required + optional fields.
 5. Ship a minimal `examples/<name>-config.yaml`.
