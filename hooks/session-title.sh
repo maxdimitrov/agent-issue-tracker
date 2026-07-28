@@ -123,7 +123,7 @@ machine_block_epic_line() {
        | select(.body | contains("<!-- agent-issue-tracker:machine-block -->"))
        | select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER"
                 or .authorAssociation == "COLLABORATOR")][0] // empty
-      | select(.body | split("\n") | index("- " + $b))
+      | select(.body | split("\n") | map(rtrimstr("\r")) | index("- " + $b))
       | .body' 2>/dev/null)" || mb_body=""
     [ -n "$mb_body" ] || continue
     mb_phases="$(printf '%s' "$mb_body" | awk '/^## Phases/{f=1; next} /^## /{if (f) exit} f')"
