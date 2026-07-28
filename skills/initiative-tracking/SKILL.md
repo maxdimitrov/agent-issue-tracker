@@ -237,7 +237,7 @@ triage gate, one level down):
    criteria`, `## Design spec`). Keep its existing ref and title.
 2. Post its machine-block comment with a `## Parent epic` section
    pointing at its parent (`upsert_comment`) — see "Machine-block
-   comment" above.
+   comment" below.
 3. Add the `epic` label to it (`add_label`). It is now a recursable
    node — this label alone is what `/resume-initiative` uses to
    recurse into it; there is nothing to mark on the parent's side.
@@ -289,16 +289,21 @@ Invoke the configured backend's `create_issue` operation. Pass:
 
 See `backends/<backend>.md` for the literal invocation.
 
-If the initiative's phases or (for a sub-epic) its parent are
-already known at file time, post the machine-block comment in the
-same flow: `upsert_comment({ref, marker:
-"<!-- agent-issue-tracker:machine-block -->", body})` with a
-`## Phases` and/or `## Parent epic` section filled in — see
-"Machine-block comment" below. When neither is known yet (a flat
-root epic), post no comment at all; the epic carries zero machine
-cruft until there is something non-derivable to say. This write is
-best-effort — WARN and continue on failure; the epic is still
-validly filed with just the description.
+If the initiative's phases, (for a sub-epic) its parent, or anything
+else non-derivable is already known at file time — including just an
+initial decision worth logging — post the machine-block comment in
+the same flow: `upsert_comment({ref, marker:
+"<!-- agent-issue-tracker:machine-block -->", body})` with whichever
+of `## Phases`, `## Parent epic`, or `## Decision log` applies filled
+in — see "Machine-block comment" below. (See
+`examples/workflows/file-an-epic.md` for a worked example that posts
+only a `## Decision log` entry at file time — no phases, no parent —
+because that is the only non-derivable section known yet.) When
+nothing non-derivable is known at all (a flat root epic with no
+day-one decision to record), post no comment at all; the epic carries
+zero machine cruft until there is something non-derivable to say.
+This write is best-effort — WARN and continue on failure; the epic is
+still validly filed with just the description.
 
 ## Epic body template
 
@@ -605,9 +610,11 @@ the close. This supersedes the old close-side body-reconcile-on-read
 follow-up (#87) entirely — there is no close-side write left to
 automate.
 
-The writes that remain are all evergreen-comment or evergreen-body
-edits, made when something genuinely non-derivable changes, and all
-best-effort (WARN and continue on failure, never block the run):
+The writes that remain are all best-effort (WARN and continue on
+failure, never block the run): evergreen-comment or evergreen-body
+edits, made only when something genuinely non-derivable changes,
+plus one write that is neither — the optional GitHub Projects board
+sync, a human-facing view rather than an epic body or comment edit:
 
 - **Goal or scope changes** — `edit_body` on the description
   (read-modify-write, cross-backend invariant 2). The one remaining

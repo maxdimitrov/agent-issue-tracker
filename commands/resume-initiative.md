@@ -1,5 +1,5 @@
 ---
-description: Show open epic initiatives and the next-up child issue; optionally start work on the next child.
+description: Show open epic initiatives and the next-up child issue; optionally start work on the next child or adopt a legacy epic into the evergreen shape (--adopt).
 ---
 
 # /resume-initiative [epic-ref] [--start] [--adopt]
@@ -21,7 +21,7 @@ Named `/resume-initiative` (not `/resume`) to avoid shadowing Claude Code's buil
 | `/resume-initiative` | List all open **root** initiatives + their next-up leaf (rolled up across the tree). Pick one. |
 | `/resume-initiative <ref>` | Load epic (or sub-epic) `<ref>`. Show phase progress, the child tree, and the next-up leaf. |
 | `/resume-initiative <ref> --start` | Load `<ref>`, resolve next-up down to a leaf, enter that leaf's worktree, and hand off to `superpowers:brainstorming` inline. (Sets the leaf's GitHub Projects board Status to In Progress if `github.project` is configured.) |
-| `/resume-initiative <ref> --adopt` | Rewrite a legacy-shape epic (body `## Status block` + `## Children`) into the evergreen shape: description → evergreen, phases/probe/branch/decision-log/parent → machine-block comment, mirror removed. Tracker child linkage unchanged. Operator-invoked, per node. |
+| `/resume-initiative <ref> --adopt` | Rewrite a legacy-shape epic (body `## Status block` + `## Children`) into the evergreen shape: description → evergreen, phases/probe/branch/decision-log/parent → machine-block comment, mirror removed. Existing child links are never removed or re-parented; live mirror-only children are natively linked first (step 1). Operator-invoked, per node. |
 
 `<ref>` may be a root epic OR any sub-epic — the command treats whatever node you name as the subtree root and walks down from there.
 
@@ -36,7 +36,7 @@ Every mode below dispatches per node on shape. A tree can freely mix both shapes
 
 ## Tree traversal (shared rules)
 
-All three modes walk the initiative tree using these rules.
+Modes 1–3 walk the initiative tree using these rules (Mode 4 `--adopt` converts a single node; it does not traverse).
 
 **Three descent paths.** Traversal follows the tree along three kinds of edge, and the depth-cap, cycle-guard, and mixed-backend rules below apply to **all three** identically — not just to child enumeration:
 
@@ -202,7 +202,7 @@ probe → print nothing.
 
 ### Mode 1 — no argument: list open root initiatives
 
-1. Invoke the configured backend's `list_open_issues({label: 'epic'})` operation; see `backends/<backend>.md` for the literal invocation. The returned list contains `[{ref, title, status}, ...]` entries — **every** epic node, roots and sub-epics alike. For each, call `view_issue({ref})` to fetch the full body — this also determines shape (see "Two epic shapes"). For each **evergreen**-shaped node (no `## Status block` in the body), additionally call `read_comments({ref})` to locate its machine block. (Both costs are acceptable — open-epic count is typically <20; the added `read_comments` call is one per evergreen node, same acceptability note as the existing `view_issue` N+1.)
+1. Invoke the configured backend's `list_open_issues({label: 'epic'})` operation; see `backends/<backend>.md` for the literal invocation. The returned list contains `[{ref, title, status}, ...]` entries — **every** epic node, roots and sub-epics alike. For each, call `view_issue({ref})` to fetch the full body — this also determines shape (see "Two epic shapes"). For each **evergreen**-shaped node (no `## Status block` in the body), additionally call `read_comments({ref})` to locate its machine block AND `list_child_issues({parent_ref: ref})` to establish its native child set — the union child-state derivation (see "Deriving child state") needs both to compute the root's direct-child `<closed>/<total>` count and next-up in step 3. (These costs are acceptable — open-epic count is typically <20; the added `read_comments` and `list_child_issues` calls are each one per evergreen node, same acceptability note as the existing `view_issue` N+1.)
 
 2. **Filter to roots.** Drop any node with a `## Parent epic` section (machine block for evergreen, body for legacy — see "Tree traversal" root detection) — those are sub-epics and will appear under their root, not as their own top-level entry. The survivors are the root initiatives.
 
@@ -332,11 +332,11 @@ Operator-invoked, per node — a sub-epic is adopted by naming it directly; adop
 
 3. **Rewrite the description to the evergreen shape.** Build the new body per `templates/epic-body.md`: `## Goal` and `## Design spec` carry over unchanged. Fold `## Scope` (in/out) and `## Success criteria` from the legacy body's narrative — this is judgment work, not mechanical extraction; read the existing prose and produce outcome-based bullets, never child counts or phase state. Any remaining legacy content that doesn't fold cleanly into the evergreen shape (extra prose, historical notes) is preserved, never dropped, under an appended `## Notes (pre-adoption)` section.
 
-4. **Drop the retired sections.** The rewritten body carries no `## Status block`, `## Phases`, or `## Children` — those three headings move to the machine block (Phases) or are superseded by derive-live (the Status block's Phase/Next-up counts, and the Children mirror). Write the new body with `edit_body({ref, new_body})`.
+4. **Drop the retired sections.** The rewritten body carries no `## Status block`, `## Phases`, `## Children`, `## Decision log`, `## Scope probe`, or `## Parent epic` — the last three moved verbatim into the machine block in step 2, so leaving them in the body would duplicate content the machine block now owns and defeat the point of an evergreen description; `## Phases` also moved to the machine block, and `## Status block` / `## Children` are superseded by derive-live (the Status block's Phase/Next-up counts, and the Children mirror). Write the new body with `edit_body({ref, new_body})`.
 
 Unlike routine machine-block upkeep (start-side branch sync, phase-map append, decision-log append — see "Failure modes", which stays best-effort WARN-and-continue), `--adopt`'s two writes have an ordering dependency and must NOT be treated as independently best-effort:
 
-- **Step 2 (`upsert_comment`) fails** → ABORT before step 4. Report the failure to the operator and stop; do NOT proceed to strip `## Status block` / `## Phases` / `## Children` via `edit_body` when the machine block was never successfully written — that would leave the epic in neither shape (no evergreen machine block, no legacy Status block). The body is untouched, so the epic still parses as legacy exactly as before the attempt; re-running `--adopt` once the underlying failure is fixed is safe.
+- **Step 2 (`upsert_comment`) fails** → ABORT before step 4. Report the failure to the operator and stop; do NOT proceed to strip `## Status block` / `## Phases` / `## Children` / `## Decision log` / `## Scope probe` / `## Parent epic` via `edit_body` when the machine block was never successfully written — that would leave the epic in neither shape (no evergreen machine block, no legacy Status block). The body is untouched, so the epic still parses as legacy exactly as before the attempt; re-running `--adopt` once the underlying failure is fixed is safe.
 - **Step 4 (`edit_body`) fails** (after step 2 already succeeded) → report the failure and stop. The `## Status block` heading is still present — step 4 is what would have removed it — so the epic continues to parse as legacy (detection keys off that heading alone, per "Two epic shapes"). Re-running `--adopt` is safe and idempotent: step 2 simply overwrites the same machine-block comment it already wrote.
 
 ## Conventions assumed
@@ -359,7 +359,7 @@ Unlike routine machine-block upkeep (start-side branch sync, phase-map append, d
 - No qualifying machine block on an evergreen node (none found, or every marker-carrying comment is untrusted) → all children render `unphased`; this is correct rendering, not an error.
 - Untrusted marker comment → ignored with a one-line WARN naming it (see "Two epic shapes").
 - `upsert_comment` fails during routine machine-block upkeep (start-side branch sync, phase-map append, decision-log append) → WARN and continue; every such comment read or write is best-effort, never blocking the run, the worktree, or the filing.
-- `--adopt` step 2's `upsert_comment` fails → NOT best-effort; ABORT before step 4 rather than continue (see Mode 4's failure-sequencing note) — never strip `## Status block`/`## Phases`/`## Children` when the machine block wasn't written.
+- `--adopt` step 2's `upsert_comment` fails → NOT best-effort; ABORT before step 4 rather than continue (see Mode 4's failure-sequencing note) — never strip `## Status block`/`## Phases`/`## Children`/`## Decision log`/`## Scope probe`/`## Parent epic` when the machine block wasn't written.
 - `--adopt` step 4's `edit_body` fails → report it and stop; the epic still parses as legacy (the `## Status block` heading is untouched), so re-running `--adopt` is safe (see Mode 4).
 - `--start` invoked but the resolved `Next up` leaf is `none`/exhausted or the subtree has no open leaves → report "no next-up leaf to start" and exit; do not create a worktree from nothing.
 - Child ref syntax mismatch (e.g. `PROJ-123` in a GitHub-configured repo) → log a soft warning and skip that child; continue with the remaining children. Do NOT crash.

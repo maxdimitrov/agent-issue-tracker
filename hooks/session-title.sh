@@ -105,9 +105,13 @@ fi
 
 # --- machine-block second pass (stage 6 helper) ---------------------------------
 # New-shape epics carry no "- **Current branch:**" line in the body (that
-# signal now lives in the marker-tagged machine-block comment). Bounded to
-# the first 10 epics; every gh call is tmo-bounded; any failure yields no
-# match and never breaks the title. Trust: authorAssociation must be one of
+# signal now lives in the marker-tagged machine-block comment). Legacy epics
+# (body has a "## Status block" line) are filtered out before the cap below --
+# they can never match the machine-block path, so skipping them here spends
+# the 10-epic budget only on epics that could plausibly match, cutting the
+# worst-case SessionStart latency. Bounded to the first 10 (post-filter)
+# epics; every gh call is tmo-bounded; any failure yields no match and never
+# breaks the title. Trust: authorAssociation must be one of
 # OWNER/MEMBER/COLLABORATOR; the earliest qualifying marker comment wins.
 machine_block_epic_line() {
   local mb_epics_json="$1" mb_branch="$2" mb_cwd="$3"
@@ -142,7 +146,9 @@ machine_block_epic_line() {
     done
     mb_line="$(printf '#%s\t%s\t%s' "$mb_num" "$mb_title" "$mb_next")"
     break
-  done < <(printf '%s' "$mb_epics_json" | jq -r '.[:10][] | [(.number|tostring), .title] | @tsv')
+  done < <(printf '%s' "$mb_epics_json" | jq -r '
+      [.[] | select((.body // "") | contains("## Status block") | not)][:10][]
+      | [(.number|tostring), .title] | @tsv')
   printf '%s' "$mb_line"
 }
 

@@ -16,8 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   counts, rolled-up leaf counts, and next-up are no longer written
   anywhere; `/resume-initiative` derives them live on every read from
   the backend's native parent-child linkage (`list_child_issues` +
-  per-child `view_issue`), so **closing a child now writes nothing,
-  anywhere** — the next resume just reflects it. This supersedes the
+  per-child `view_issue`), so **closing a child now triggers no epic
+  body or comment write** (the optional GitHub Projects-board `Done`
+  sync remains) — the next resume just reflects it. This supersedes the
   hand-maintained `## Status block` + `## Children` task-list mirror
   that rotted the instant a child was added, renamed, or closed without
   the ceremony.

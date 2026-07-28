@@ -51,6 +51,9 @@ counts or phase state (those are derived, and they change).
 
 ## Design spec
 Path to the design spec that scopes this initiative, plus the branch
-and commit it landed on.
+and commit it landed on. The **first non-blank line under this
+heading** is the spec-path bullet, by convention — `/resume-initiative`
+Mode 2 reads exactly that line to render the design-spec link, for
+both epic shapes.
 - `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` (branch
   `<branch>`, commit `<sha>`)

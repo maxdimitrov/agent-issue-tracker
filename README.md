@@ -103,7 +103,7 @@ End-to-end operator views of what filing and resuming look like against a real t
 
 - [Filing a bug](examples/workflows/file-a-bug.md) — trigger → skill → backend dispatch → tracker result, with variations for Jira and bail criteria
 - [Filing an epic + sub-issues](examples/workflows/file-an-epic.md) — the evergreen description, the marker-tagged machine-block comment, and native sub-issue linkage
-- [Resuming an initiative](examples/workflows/resume-an-initiative.md) — the three modes of `/resume-initiative`
+- [Resuming an initiative](examples/workflows/resume-an-initiative.md) — the modes of `/resume-initiative`
 
 ## Methodology
 
