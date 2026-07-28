@@ -21,7 +21,7 @@ For GitHub Enterprise, `gh auth login --hostname <enterprise-host>`. The `github
 | View | `gh issue view N --repo OWNER/REPO --json body,labels,state` |
 | Edit body (destructive) | `gh issue edit N --repo OWNER/REPO --body-file PATH` |
 | Read comments | `gh api --paginate repos/OWNER/REPO/issues/N/comments` |
-| Upsert comment | `gh api -X PATCH repos/OWNER/REPO/issues/comments/COMMENT_ID -f body=BODY` (update) / `gh issue comment N --repo OWNER/REPO --body BODY` (create) |
+| Upsert comment (destructive) | `gh api -X PATCH repos/OWNER/REPO/issues/comments/COMMENT_ID -f body=BODY` (update) / `gh issue comment N --repo OWNER/REPO --body BODY` (create) |
 | Close | `gh issue close N --repo OWNER/REPO --comment "REASON"` |
 
 ---
@@ -146,12 +146,14 @@ Destructive replace. There is no append-only API on `gh`. The Status-block-updat
 
 ```sh
 gh api --paginate "repos/$GITHUB_REPO/issues/$N/comments" \
-  --jq '[.[] | {id: .id, author: .user.login,
+  --jq '.[] | {id: .id, author: .user.login,
          author_trust: (.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR"),
-         body: .body, created: .created_at}]'
+         body: .body, created: .created_at}' | jq -s .
 ```
 
 Uses the REST comments endpoint (not `gh issue view --json comments`, which returns GraphQL node IDs — those are not accepted by the REST PATCH `upsert_comment` uses below, so update would 404). REST returns oldest-first. `author_trust` maps `author_association` — OWNER/MEMBER/COLLABORATOR are trusted; CONTRIBUTOR/FIRST_TIME_CONTRIBUTOR/NONE are not (drive-by accounts can comment on any public issue).
+
+**Critical gotcha:** `gh api --paginate` applies `--jq` **per page**, not once over the assembled result — with a bare `[.[] | {...}]` wrapper, an issue with more than one page of comments (>30) would emit one JSON array **per page** instead of one array overall, which is malformed as a single JSON value. Emitting one object per line (`--jq '.[] | {...}'`, no wrapping brackets) and piping the whole stream through `jq -s .` to assemble the single array afterward avoids the per-page wrapping entirely.
 
 ---
 
@@ -187,7 +189,7 @@ For `reason: not_planned`, pass `--reason "not planned"`. For `reason: duplicate
 3. **Sub-issue linkage** — GitHub's native sub-issue API (the `sub_issues` endpoint). Implemented per `link_sub_issue` above.
 4. **Issue refs are opaque** — GitHub refs are `#N`, where `N` is the per-repo issue number. The skill treats this as opaque; only this backend module knows the syntax.
 5. **`/tracker-doctor` reachability** — runs `gh auth status` + `gh repo view "$GITHUB_REPO"`. Both must succeed.
-6. **Initiative nesting** — GitHub's native sub-issue API nests **arbitrarily deep**: a sub-issue can itself own sub-issues via the same `POST repos/.../issues/<parent>/sub_issues` call (`link_sub_issue`), so native linkage never hits a ceiling that `initiative-tracking`'s body mirror exceeds. Root-vs-nested detection still uses the cross-backend signal (a `## Parent epic` block in the body) rather than the native relation, because `gh issue view` does not return a parent field — see `view_issue` above, which resolves a parent only via the extra `gh api .../issues/<N> --jq '.sub_issue_id // empty'` call.
+6. **Initiative nesting** — GitHub's native sub-issue API nests **arbitrarily deep**: a sub-issue can itself own sub-issues via the same `POST repos/.../issues/<parent>/sub_issues` call (`link_sub_issue`), so native linkage never hits a ceiling that `initiative-tracking`'s body mirror exceeds. Root-vs-nested detection still uses the cross-backend signal (a `## Parent epic` section in the machine-block comment for evergreen-shape epics, or the body for legacy-shape epics — a root has it in neither) rather than the native relation, because `gh issue view` does not return a parent field — see `view_issue` above, which resolves a parent only via the extra `gh api .../issues/<N> --jq '.sub_issue_id // empty'` call.
 
 ## PR close-on-merge convention
 

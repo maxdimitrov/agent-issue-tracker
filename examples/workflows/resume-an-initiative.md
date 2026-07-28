@@ -37,11 +37,11 @@ Phase 1 · 2/4 direct · 2/4 leaves
 Next up: #203 — api + worker cutover
 Current branch: none
 
-Children:
-  [x] #201 — obs/logging skeleton (Phase 0) — closed 2026-05-22
-  [x] #202 — logging format spec (Phase 0) — closed 2026-05-25
-  [ ] #203 — api + worker cutover (Phase 1) — OPEN
-  [ ] #204 — scheduler cutover + delete legacy loggers (Phase 1) — OPEN
+#200 extract shared logging into obs/logging   2/4 direct · 2/4 leaves
+├─ #201 obs/logging skeleton                   (leaf, closed)
+├─ #202 logging format spec                    (leaf, closed)
+├─ #203 api + worker cutover                   (leaf, open)  ← next-up leaf
+└─ #204 scheduler cutover + delete legacy loggers  (leaf, open)
 
 Comments (1 total):
   2026-05-30 · teammate — Blocked on infra ticket TICKET-42 for the

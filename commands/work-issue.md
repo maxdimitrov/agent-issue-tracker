@@ -100,7 +100,7 @@ eventual PR. With no `.claude/issue-tracker.yaml`, skip the whole block (fail-op
      locate the machine-block comment (earliest marker-carrying comment from a
      trusted author — `backends/_interface.md` "Machine-block comment
      convention"), then `upsert_comment(parent, marker, new_body)` setting the
-     `## Current branch` section to the new branch name. No marker-carrying comment
+     `## Current branch` section to the new branch name. No TRUSTED marker-carrying comment
      found → create one (`templates/epic-machine-block.md`'s marker
      `<!-- agent-issue-tracker:machine-block -->`); the newly created block then
      carries only the marker plus the `## Current branch` section. Touch NOTHING

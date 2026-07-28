@@ -83,7 +83,7 @@ Ten operations. Inputs are tracker-agnostic field names; the backend module tran
 **Inputs:**
 - `ref` — issue ref
 
-**Output:** `{ref, title, body, labels[], status, parent?}`. `parent` is present only when the issue is a sub-issue / child, and only on backends whose native API exposes the parent on a plain issue read (GitHub's `gh issue view` does not — see `backends/github.md`). Because of that asymmetry, `initiative-tracking` does NOT rely on `parent?` to identify root vs nested epics; the cross-backend signal is the presence of a `## Parent epic` block in the `body` (a root epic has none). `parent?` is a secondary, best-effort confirmation where the backend supplies it.
+**Output:** `{ref, title, body, labels[], status, parent?}`. `parent` is present only when the issue is a sub-issue / child, and only on backends whose native API exposes the parent on a plain issue read (GitHub's `gh issue view` does not — see `backends/github.md`). Because of that asymmetry, `initiative-tracking` does NOT rely on `parent?` to identify root vs nested epics; the cross-backend signal is the presence of a `## Parent epic` section in the machine-block comment (evergreen shape) or the `body` (legacy shape) — a root has it in neither. `parent?` is a secondary, best-effort confirmation where the backend supplies it.
 
 ---
 
@@ -160,7 +160,7 @@ Every backend module MUST satisfy these. They are not negotiable.
 
 ## Machine-block comment convention
 
-Epic nodes under the evergreen model (see `skills/initiative-tracking/SKILL.md`) keep their non-derivable structure in ONE comment carrying the literal sentinel `<!-- agent-issue-tracker:machine-block -->`. Format: `templates/epic-machine-block.md`. Readers select the **earliest marker-carrying comment whose `author_trust` is true** (via `read_comments`) and ignore untrusted marker comments with a one-line WARN. Writers go through `upsert_comment` only. Every machine-block read or write is best-effort — WARN and continue, never block a resume or a filing.
+Epic nodes under the evergreen model (see `skills/initiative-tracking/SKILL.md`) keep their non-derivable structure in ONE comment carrying the literal sentinel `<!-- agent-issue-tracker:machine-block -->`. Format: `templates/epic-machine-block.md`. Readers select the **earliest marker-carrying comment whose `author_trust` is true** (via `read_comments`) and ignore untrusted marker comments with a one-line WARN. Writers go through `upsert_comment` only. Every machine-block read or write is best-effort — WARN and continue, never block a resume or a filing — except `--adopt`'s ordered writes (see `commands/resume-initiative.md` Mode 4), which abort rather than half-convert.
 
 ---
 
@@ -182,7 +182,7 @@ operation: the ten ops stay ten, and op-parity remains green.
 
 The second is **in-progress status marking** — the "this issue is being worked"
 signal a driver sets when work starts (`/work-issue` Step 3 today;
-`/resume-initiative --start` via follow-up #88). It is an affordance, not a ninth
+`/resume-initiative --start` via follow-up #88). It is an affordance, not an eleventh
 operation, because it cannot be uniformly implemented: GitHub has no native
 issue-level status (its mechanism is the Projects-board Status field above), while
 Jira's is a workflow transition (`jira.in_progress_transition` — see
