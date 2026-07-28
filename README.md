@@ -17,7 +17,7 @@ Six skills:
 | [`bug-tracking`](skills/bug-tracking/SKILL.md) | Files a bug with agent-prompt-shaped repro / impact / acceptance |
 | [`feature-request`](skills/feature-request/SKILL.md) | Files an enhancement with sketch / acceptance / bail criteria |
 | [`followup-tracking`](skills/followup-tracking/SKILL.md) | Files work deferred from in-flight effort, with parent reference |
-| [`initiative-tracking`](skills/initiative-tracking/SKILL.md) | Files an epic plus its sub-issue index, with a parseable Status block |
+| [`initiative-tracking`](skills/initiative-tracking/SKILL.md) | Files an epic with an evergreen description; child status derives live from the tracker |
 | [`skill-currency`](skills/skill-currency/SKILL.md) | Codifies the "skills update with the PR that changed the API" rule |
 | [`tracker-contribute`](skills/tracker-contribute/SKILL.md) | Reports a problem with this plugin (or a fix) upstream to its own repo |
 
@@ -102,7 +102,7 @@ branch refs + AI summaries but no epic enrichment (hooks cannot reach MCP).
 End-to-end operator views of what filing and resuming look like against a real tracker:
 
 - [Filing a bug](examples/workflows/file-a-bug.md) — trigger → skill → backend dispatch → tracker result, with variations for Jira and bail criteria
-- [Filing an epic + sub-issues](examples/workflows/file-an-epic.md) — including the canonical four-line Status block and the cross-backend `## Children` task-list mirror
+- [Filing an epic + sub-issues](examples/workflows/file-an-epic.md) — the evergreen description, the marker-tagged machine-block comment, and native sub-issue linkage
 - [Resuming an initiative](examples/workflows/resume-an-initiative.md) — the three modes of `/resume-initiative`
 
 ## Methodology
@@ -149,9 +149,11 @@ The disambig table between bug and feature lives in [`feature-request`](skills/f
 
 ### Epic + sub-issue indexing
 
-Epics carry a four-line **Status block** with canonical field labels — `**Phase:**`, `**Next up:**`, `**Current branch:**`, `**Last updated:**`. [`/resume-initiative`](commands/resume-initiative.md) matches each line on its bold field label, tolerant of the leading list-bullet character (Jira's ADF round-trip rewrites a leading `-` to `*`). Update them as sub-issues close.
+An epic's description is **evergreen** — `## Goal`, `## Scope`, `## Success criteria`, `## Design spec` — edited only when the initiative's own goal or scope changes, never per child. Child membership, per-child status, and next-up are never written anywhere; [`/resume-initiative`](commands/resume-initiative.md) derives them live on every read from the tracker's native parent-child linkage (`list_child_issues` + `view_issue`), so closing a child requires no edit to the epic at all. This aligns with the common convention of keeping epic descriptions evergreen — status lives in the tracker's own linkage, not hand-written lists.
 
-The epic body also carries a `## Children` task-list mirror — the **cross-backend source of truth** for the sub-issue index. It handles all three ref shapes: `#N` (same-repo GitHub), `owner/repo#N` (cross-repo GitHub), `PROJ-123` (Jira). Native sub-issue linkage via the tracker's own API is additional UI metadata; the mirror is what every consumer of the epic reads.
+Structure that isn't natively derivable — phase names and ordering, a sub-epic's parent pointer, the current-branch signal, an optional scope probe, and a decision log — lives in one marker-tagged **machine-block comment** (`<!-- agent-issue-tracker:machine-block -->`), written via the `read_comments` / `upsert_comment` contract operations. A flat epic with none of that carries no comment at all. To guard against a spoofed comment on a public repo, readers select the **earliest** marker-carrying comment from a **trusted** author (GitHub: `authorAssociation` ∈ OWNER/MEMBER/COLLABORATOR; Jira: trusted by default on org-internal instances).
+
+Epics filed before this shape existed keep working indefinitely via `/resume-initiative`'s legacy reader (a body `## Status block` heading selects that path) — no forced migration. Convert one in place with `/resume-initiative <ref> --adopt`.
 
 ### Skill currency
 

@@ -72,8 +72,9 @@ github:
   # initiative-tracking mirrors the initiative tree onto this board, and drivers
   # that start work on a child (/resume-initiative --start, /work-issue) set its
   # Status to In Progress. Best-effort:
-  # the `## Children` task-list mirror stays canonical; a board failure never
-  # blocks an issue operation. Omit for no board behaviour (default).
+  # the tracker's native parent-child linkage (derived live by /resume-initiative;
+  # legacy epics: the `## Children` task-list mirror) stays canonical; a board
+  # failure never blocks an issue operation. Omit for no board behaviour (default).
   # Needs the `project` token scope: gh auth refresh -s project,read:project
   # Use a user- or org-level board (repo-level projects can't span repos):
   #   project: https://github.com/users/<owner>/projects/<N>
