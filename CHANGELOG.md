@@ -124,6 +124,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/work-issue` does.
 - Design record: `docs/superpowers/specs/2026-07-27-evergreen-epics-design.md`.
 
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", run 2026-07-28 (same day as the
+release commit, #108; the tag waited on this gate).
+
+- **1. GitHub backend smoke — PASS.** Filed bug (#103), feature (#104),
+  followup (#105), and an **evergreen** epic (#106) with a phased sub-issue
+  (#107) against this repo. Verified labels (`bug`; `enhancement`;
+  `enhancement`+`followup`; `epic`; `enhancement`), `edit_body` (#107's
+  `## Parent epic` placeholder → `#106` rewrite), native sub-issue linkage
+  #106 → {#107, #104} via the typed-integer `sub_issues` API confirmed by
+  GET, and the machine-block comment via **`upsert_comment` create + replace**
+  (`#TBD` → `#107`, Phase 2 added; earliest-trusted-marker selection, OWNER).
+  All five closed after verification.
+- **2. Jira backend smoke — DEFERRED.** Atlassian connector not configured
+  this session; `backends/jira.md` changed only in the driver parenthetical
+  this release (#88 parity) — no operation dispatch changes vs 1.7.0.
+- **3. `/tracker-init` from blank state — PASS (GitHub static slice).**
+  `examples/issue-tracker.yaml.example` parses; `backend`/`areas` plus the
+  `github:`/`jira:` blocks (incl. `in_progress_transition`) shape-checked;
+  the GitHub-shape config was live-validated via smoke 4's PASS path.
+  Interactive Jira scaffold deferred with smoke 2.
+- **4. `/tracker-doctor` — PASS.** All three routings: valid config →
+  Phase 2 probes live (`gh auth status` → maxdimitrov; `gh repo view`;
+  `view_issue(#1)` structured); missing-area config → label search for a
+  nonexistent area returns empty → WARN route + paste-able `gh label create`
+  remediation; malformed YAML → parse error at its line, Phase 1 FAIL stops
+  Phases 2–3, summary still prints. Prerequisites: `jq` 1.8.1 found.
+- **5. `/resume-initiative` against both epic shapes — PASS.** Evergreen:
+  live #106 data (comments + native children fetched via `gh`) fed through
+  the executable spec (`tests/test_evergreen_fixtures.py`) — earliest
+  trusted machine block selected, phases parsed, union membership flags
+  exactly {#107 clean, #105 `unlinked`, #104 `unphased`}, dead-ref findings
+  empty, next-up #107. Legacy: real epic #59 legacy-detected via its
+  `## Status block`; all four Status fields + the 6-entry `## Children`
+  mirror (5 closed) parse via the legacy reader.
+- **6. Install path — PASS (isolated-config-dir variant, short path).**
+  Bare `CLAUDE_CONFIG_DIR`: `claude plugin marketplace add
+  maxdimitrov/agent-issue-tracker` and `claude plugin install` both exit 0;
+  `installed_plugins.json` records version **1.8.0**.
+- **7. Plugin loads enabled post-install — PASS.** Same isolated dir: with
+  the `superpowers` dependency absent the plugin reports `✘ failed to load`
+  (dependency-error path verified); after `marketplace add
+  anthropics/claude-plugins-official` + dependency install, `claude plugin
+  list` shows `✔ enabled` at 1.8.0 and `claude plugin details` inventories
+  all sixteen components — rendered by the current CLI as Skills (15)
+  (6 skills + 9 commands) + the SessionStart hook.
+- **8. Session-title hook — PASS.** End-to-end via Git Bash against a real
+  temp git repo + tracker config (`AIT_TITLE_NO_AI=1`): branch
+  `max/88-affordance-parity` + 3-day-old transcript emitted
+  `#88 affordance-parity · idle 3d`; a simulated operator rename made the
+  next run silent and wrote the `.pinned` state file; a third run stayed
+  silent (pin held). NEW machine-block second pass: stubbed `gh` serving a
+  **CRLF** machine-block comment (`## Current branch` = session branch) →
+  `#7 obs-rollout · next #9`. The full 36-test hook suite runs green on
+  ubuntu CI (#102/#108 runs); locally it is exec-blocked (WinError 193,
+  Windows cannot exec `.sh` from `subprocess`) — environment artifact.
+
 ## [1.7.0] - 2026-07-22
 
 ### Added
