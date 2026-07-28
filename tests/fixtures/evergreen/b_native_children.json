@@ -1,0 +1,5 @@
+[
+  {"ref": "PROJ-161", "title": "metrics emitter", "status": "closed"},
+  {"ref": "PROJ-164", "title": "trace propagation", "status": "open"},
+  {"ref": "PROJ-165", "title": "dashboard pack", "status": "open"}
+]

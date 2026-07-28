@@ -1,5 +1,5 @@
 ---
-description: Discoverable entry-point for the initiative-tracking skill — open a multi-week epic plus its sub-issue index, with a parseable Status block.
+description: Discoverable entry-point for the initiative-tracking skill — open a multi-week epic with an evergreen description plus its sub-issue index.
 ---
 
 # /file-epic [<short description>]
@@ -13,8 +13,8 @@ Any text after the command (`/file-epic observability rollout across the worker 
 1. Invoke the `initiative-tracking` skill (via the `Skill` tool), passing the operator's `<short description>` (if any) as starting context.
 2. The skill does the rest, unchanged:
    - confirms the scope is genuinely multi-week and spans more than one PR (single-issue scope belongs in `/file-bug` or `/file-feature`, not an epic);
-   - files the epic body with the canonical four-line **Status block** (`**Phase:**`, `**Next up:**`, `**Current branch:**`, `**Last updated:**`), the `## Children` task-list mirror (the cross-backend source of truth for the sub-issue index), the design-spec pointer, and the phase breakdown;
-   - files each sub-issue and links it to the epic, mirroring the link in the `## Children` list;
+   - files the epic body in the **evergreen** shape (`## Goal`, `## Scope`, `## Success criteria`, `## Design spec` — `templates/epic-body.md`), plus a marker-tagged **machine-block comment** (`templates/epic-machine-block.md`) for the phase breakdown when phases are known at file time — never a body Status block or Children mirror;
+   - files each sub-issue and links it via the backend's native `link_sub_issue` operation, appending its ref to the epic's machine-block `## Phases` map when the epic is phased;
    - resolves the backend from `.claude/issue-tracker.yaml` and dispatches `create_issue` / `link_sub_issue` (with the `epic` label) through `backends/<backend>.md`.
 
 Once filed, [`/resume-initiative`](resume-initiative.md) walks the epic tree and points at the next-up child.

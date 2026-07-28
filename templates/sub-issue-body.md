@@ -51,8 +51,10 @@ expression and avoids drift if the base templates change.
    sibling template).
 
 4. Append the `## Parent epic` block (literal — exactly the
-   skeleton below) to the end of the filled-in sibling body. This
-   block links the sub-issue back to its epic and is what
+   skeleton below) to the end of the filled-in sibling body — **unless
+   the child is a sub-epic**: sub-epics omit the body block; their
+   parent pointer lives in the machine-block comment (see below).
+   This block links the sub-issue back to its epic and is what
    distinguishes a sub-issue body from a plain feature or bug body.
 
 5. Pass the result as the `body` argument to your backend's
@@ -61,21 +63,35 @@ expression and avoids drift if the base templates change.
    that marks it as a recursable node). See `backends/<backend>.md`
    for the literal invocation. After the sub-issue is filed, invoke
    the backend's `link_sub_issue` operation to establish native
-   parent-child linkage, and add the child to the parent's
-   `## Children` mirror (marked `▸ sub-epic` if it is one).
+   parent-child linkage; if the parent epic is phased, append the
+   child's ref to the machine-block `## Phases` map via
+   `upsert_comment`. Legacy parents (body still has a `## Status
+   block`) keep the old `## Children` mirror step.
 
 ---
 
 ## Parent epic
+
+**For leaf children** (feature or bug):
+```
 <parent-ref> — <one-line parent title> (Phase <N>)
 
 <optional: one sentence on which slice of the parent this sub-issue
-covers. Keep it short — the parent's `## Phases` section has the
-full breakdown.>
+covers. Keep it short — the parent's machine-block `## Phases` section has the
+full breakdown (see `templates/epic-machine-block.md`).>
+```
+
+**For sub-epics** — omit this block. The parent pointer lives in the
+sub-epic's machine-block comment (`## Parent epic` section in
+`templates/epic-machine-block.md`) instead.
+
+---
 
 The heading stays `## Parent epic` for backward-compatibility, but
 `<parent-ref>` names this sub-issue's **immediate** parent — which
 may itself be a sub-epic, not the root of the initiative. In a
 nested tree, follow `## Parent epic` refs upward to walk to the
-root; `/resume-initiative` walks the `## Children` mirrors downward
-from the root.
+root; `/resume-initiative` walks each node's own persistent
+structure downward from the root — native children plus the
+machine-block `## Phases` map for evergreen-shape epics, the
+`## Children` mirror for legacy-shape epics.
