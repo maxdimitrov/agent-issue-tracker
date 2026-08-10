@@ -24,7 +24,9 @@ If `/tracker-doctor`'s Phase 2 step 1 reports the Atlassian MCP missing from the
 | Upsert comment | `addCommentToJiraIssue` | with `commentId` set, updates; without it, creates |
 | Close | `transitionJiraIssue` | `transition: {id}` — numeric id resolved via `getTransitionsForJiraIssue` (ids are workflow-scoped, not global); no `comment` param — post a reason via `addCommentToJiraIssue({commentBody})` |
 
-Tool names and call shapes verified live against the Atlassian Remote MCP (project MP, 2026-06-03). Transition ids are **workflow-scoped**, not global — the numeric id for a given transition name differs between workflows (e.g. the Story/Sub-task/Bug workflow vs the Epic workflow), so resolve them per-issue via `getTransitionsForJiraIssue` rather than hardcoding any numeric id. (Illustrative datum from that run: id `131` = "In Code Review" in MP's Story/Sub-task/Bug workflow — an example of *why* ids must be resolved at runtime, not a value to reuse.)
+Tool names and call shapes verified live against the Atlassian Remote MCP (project MP, 2026-06-03). Transition ids are **workflow-scoped**, not global — the numeric id for a given transition name differs between workflows (e.g. the Story/Sub-task/Bug workflow vs the Epic workflow), so resolve them per-issue via `getTransitionsForJiraIssue` rather than hardcoding any numeric id. (Illustrative datum from that run: id `131` = "In Code Review" in MP's Story/Sub-task/Bug workflow — an example of *why* ids must be resolved at runtime, not a value to reuse; re-verified byte-identical 2026-07-28, #109 read-only pass.)
+
+**`contentFormat` / `responseContentFormat` (present in the 2026-07 MCP revision):** the content-bearing tools (`createJiraIssue`, `editJiraIssue`, `addCommentToJiraIssue`, `getJiraIssue`, `searchJiraIssuesUsingJql`) now expose explicit format params (`"markdown"` | `"adf"`), and their schemas say defaults "vary by tool when omitted". Dispatches SHOULD pin them — `contentFormat: "markdown"` on writes, `responseContentFormat: "markdown"` on reads — so invariant 1 (the plugin never emits or parses ADF) holds by construction rather than by per-tool default. Observed live 2026-07-28: omitted-default reads (`getJiraIssue` description and comment bodies) return markdown. The write-side params are schema-verified only, pending #109's live write pass.
 
 ---
 
@@ -148,6 +150,8 @@ Read the full state of an issue.
 getJiraIssue({cloudId, issueIdOrKey: <ref>})
 ```
 
+**Response envelope (observed live 2026-07-28):** the MCP wraps the payload in an `issues.nodes[]` envelope — `issues.nodes[0]` is the issue object (`webUrl` rides alongside its `fields`); unwrap that first, then apply the mapping below. The `fields` filter is loosely honored: the response may include more fields than requested (e.g. `description` comes back even when only `summary`/`status` were asked for), so map by field name rather than by position or count.
+
 **Field unwrapping (MCP response → contract output):**
 - `key` → `ref`
 - `fields.summary` → `title`
@@ -184,7 +188,9 @@ editJiraIssue({
 getJiraIssue({cloudId, issueIdOrKey: <ref>, fields: ["comment"]})
 ```
 
-Unwrap `fields.comment.comments[]` → `{id, author: author.displayName, author_trust: true, body, created}`. **Trust note:** Jira Cloud instances are org-internal — any commenter is a licensed org user, so `author_trust` is true by default; consumers running rare anonymous-access projects should treat the machine block as untrusted input and rely on the show-before-run gate for probes.
+Unwrap `fields.comment.comments[]` → `{id, author: author.displayName, author_trust: true, body, created}`. Unwrap shape verified live 2026-07-28 (#109 read-only pass); the envelope note under `view_issue` applies here too (`issues.nodes[0].fields.comment.comments`). **Trust note:** Jira Cloud instances are org-internal — any commenter is a licensed org user, so `author_trust` is true by default; consumers running rare anonymous-access projects should treat the machine block as untrusted input and rely on the show-before-run gate for probes.
+
+**Body translation (observed live 2026-07-28):** comment bodies are ADF→markdown translations in which non-text inline nodes come back as literal `<custom data-type="mention|smartlink|emoji" …>…</custom>` tags and embedded media as `![](blob:…)` links. Machine-block content is headings/lists/plain text and is unaffected, but display consumers (e.g. `/resume-initiative`'s non-machine comment surfacing) should expect these tags verbatim.
 
 ---
 
@@ -197,7 +203,9 @@ addCommentToJiraIssue({cloudId, issueIdOrKey: <ref>, commentId: <id>, commentBod
 addCommentToJiraIssue({cloudId, issueIdOrKey: <ref>, commentBody: <body>})
 ```
 
-Markdown body; the MCP's ADF translation applies (invariant 1). Destructive whole-comment replace per invariant 2.
+Markdown body; the MCP's ADF translation applies (invariant 1). Destructive whole-comment replace per invariant 2. The `commentId` update param is schema-verified against the live MCP (2026-07-28): "ID of an existing comment to update. If omitted, a new comment is added."
+
+**Open live verification (#109):** ADF has no HTML-comment node, and comment read-back already shows other non-representable nodes surviving only as `<custom …>` tag translations (see `read_comments`). Whether the machine-block sentinel `<!-- agent-issue-tracker:machine-block -->` survives the markdown→ADF→markdown comment round-trip intact on a live site is therefore NOT yet proven — it is the first thing #109's write pass must confirm. Until then, treat the machine-block convention on Jira as spec-verified only.
 
 ---
 
