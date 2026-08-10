@@ -690,7 +690,11 @@ backend-specific capabilities"), set by a driver when work starts
   the machine-block comment (evergreen parents) or the Status
   block's `- **Current branch:**` line via `edit_body` (legacy
   parents — today's path, unchanged); a parentless issue gets no
-  marker. No-op, run proceeds.
+  marker. No-op, run proceeds — but a driver that ends up with
+  *neither* an affordance nor a parent has emitted no in-progress
+  signal at all, and says so with one WARN rather than skipping
+  silently (`/work-issue` Step 3). That combination is the only
+  path where a completed run leaves the tracker looking untouched.
 
 Every such write is best-effort: a failure WARNs and never blocks
 the run, the worktree, or the file operation. Start-side writes
