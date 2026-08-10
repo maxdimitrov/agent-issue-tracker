@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Live read-only verification of the Jira surface (#109, partial).**
+  Re-verified the read half of `backends/jira.md` against a live Jira
+  Cloud site via the Atlassian Remote MCP (2026-07-28): issue-type
+  metadata, transition enumeration (names + workflow-scoped ids —
+  the 2026-06-03 illustrative datum still byte-identical),
+  `read_comments` unwrap shape, and the `<PROJECT>-1` reachability
+  probe (structured 200). Documented three observed deltas: the
+  `issues.nodes[]` response envelope (+ loosely-honored `fields`
+  filter), the new `contentFormat`/`responseContentFormat` params
+  (pin `"markdown"` explicitly), and comment-body translation of
+  non-text nodes to literal `<custom …>` tags — with machine-block
+  sentinel ADF survival flagged as the open #109 write-pass item.
+
+### Fixed
+
+- **`/tracker-doctor` Jira check 2 names the verified components call
+  (#61).** The project-components probe is
+  `getJiraIssueTypeMetaWithFields({cloudId, projectIdOrKey,
+  issueTypeId, requiredFieldsOnly: false})` → the `allowedValues[]`
+  of the `components` field, chained off check 1's issue-type ids —
+  the Atlassian Remote MCP family has no dedicated components tool.
+  Replaces the runtime `ToolSearch` hedge; empty `allowedValues`
+  (no Components configured) is surfaced as the same `WARN-info`.
+
 ## [1.8.0] - 2026-07-28
 
 ### Added
