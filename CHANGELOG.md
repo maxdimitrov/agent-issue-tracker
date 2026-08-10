@@ -22,6 +22,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-text nodes to literal `<custom …>` tags — with machine-block
   sentinel ADF survival flagged as the open #109 write-pass item.
 
+- **The start-of-work status gap is no longer silent.** Two independent
+  documented no-ops — a parentless issue (no `## Parent epic` block) and an
+  unconfigured in-progress affordance — combined into the one path where a
+  completed `/work-issue` run leaves the tracker indistinguishable from
+  untouched: no board flip, no workflow transition, and no `Current branch`
+  line, because there is no parent to carry one. Neither half warned, and
+  `commands/work-issue.md` Step 3 claimed the `Current branch` signal as a
+  fallback even when step 2 had been skipped.
+  - `commands/work-issue.md` — Step 3 now emits a single WARN naming both
+    halves when it would otherwise emit no in-progress signal at all, and
+    Failure modes indexes the case (succeeds-but-signals-nothing, distinct
+    from the sync-fails bullet above it).
+  - `commands/tracker-doctor.md` — Phase 1 gains a fourth WARN-only item:
+    Jira configs with `jira.in_progress_transition` unset are flagged at
+    doctor time, with the paste-able opt-in, instead of surfacing as silence
+    when work starts.
+  - `skills/initiative-tracking/SKILL.md` — the "Neither configured"
+    affordance bullet records the WARN so the skill matches driver behaviour.
+
+  Found by dogfooding: a real Jira consumer ran a full 13-commit
+  `/work-issue` implementation while the issue sat in `Backlog`, was read as
+  unowned during the operator's absence, and got reassigned — producing a
+  duplicate implementation of the same ticket.
+
 ### Fixed
 
 - **`/tracker-doctor` Jira check 2 names the verified components call
