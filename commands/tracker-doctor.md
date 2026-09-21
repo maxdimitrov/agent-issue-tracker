@@ -29,10 +29,21 @@ Read `.claude/issue-tracker.yaml` from the consumer's CWD. Apply these checks in
 | `types.*` only contains known keys | each key under `types:` (if present) is one of `bug`, `feature`, `followup`, `epic`, `sub` | "unknown type key under `types:`: `<list>`" |
 | Jira-only: `jira.issue_types` covers all five plugin types | mapping has keys `bug`, `feature`, `epic`, `sub`, `followup` | "missing issue_types mapping for: `<list>`" |
 
-Three WARN-only items (bullet list):
+Four WARN-only items (bullet list):
 - `areas:` empty or missing — optional, but warn so skills know to fall back to free-form.
 - `subsystems:` empty or missing — optional, but worth surfacing.
 - Jira-only: `jira.parent_link_style: epic_link` but `epic_link_field` not set — defaults to `customfield_10014`; warn but use the default.
+- Jira-only: `jira.in_progress_transition` not set — the in-progress affordance is opt-in (`backends/jira.md` "In-progress transition (optional)"), so every driver that starts work leaves the issue in whatever status it already had. That is the documented default, but it is silent at the moment it matters, so surface it here, where the operator is looking at their config:
+
+  ```
+  [WARN] jira.in_progress_transition unset — issues keep their current status when work
+         starts (/work-issue Step 3, /resume-initiative --start). Set it to opt in:
+  ```
+
+  ```yaml
+  jira:
+    in_progress_transition: "In Progress"   # must match a transition name in your workflow
+  ```
 
 If any check `FAIL`s in Phase 1, **stop here**. Do NOT run Phase 2 or Phase 3. The config is structurally broken; reachability probes against it would just compound the noise. The summary line still prints with the Phase 1 counts.
 
