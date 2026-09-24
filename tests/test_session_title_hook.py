@@ -219,6 +219,73 @@ def test_transcript_fallback_ref(project, hook_env):
     assert t is not None and t.startswith("#88")
 
 
+CONFIG_JIRA = "schema_version: 1\nbackend: jira\njira:\n  site: x.atlassian.net\n  project: WB\n"
+CONFIG_JIRA_NO_KEY = "schema_version: 1\nbackend: jira\njira:\n  site: x.atlassian.net\n"
+
+
+def user_line(text):
+    return json.dumps({"type": "user", "message": {"content": text}}) + "\n"
+
+
+def test_transcript_fallback_reads_user_text_blocks(project, hook_env):
+    git(project, "switch", "-c", "feat/general-cleanup")
+    (project / "transcript.jsonl").write_text(json.dumps({
+        "type": "user",
+        "message": {"content": [{"type": "text", "text": "let's finish #88 now"}]},
+    }) + "\n")
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t is not None and t.startswith("#88")
+
+
+def test_transcript_fallback_ignores_assistant_text(project, hook_env):
+    # An assistant linking some other repo's issue is not the operator's intent.
+    git(project, "switch", "-c", "feat/general-cleanup")
+    (project / "transcript.jsonl").write_text(json.dumps({
+        "type": "assistant",
+        "message": {"content": [{"type": "text", "text": "filed it as claude-config #4"}]},
+    }) + "\n")
+    assert title_of(run_hook(payload_for(project), hook_env)) is None
+
+
+def test_transcript_fallback_ignores_tool_results(project, hook_env):
+    # Tool output (an order number, a YAML line) rides in user records as tool_result blocks.
+    git(project, "switch", "-c", "feat/general-cleanup")
+    (project / "transcript.jsonl").write_text(json.dumps({
+        "type": "user",
+        "message": {"content": [{"type": "tool_result", "tool_use_id": "t1",
+                                 "content": "Amazon.de order #302-1234567 shipped; is issue #3."}]},
+    }) + "\n")
+    assert title_of(run_hook(payload_for(project), hook_env)) is None
+
+
+def test_transcript_fallback_ref_needs_word_boundary(project, hook_env):
+    git(project, "switch", "-c", "feat/general-cleanup")
+    (project / "transcript.jsonl").write_text(user_line("order #302-1234567 arrived"))
+    assert title_of(run_hook(payload_for(project), hook_env)) is None
+
+
+def test_transcript_fallback_github_rejects_jira_shape(project, hook_env):
+    git(project, "switch", "-c", "feat/general-cleanup")
+    (project / "transcript.jsonl").write_text(user_line("interest for APR-2026 looks off"))
+    assert title_of(run_hook(payload_for(project), hook_env)) is None
+
+
+def test_transcript_fallback_jira_uses_configured_project_key(project, hook_env):
+    (project / ".claude" / "issue-tracker.yaml").write_text(CONFIG_JIRA)
+    git(project, "switch", "-c", "feat/general-cleanup")
+    (project / "transcript.jsonl").write_text(user_line("compare APR-2026 with WB-12 and #7"))
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t == "WB-12"
+
+
+def test_transcript_fallback_jira_without_key_accepts_any_key(project, hook_env):
+    (project / ".claude" / "issue-tracker.yaml").write_text(CONFIG_JIRA_NO_KEY)
+    git(project, "switch", "-c", "feat/general-cleanup")
+    (project / "transcript.jsonl").write_text(user_line("compare #7 with OPS-31"))
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t == "OPS-31"
+
+
 def test_emitted_title_is_recorded_in_state(project, hook_env):
     git(project, "switch", "-c", "max/WB-7657-subscription-gates")
     title_of(run_hook(payload_for(project, session_id="rec1"), hook_env))
@@ -262,13 +329,16 @@ def backdate(path, days):
     os.utime(path, (ts, ts))
 
 
-def test_idle_marker_appended(project, hook_env):
+def test_stale_transcript_gets_no_idle_marker(project, hook_env):
+    # The hook runs at start/resume, the one moment a session stops being idle,
+    # and cannot retitle later. A staleness marker would be wrong for the whole
+    # live session, so no `idle Nd` part is ever emitted.
     git(project, "switch", "-c", "max/WB-7657-subscription-gates")
     tp = project / "transcript.jsonl"
     tp.write_text(json.dumps({"type": "user", "message": {"content": "hi"}}) + "\n")
     backdate(tp, 3)
     t = title_of(run_hook(payload_for(project), hook_env))
-    assert t == "WB-7657 subscription-gates · idle 3d"
+    assert t == "WB-7657 subscription-gates"
 
 
 def test_fresh_transcript_has_no_idle_marker(project, hook_env):
@@ -388,6 +458,24 @@ def test_ai_tail_on_resume(project, hook_env, tmp_path):
     stub = claude_stub(tmp_path)
     t = title_of(run_hook(payload_for(project, source="resume"), ai_env(hook_env), stub_bin=stub))
     assert t == "WB-7657 subscription-gates · wiring board webhook"
+
+
+def test_ai_tail_kept_when_claude_exits_nonzero_after_printing(project, hook_env, tmp_path):
+    # On Windows `claude -p` prints the phrase and then overruns the 8s budget on
+    # exit (status 124). The phrase is validated on shape, not on exit status.
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    (project / "transcript.jsonl").write_text(TRANSCRIPT)
+    stub = make_stub(tmp_path, "claude", 'cat > /dev/null\necho "wiring board webhook"\nexit 124')
+    t = title_of(run_hook(payload_for(project, source="resume"), ai_env(hook_env), stub_bin=stub))
+    assert t == "WB-7657 subscription-gates · wiring board webhook"
+
+
+def test_ai_tail_dropped_when_claude_prints_nothing(project, hook_env, tmp_path):
+    git(project, "switch", "-c", "max/WB-7657-subscription-gates")
+    (project / "transcript.jsonl").write_text(TRANSCRIPT)
+    stub = make_stub(tmp_path, "claude", 'cat > /dev/null\nexit 124')
+    t = title_of(run_hook(payload_for(project, source="resume"), ai_env(hook_env), stub_bin=stub))
+    assert t == "WB-7657 subscription-gates"
 
 
 def test_no_ai_tail_on_startup(project, hook_env, tmp_path):

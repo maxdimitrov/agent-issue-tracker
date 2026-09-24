@@ -91,6 +91,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   claimed Linear / Asana / plaintext-file / Jira Server follow-on issues
   that were never filed (or, for Jira Server, closed as not planned).
 
+- **Session-title hook stops inventing titles (#116).** Three defects in
+  `hooks/session-title.sh` made `<ref>`-less sessions come up as `#302`
+  (an Amazon order number in a tool result), `APR-2026` (a broker
+  statement line), `#4` (another repo's issue linked by the assistant) or
+  `#12 · idle 1d` on a session being actively worked in. The transcript
+  fallback now reads only text the operator typed (user records, string
+  content or `text` blocks — never assistant prose or `tool_result`
+  blocks), matches whole tokens only, and follows the configured backend's
+  ref shape (`#N` on GitHub; `KEY-N` on Jira, narrowed to `jira.project`
+  when set). The `idle Nd` part is removed outright: the hook fires at
+  start/resume, the one moment a session stops being idle, and cannot
+  retitle later, so the marker was wrong for every live session. The AI
+  tail is no longer discarded when `claude -p` prints a valid phrase and
+  then exits non-zero (on Windows process exit alone overruns the 8 s
+  budget, status 124). Docs that spelled the old format (`README.md`,
+  `CONTRIBUTING.md` smoke 8, `skills/initiative-tracking/SKILL.md`, the
+  design spec) are updated in the same change.
+
 ## [1.8.0] - 2026-07-28
 
 ### Added
