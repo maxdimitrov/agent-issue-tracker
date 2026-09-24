@@ -19,16 +19,9 @@ set -uo pipefail
 CAP="${AIT_TIMEOUT:-15}"
 
 # gh_out <cmd...> - stdout only when the capped gh call exits 0; empty
-# otherwise. gh writes error bodies (GraphQL errors, 403s) to stdout even on
-# a non-zero exit, so a bare `cmd || echo ""` still captures that body via
-# command substitution -- this keeps only real data.
-gh_out() {
-  local out rc
-  out="$(ait_run_capped "$CAP" "$@" 2>/dev/null)"
-  rc=$?
-  [ "$rc" -eq 0 ] && printf '%s' "$out"
-  return 0
-}
+# otherwise. Thin wrapper over the shared ait_gh_out (scripts/lib/common.sh)
+# so every call site here keeps its original zero-arg-cap call shape.
+gh_out() { ait_gh_out "$CAP" "$@"; }
 
 if ! command -v jq >/dev/null 2>&1; then
   printf '{"error":"jq not found on PATH","session":null,"repo":null,"git":null,"ticket":null,"pr":null,"ci":null,"review":null,"handoff":null,"loop":null,"config":null}\n'

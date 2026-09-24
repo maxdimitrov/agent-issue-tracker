@@ -32,6 +32,22 @@ ait_run_capped() {
   return $status
 }
 
+# ait_gh_out <secs> <cmd...> - stdout only when the capped call exits 0;
+# empty otherwise, and always returns 0 itself. `gh` writes error bodies
+# (GraphQL errors, 403s, truncated output from a killed timeout) to stdout
+# even on a non-zero exit, so a bare `cmd || echo ""` still lets that body
+# through via command substitution -- this keeps only real data and lets a
+# caller tell "no data" from "malformed data" by checking emptiness alone.
+ait_gh_out() {
+  local cap="$1"
+  shift
+  local out rc
+  out="$(ait_run_capped "$cap" "$@" 2>/dev/null)"
+  rc=$?
+  [ "$rc" -eq 0 ] && printf '%s' "$out"
+  return 0
+}
+
 # GNU first: on Linux, BSD-style `stat -f %m` succeeds with filesystem info
 # (garbage here) instead of failing, so it cannot be the probe.
 ait_file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
