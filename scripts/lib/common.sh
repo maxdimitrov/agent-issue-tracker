@@ -179,7 +179,7 @@ ait_config_path() {
 # Not a YAML parser, and not meant to be one.
 ait_config_get() {
   local key="$1" cfg="${2:-}" section="" sub="" val=""
-  [ -n "$cfg" ] || cfg="$(ait_config_path)" || return 1
+  [ -n "$cfg" ] || cfg="$(ait_config_path "$PWD")" || return 1
   case "$key" in
     *.*)
       section="${key%%.*}"
@@ -200,7 +200,7 @@ ait_config_get() {
 # ait_issue_url <ref> [<config>] - tracker URL for a ref, or nothing.
 ait_issue_url() {
   local ref="$1" cfg="${2:-}" backend repo site
-  [ -n "$cfg" ] || cfg="$(ait_config_path)" || return 1
+  [ -n "$cfg" ] || cfg="$(ait_config_path "$PWD")" || return 1
   backend="$(ait_config_get backend "$cfg")" || return 1
   case "$backend" in
     github)

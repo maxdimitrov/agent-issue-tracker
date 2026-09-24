@@ -71,7 +71,7 @@ case "$cmd" in
   create)
     [ $# -ge 3 ] || usage "create <mode> <ref> <branch> [flags]"
     mode="$1"; ref="$2"; branch="$3"; shift 3
-    [ -n "$mode" ] && [ -n "$ref" ] || usage "create <mode> <ref> <branch> [flags]"
+    if [ -z "$mode" ] || [ -z "$ref" ]; then usage "create <mode> <ref> <branch> [flags]"; fi
     merge=false; draft=false; cron=""; maxi=50; maxh=24; idle=12; interval="15m"
     while [ $# -gt 0 ]; do
       case "$1" in
