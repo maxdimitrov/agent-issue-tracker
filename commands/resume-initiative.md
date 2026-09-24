@@ -2,7 +2,7 @@
 description: Show open epic initiatives and the next-up child issue; optionally start work on the next child or adopt a legacy epic into the evergreen shape (--adopt).
 ---
 
-# /resume-initiative [epic-ref] [--start] [--adopt]
+# /resume-initiative [epic-ref] [--start] [--adopt] [--loop]
 
 Pick up where multi-week initiative work was left off. Invokes the configured backend's `list_open_issues({label: 'epic'})` operation to list open initiatives with their progress, and points at the next-up child issue. Optionally enters the worktree for the next child or creates one if absent. The configured backend is determined by `.claude/issue-tracker.yaml` in the consumer project.
 
@@ -22,6 +22,7 @@ Named `/resume-initiative` (not `/resume`) to avoid shadowing Claude Code's buil
 | `/resume-initiative <ref>` | Load epic (or sub-epic) `<ref>`. Show phase progress, the child tree, and the next-up leaf. |
 | `/resume-initiative <ref> --start` | Load `<ref>`, resolve next-up down to a leaf, enter that leaf's worktree, and hand off to `superpowers:brainstorming` inline. (Marks the leaf in progress via the backend's configured affordance — see `skills/initiative-tracking/SKILL.md` "In-progress status (optional affordances)".) |
 | `/resume-initiative <ref> --adopt` | Rewrite a legacy-shape epic (body `## Status block` + `## Children`) into the evergreen shape: description → evergreen, phases/probe/branch/decision-log/parent → machine-block comment, mirror removed. Existing child links are never removed or re-parented; live mirror-only children are natively linked first (step 1). Operator-invoked, per node. |
+| `/resume-initiative <ref> --start --loop` | As `--start`, then arm a session cron running `/agent-issue-tracker:tracker-loop clear <ref>` at `loops.interval`, so the initiative keeps being worked leaf by leaf after this turn ends. `--loop` without `--start` is refused with a one-line message. |
 
 `<ref>` may be a root epic OR any sub-epic — the command treats whatever node you name as the subtree root and walks down from there.
 
@@ -319,6 +320,8 @@ probe → print nothing.
    Invoke `view_issue({ref: leaf-ref})` to fetch the leaf issue body (where `leaf-ref` may carry an `owner/repo#N` prefix for cross-repo cases). **Safety check:** if the fetched body turns out to be an epic body (a Status block is present / the issue carries the `epic` label), it is a sub-epic, not a leaf — do NOT hand it to brainstorming. Re-run step 1's drill on it to reach a real leaf first. Once you have a leaf body, pass it to `superpowers:brainstorming`. The leaf body is already an agent prompt (Goal, Locus, Sketch, Acceptance, Verify) — brainstorming uses it as starting context, it does NOT re-derive the problem from scratch.
 
    If the operator would rather use a fresh window, they can interrupt — this inline handoff is the default path. The same inline-brainstorm convention applies when re-entering an existing worktree via `EnterWorktree path=...`.
+
+   **`--loop`.** After the handoff paragraph above has run, arm the clearing loop: `"${CLAUDE_PLUGIN_ROOT}/scripts/loop-record.sh" create clear <ref> <epic-slug> [--draft] [--merge] --interval <loops.interval> …` with the `loops:` budgets, then `CronCreate` a recurring job at `loops.interval` on an off-minute with prompt `/agent-issue-tracker:tracker-loop clear <ref>`, then `loop-record.sh set-cron <id> <job-id>`. Report the loop id, the seven-day cron expiry, and the `/loop` / `/schedule` alternatives — the same three lines `/work-issue` Step 7 prints. If `CronCreate` is unavailable, stop the record with reason `no cron` and print the `/loop` line instead.
 
 ### Mode 4 — `<ref> --adopt`: convert a legacy epic to evergreen
 
