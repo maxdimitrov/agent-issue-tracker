@@ -224,9 +224,17 @@ if [ "$GH_OK" = true ]; then
   # or Jira key literally in the PR title) is left for jq to compute, since
   # that has no bash-side equivalent to reuse.
   BRANCH_REFS='{}'
+  # tr strips a trailing \r: a native Windows jq build opens its stdout in
+  # text mode, so this multi-line stream arrives \r\n-terminated. `$(...)`
+  # only strips trailing newlines off the WHOLE capture, not the \r glued
+  # to the end of every line but the last, so every branch but the last in
+  # sorted order would otherwise carry a stray \r into its map key below
+  # and never match a PR's (\r-free) headRefName lookup. Same fix already
+  # applied to the TARGETS stream further down.
   branches="$(jq -r -n --argjson a "$AUTHORED" --argjson b "$REVREQ" --argjson c "$MENTIONS" \
     --argjson d "$MERGED" --argjson e "$ALLTIME" \
-    '[$a[], $b[], $c[], $d[], $e[]] | map(.headRefName // empty) | map(select(. != "")) | unique | .[]' 2>/dev/null)"
+    '[$a[], $b[], $c[], $d[], $e[]] | map(.headRefName // empty) | map(select(. != "")) | unique | .[]' 2>/dev/null \
+    | tr -d '\r')"
   while IFS= read -r br; do
     [ -n "$br" ] || continue
     r="$(ait_ref_from_branch "$br")" || continue
