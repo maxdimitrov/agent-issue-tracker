@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`/session-brief`, `/tracker-brief`, `/tracker-loop`** — ports of the
+  operator's personal session/morning briefs, re-rooted on the configured
+  tracker backend and `.claude/worktrees/`, plus a one-iteration loop
+  runtime with three modes (`babysit`, `clear`, `poll`), budgets kept on
+  disk, and recurrence from `/loop` or a `--loop`-armed session cron on
+  `/work-issue` and `/resume-initiative --start`. State lives under
+  `${XDG_CACHE_HOME:-~/.cache}/agent-issue-tracker/<project-key>/`.
+- **Backend contract 10 → 11: `list_updated_issues`** — issues with
+  activity since a timestamp, optionally restricted to the viewer.
+  GitHub via `gh issue list --search "updated:>=… involves:@me"`; Jira
+  via JQL `updated >= …` (live verification deferred to the next Jira
+  smoke).
+- **`scripts/lib/common.sh`** — shared ref/slug parsing (the session-title
+  hook now sources it), project key, state dir, flat config reader and
+  issue-URL rendering. Shellcheck now covers `scripts/`.
+- **`loops:` config block** (optional) — validated by `/tracker-doctor`.
+
 ### Changed
 
 - **Live read-only verification of the Jira surface (#109, partial).**

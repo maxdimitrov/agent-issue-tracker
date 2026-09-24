@@ -1,6 +1,6 @@
 # agent-issue-tracker
 
-Portable issue-tracking skills + slash commands for Claude Code. Six skills, nine slash commands, one session-title hook, two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
+Portable issue-tracking skills + slash commands for Claude Code. Six skills, twelve slash commands, one session-title hook, two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
 
 ## What this is
 
@@ -21,7 +21,7 @@ Six skills:
 | [`skill-currency`](skills/skill-currency/SKILL.md) | Codifies the "skills update with the PR that changed the API" rule |
 | [`tracker-contribute`](skills/tracker-contribute/SKILL.md) | Reports a problem with this plugin (or a fix) upstream to its own repo |
 
-Nine slash commands:
+Twelve slash commands:
 
 | Command | What it does |
 | --- | --- |
@@ -30,6 +30,9 @@ Nine slash commands:
 | [`/resume-initiative`](commands/resume-initiative.md) | Loads an epic, prints status, optionally enters a worktree on the next-up child |
 | [`/work-issue`](commands/work-issue.md) | Drives ONE named issue end-to-end — read, scope, worktree, brainstorm → plan → execute → verify → PR |
 | [`/audit-skills`](commands/audit-skills.md) | PR-time doc-currency audit — lists docs whose references may be stale vs the branch's diff; informational, never blocks |
+| [`/session-brief`](commands/session-brief.md) | Catch up on the current session — issue + PR links, CI, review threads awaiting you, a keep-going / compact / fresh verdict, and a resume note |
+| [`/tracker-brief`](commands/tracker-brief.md) | Inbound digest since the last run — tracker activity, PRs, worktrees, resume notes and loop records joined into one ledger with a verdict per issue |
+| [`/tracker-loop`](commands/tracker-loop.md) | One iteration of an unattended loop — babysit a PR, clear an epic, or poll a label — with budgets on disk; recurrence via `/loop` or `--loop` |
 | [`/file-bug`](commands/file-bug.md) | Discoverable entry-point for the `bug-tracking` skill |
 | [`/file-feature`](commands/file-feature.md) | Discoverable entry-point for the `feature-request` skill |
 | [`/file-followup`](commands/file-followup.md) | Discoverable entry-point for the `followup-tracking` skill |
@@ -96,6 +99,14 @@ title alone. Disable per-project with `session_titles: false`. Titles update
 only at start/resume — mid-session focus shifts get a paste-ready `/rename`
 suggestion from the `initiative-tracking` skill instead. Jira projects get
 branch refs + AI summaries but no epic enrichment (hooks cannot reach MCP).
+
+## Briefs and loops
+
+Two briefs and one loop runtime, all backed by scripts that always exit 0 and print JSON, with state under `${XDG_CACHE_HOME:-~/.cache}/agent-issue-tracker/<project-key>/` and never inside a repo.
+
+- **`/session-brief`** re-orients you in the session you are in: what you were doing, what needs you (review threads, red CI, conflicts), what is already resolved, and whether to keep going, `/compact`, or start fresh — with a resume note written for a cold start.
+- **`/tracker-brief`** is the morning read: what moved in the tracker and on the git host since the last run, joined to your worktrees and resume notes, with one verdict per issue — Needs action, Status drift (a merged PR whose issue never closed), Waiting, Closeable, Stale, or No code artifact.
+- **`/tracker-loop`** runs one iteration of an unattended loop. Three modes: `babysit` watches a PR to green and addresses code-level review comments; `clear` works an epic leaf by leaf through `/work-issue`; `poll` dispatches `/work-issue` on issues carrying a label. Recurrence is the harness's: `/loop /agent-issue-tracker:tracker-loop babysit #42` (self-paced) or `/loop 15m …` (fixed), or pass `--loop` to `/work-issue` / `/resume-initiative --start` to arm a session cron. Budgets (`loops:` in the config) are enforced from the record on disk, a judgement question from a reviewer always stops the loop, and nothing merges without `--merge`.
 
 ## Walkthroughs
 

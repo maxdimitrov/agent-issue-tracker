@@ -735,6 +735,10 @@ sub-epic is just an epic that also has a parent.
 | Closed | initiative shipped | preserved as history; design spec link still valid |
 | Closed + reason `not_planned` | abandoned | comment explains why; surviving children get triaged separately via `bug-tracking` / `feature-request` / `followup-tracking` |
 
+## Loops
+
+An initiative can be worked unattended: `/resume-initiative <ref> --start --loop` arms a session cron that runs `/tracker-loop clear <ref>` at the configured cadence, taking the next-up leaf through `/work-issue` each iteration, babysitting the PR it opened, skipping `needs-design` leaves with a comment, and stopping on a judgement question, an exhausted budget, or a `fresh session` checkpoint verdict. `commands/tracker-loop.md` is the contract; nothing in the epic body or machine block changes for it.
+
 ## Session titles
 
 Sessions in a configured project are auto-titled at start/resume by the
