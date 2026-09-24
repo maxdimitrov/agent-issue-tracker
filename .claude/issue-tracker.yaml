@@ -1,0 +1,5 @@
+schema_version: 1
+backend: github
+github:
+  repo: maxdimitrov/agent-issue-tracker
+areas: [docs]
