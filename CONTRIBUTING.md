@@ -38,7 +38,7 @@ Before any release tag is pushed, the ten smoke scenarios must run against a rea
    manually rename it, resume again, confirm the hook left the manual name
    untouched.
 9. **Briefs** — in a real configured repo on a branch with an open PR, `/session-brief` prints both links, the PR/CI line, and writes the resume note under the cache dir; `/tracker-brief` runs twice and the second run's window starts at the first run's stamp.
-10. **Babysit loop** — `/loop /agent-issue-tracker:tracker-loop babysit <pr>` against a PR with a deliberately red CI: the first iteration pushes a fix, a later one reports `wait`, and `/tracker-loop stop` ends it with the record marked stopped.
+10. **Babysit loop** — `/loop /agent-issue-tracker:tracker-loop babysit <pr>` against a PR with a deliberately red CI: the first iteration pushes a fix, a later one reports `wait`, `/tracker-loop stop` ends it with the record marked stopped, the next fire reports the loop as stopped and takes no action, and `/tracker-loop babysit <pr> --restart` starts a fresh record.
 
 Record each smoke's outcome under the new release's `### Release-gate smokes` sub-section in `CHANGELOG.md`. The release tag's annotation message must name the smoke gate and any deferrals.
 
