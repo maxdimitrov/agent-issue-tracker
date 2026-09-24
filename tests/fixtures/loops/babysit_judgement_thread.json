@@ -1,0 +1,1 @@
+{"observation": {"pr": {"state": "OPEN", "mergeable": "MERGEABLE", "reviewDecision": "APPROVED"}, "ci": {"conclusion": "success"}, "review": {"threads": [{"awaiting_you": true, "kind": "judgement"}, {"awaiting_you": false, "kind": "code"}]}}, "expected": "stop:needs-you"}
