@@ -57,11 +57,16 @@ ait_epoch_from_iso() {
 # ait_ref_from_branch <branch> - issue ref parsed from the branch leaf:
 # a Jira key, else a leading number, else an `issue-N` segment. Same rules
 # the session-title hook has always used.
+#
+# The leading-number rule only fires when the number is immediately followed
+# by `-` or end-of-string, so a version segment like `1.8.0` (leading digit
+# run followed by `.`) is never mistaken for an issue number.
 ait_ref_from_branch() {
   local leaf="${1##*/}" ref="" num=""
   ref="$(printf '%s' "$leaf" | grep -oE '[A-Z][A-Z0-9]+-[0-9]+' | head -1)" || true
   if [ -z "$ref" ]; then
-    num="$(printf '%s' "$leaf" | grep -oE '^[0-9]+' | head -1)" || true
+    num="$(printf '%s' "$leaf" | grep -oE '^[0-9]+(-|$)' | head -1)" || true
+    num="${num%-}"
     if [ -z "$num" ]; then
       num="$(printf '%s' "$leaf" | grep -oE '(^|-)issue-?[0-9]+' | grep -oE '[0-9]+' | head -1)" || true
     fi
@@ -71,10 +76,15 @@ ait_ref_from_branch() {
   printf '%s' "$ref"
 }
 
+# Mirrors ait_ref_from_branch's tightened leading-number rule: the strip only
+# fires when the number is immediately followed by `-` or end-of-string, so
+# `release/1.8.0` keeps its leading `1` (the dot-to-dash pass below then
+# turns the untouched version segment into `1-8-0`, not `8-0`).
 ait_slug_from_branch() {
   local leaf="${1##*/}" out
   out="$(printf '%s' "$leaf" \
-    | sed -E 's/[A-Z][A-Z0-9]+-[0-9]+//; s/^[0-9]+//; s/(^|-)issue-?[0-9]+//' \
+    | sed -E 's/[A-Z][A-Z0-9]+-[0-9]+//; s/^[0-9]+(-|$)//; s/(^|-)issue-?[0-9]+//' \
+    | sed -E 's/\./-/g' \
     | sed -E 's/^[-_]+//; s/[-_]+$//' | cut -c1-24)"
   printf '%s' "$out"
 }
