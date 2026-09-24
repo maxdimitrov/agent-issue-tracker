@@ -742,7 +742,9 @@ An initiative can be worked unattended: `/resume-initiative <ref> --start --loop
 ## Session titles
 
 Sessions in a configured project are auto-titled at start/resume by the
-plugin's SessionStart hook (`<ref> <slug> · <what it was doing> · idle Nd`).
+plugin's SessionStart hook (`<ref> <slug> · <what it was doing>`). The ref
+comes from the branch, else from the last ref the operator typed in the
+transcript (assistant prose and tool output never count).
 Hooks cannot retitle a running session — so when the working focus shifts to
 a different issue/epic mid-session, or the issue being driven completes,
 offer the operator a paste-ready rename line, e.g.:

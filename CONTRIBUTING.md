@@ -33,8 +33,9 @@ Before any release tag is pushed, the ten smoke scenarios must run against a rea
 5. **`/resume-initiative` against both epic shapes** — an **evergreen** epic (machine-block comment → derived children, verifying the `unphased` / `unlinked` flags render correctly) and a **legacy** epic (body `## Status block` + `## Children` mirror, parsed via the legacy reader). Verify both shapes resolve next-up and render their child tree correctly.
 6. **Install path against the published repo (added v1.0.1, #35)** — on a clean machine, `claude plugin marketplace add maxdimitrov/agent-issue-tracker` and `claude plugin install agent-issue-tracker` both exit 0; `~/.claude/plugins/installed_plugins.json` records the just-tagged version. Catches `marketplace.json` regressions.
 7. **Plugin loads enabled post-install (added v1.0.2, #37)** — same clean-machine session, `claude plugin list` shows the plugin as `Status: ✔ enabled` (not `✘ failed to load`); `claude plugin details agent-issue-tracker` reports all 9 components (6 skills + 3 commands); in a fresh CC session opened against the install, `/tracker-doctor`, `/tracker-init`, and `/resume-initiative` are resolvable as slash commands. Catches `plugin.json.dependencies` cross-marketplace-resolution regressions.
-8. **Session-title hook** — in a real configured repo, resume a stale
-   session and confirm the tab title carries `<ref> <slug>` (+ `idle Nd`);
+8. **Session-title hook** — in a real configured repo, resume a session and
+   confirm the tab title carries `<ref> <slug>` and nothing else the
+   operator did not ask for (no `idle Nd`, no ref lifted from tool output);
    manually rename it, resume again, confirm the hook left the manual name
    untouched.
 9. **Briefs** — in a real configured repo on a branch with an open PR, `/session-brief` prints both links, the PR/CI line, and writes the resume note under the cache dir; `/tracker-brief` runs twice and the second run's window starts at the first run's stamp.
