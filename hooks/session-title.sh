@@ -88,9 +88,32 @@ if [ -n "$branch" ]; then
   ref="$(ait_ref_from_branch "$branch")" || ref=""
   slug="$(ait_slug_from_branch "$branch")"
 fi
-if [ -z "$ref" ] && [ -f "$transcript_path" ]; then
-  ref="$(tail -c 200000 "$transcript_path" 2>/dev/null \
-    | grep -oE '(#[0-9]+|[A-Z][A-Z0-9]+-[0-9]+)' | tail -1)" || true
+# The configured backend decides what a ref looks like from here on:
+# `#N` on GitHub; `KEY-N` on Jira, narrowed to `jira.project` when it is set.
+backend="$(grep -E '^backend:' "$config" 2>/dev/null | head -1 | awk '{print $2}')" || backend=""
+jira_key=""
+if [ "$backend" = "jira" ]; then
+  jira_key="$(awk '/^jira:/{f=1; next} /^[^[:space:]#]/{f=0} f && /^[[:space:]]+project:/{print $2; exit}' \
+    "$config" 2>/dev/null | tr -d '"'"'")" || jira_key=""
+  case "$jira_key" in *[!A-Z0-9]*) jira_key="" ;; esac
+fi
+case "$backend" in
+  github) ref_shape='#[0-9]+' ;;
+  jira) ref_shape="${jira_key:-[A-Z][A-Z0-9]+}-[0-9]+" ;;
+  *) ref_shape="" ;;
+esac
+if [ -z "$ref" ] && [ -n "$ref_shape" ] && [ -f "$transcript_path" ]; then
+  # Only text the operator typed counts: user records, string content or text
+  # blocks. Assistant prose and tool results (order numbers, statement lines,
+  # other repos' issue links) are exactly the noise that produced wrong titles.
+  # Tokens split on anything outside [A-Za-z0-9#_-] and must match whole, so
+  # "#302-1234567" is not "#302".
+  ref="$(tail -c 200000 "$transcript_path" 2>/dev/null | jq -R -r '
+      fromjson? | select(.type == "user") | .message.content
+      | if type == "string" then .
+        elif type == "array" then (.[] | select(type == "object" and .type == "text") | .text)
+        else empty end' 2>/dev/null \
+    | tr -c 'A-Za-z0-9#_\n-' '\n' | grep -xE "$ref_shape" | tail -1)" || true
   slug=""
 fi
 
@@ -145,7 +168,6 @@ machine_block_epic_line() {
 
 # --- stage 6: epic enrichment (GitHub backend only; 24h cache; read-only) -------
 epic_next=""
-backend="$(grep -E '^backend:' "$config" 2>/dev/null | head -1 | awk '{print $2}')" || backend=""
 if [ "$backend" = "github" ] && [ -n "$branch" ] && command -v gh >/dev/null 2>&1; then
   cache_dir="$state_dir/epic-cache"
   mkdir -p "$cache_dir" 2>/dev/null || true
@@ -202,8 +224,11 @@ if [ "$src" = "resume" ] && [ -z "${AIT_TITLE_NO_AI:-}" ] && [ -s "$transcript_p
         else empty end' 2>/dev/null | tail -n 40 | tail -c 4000)" || excerpt=""
   if [ -n "$excerpt" ]; then
     prompt="Output ONLY a lowercase phrase of at most 5 words describing what this coding session is working on right now. No punctuation, no quotes."
+    # Exit status is deliberately ignored: on Windows `claude -p` prints the
+    # phrase and then overruns the budget on process exit (status 124). The
+    # output is validated on shape below; an empty or rambling answer drops.
     ai_tail="$(printf '%s\n\n<session-excerpt>\n%s\n</session-excerpt>\n' "$prompt" "$excerpt" \
-      | AIT_TITLE_GUARD=1 tmo 8 claude -p --model haiku 2>/dev/null)" || ai_tail=""
+      | AIT_TITLE_GUARD=1 tmo 8 claude -p --model haiku 2>/dev/null)" || :
     ai_tail="$(printf '%s' "$ai_tail" | head -1 \
       | sed -E "s/^[\"' ]+//; s/[\"' .]+\$//")"
     words="$(printf '%s' "$ai_tail" | wc -w | tr -d ' ')"
@@ -215,24 +240,17 @@ if [ "$src" = "resume" ] && [ -z "${AIT_TITLE_NO_AI:-}" ] && [ -s "$transcript_p
   fi
 fi
 
-# --- stage 8: idle marker --------------------------------------------------------
-idle=""
-if [ -f "$transcript_path" ]; then
-  m="$(ait_file_mtime "$transcript_path")" || m=""
-  case "$m" in *[!0-9]*) m="" ;; esac
-  if [ -n "$m" ]; then
-    days=$((($(date +%s) - m) / 86400))
-    [ "$days" -ge 1 ] && idle="idle ${days}d"
-  fi
-fi
+# No idle marker: the hook fires at start/resume, the one moment a session
+# stops being idle, and cannot retitle afterwards, so an `idle Nd` part would
+# be wrong for the whole live session.
 
-# --- stage 9: compose + emit ------------------------------------------------------
+# --- stage 8: compose + emit ------------------------------------------------------
 [ -n "$ref$ai_tail" ] || exit 0
 anchor="$ref"
 if [ -n "$ref" ] && [ -n "$slug" ]; then anchor="$ref $slug"; fi
 
 title=""
-for part in "$anchor" "$ai_tail" "${epic_next:+next $epic_next}" "$idle"; do
+for part in "$anchor" "$ai_tail" "${epic_next:+next $epic_next}"; do
   [ -n "$part" ] || continue
   # ai_tail beats "next <ref>": once ai_tail is in, drop epic_next.
   case "$part" in "next "*) [ -n "$ai_tail" ] && continue ;; esac

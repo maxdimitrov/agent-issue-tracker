@@ -89,9 +89,12 @@ Every consuming project commits one `.claude/issue-tracker.yaml`. It declares th
 
 In a configured project, a `SessionStart` hook titles each Claude Code
 session (the VS Code tab name) at start/resume: issue/epic ref from the git
-branch, the epic's next-up child when the GitHub backend can resolve it, a
-≤5-word Haiku summary of what the session was last doing, and an `idle Nd`
-staleness marker. Example: `#42 board-support · wiring webhook · idle 3d`.
+branch, the epic's next-up child when the GitHub backend can resolve it, and a
+≤5-word Haiku summary of what the session was last doing. Example:
+`#42 board-support · wiring webhook`. With no ref in the branch, the ref is
+taken from the last one the operator *typed* (never from assistant prose or
+tool output), in the configured backend's shape (`#N` on GitHub, `KEY-N` on
+Jira).
 
 Fail-open by design: no `.claude/issue-tracker.yaml` → no-op; manual renames
 are never overwritten; any failure (no `jq`, no network, no `gh`) leaves the

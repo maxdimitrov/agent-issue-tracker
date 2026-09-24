@@ -5,6 +5,14 @@
 - **Date:** 2026-07-16
 - **Status:** approved design — ready for `writing-plans`
 - **Builds on:** v1.5.0 (`d106d6e`)
+- **Amended (#116):** the `idle <N>d` part is gone — the hook fires at the
+  one moment a session stops being idle and cannot retitle afterwards, so
+  the marker was wrong for every live session. The transcript-fallback ref
+  now reads only operator-typed text (user records, string content or
+  `text` blocks) and matches whole tokens in the configured backend's shape
+  (`#N` on GitHub; `KEY-N` on Jira, narrowed to `jira.project` when set).
+  The AI tail keeps a shape-valid phrase even when `claude -p` exits
+  non-zero after printing it (Windows overruns the 8 s budget on exit).
 
 ## Summary
 
