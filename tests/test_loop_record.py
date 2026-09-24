@@ -96,6 +96,37 @@ def test_stop_set_cron_add_pr_list(repo, tmp_path):
     assert rec(repo, env, "find", "clear", "#9") is None
 
 
+def test_find_any_after_stop(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "babysit", "#42", "feat/42-x")["id"]
+    rec(repo, env, "stop", lid, "checkpoint: fresh session")
+    assert rec(repo, env, "find", "babysit", "#42") is None
+    found = rec(repo, env, "find", "--any", "babysit", "#42")
+    assert found["id"] == lid
+    assert found["state"] == "stopped"
+    assert found["stop_reason"] == "checkpoint: fresh session"
+
+
+def test_find_any_with_no_record_is_null(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    assert rec(repo, env, "find", "--any", "babysit", "#42") is None
+
+
+def test_find_any_returns_newest_regardless_of_state(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    older = rec(repo, env, "create", "babysit", "#42", "feat/42-x")["id"]
+    rec(repo, env, "stop", older, "old stop")
+    newer = rec(repo, env, "create", "babysit", "#42", "feat/42-x")["id"]
+    rec(repo, env, "stop", newer, "new stop")
+    for lid, started in ((older, "2020-01-01T00:00:00Z"), (newer, "2021-01-01T00:00:00Z")):
+        p = Path(rec(repo, env, "get", lid)["path"])
+        data = json.loads(p.read_text())
+        data.pop("path", None)
+        data["started"] = started
+        p.write_text(json.dumps(data))
+    assert rec(repo, env, "find", "--any", "babysit", "#42")["id"] == newer
+
+
 def test_unknown_id_and_usage(repo, tmp_path):
     env = isolated_env(tmp_path)
     assert rec(repo, env, "get", "nope", expect=1)["error"] == "no such loop"
