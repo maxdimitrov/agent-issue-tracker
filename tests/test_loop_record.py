@@ -180,3 +180,54 @@ def test_list_and_find_skip_corrupt_file(repo, tmp_path):
     live = rec(repo, env, "list")
     assert [x["id"] for x in live] == [lid]
     assert rec(repo, env, "find", "babysit", "#42")["id"] == lid
+
+
+def test_stop_records_transcript_or_null(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    a = rec(repo, env, "create", "babysit", "#42", "feat/42-x")["id"]
+    rec(repo, env, "stop", a, "checkpoint: fresh session", "--transcript", "t/one.jsonl")
+    full = rec(repo, env, "get", a)
+    assert full["stop_transcript"] == "t/one.jsonl"
+    assert full["stop_reason"] == "checkpoint: fresh session"
+    b = rec(repo, env, "create", "babysit", "#43", "feat/43-x")["id"]
+    assert rec(repo, env, "get", b)["stop_transcript"] is None
+    rec(repo, env, "stop", b, "merged")
+    assert rec(repo, env, "get", b)["stop_transcript"] is None
+    r = run_script(SCRIPT, args=("stop", b, "x", "--transcript"), env=env, cwd=str(repo))
+    assert r.returncode == 2
+    r = run_script(SCRIPT, args=("stop", b, "x", "--bogus", "y"), env=env, cwd=str(repo))
+    assert r.returncode == 2
+
+
+def test_reopen_keeps_counters(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "babysit", "#42", "feat/42-x", "--merge", "--max-iterations", "3")["id"]
+    rec(repo, env, "append", lid, "fix-ci", "x")
+    rec(repo, env, "append", lid, "wait", "", "--noop")
+    rec(repo, env, "add-pr", lid, "#70")
+    before = rec(repo, env, "get", lid)
+    rec(repo, env, "stop", lid, "checkpoint: fresh session", "--transcript", "t/one.jsonl")
+    out = rec(repo, env, "reopen", lid)
+    assert out == {"id": lid, "state": "live", "iterations": 2}
+    after = rec(repo, env, "get", lid)
+    assert after["state"] == "live"
+    assert after["stop_reason"] is None and after["stop_transcript"] is None and after["stopped"] is None
+    for k in ("started", "iterations", "prs_opened", "budget", "options"):
+        assert after[k] == before[k], k
+    assert rec(repo, env, "find", "babysit", "#42")["id"] == lid
+    chk = rec(repo, env, "check", lid)
+    assert chk["ok"] is True and chk["iterations"] == 2
+    rec(repo, env, "append", lid, "fix-ci", "y")
+    assert rec(repo, env, "check", lid) == {"ok": False, "reason": "budget: max_iterations"}
+
+
+def test_reopen_unknown_corrupt_and_usage(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    assert rec(repo, env, "reopen", "nope", expect=1)["error"] == "no such loop"
+    made = rec(repo, env, "create", "babysit", "#42", "feat/42-x")
+    p = Path(made["path"])
+    p.write_text("{bad")
+    assert rec(repo, env, "reopen", made["id"], expect=1) == {"error": "corrupt record", "id": made["id"]}
+    assert not (p.parent / (p.name + ".tmp")).exists()
+    r = run_script(SCRIPT, args=("reopen",), env=env, cwd=str(repo))
+    assert r.returncode == 2

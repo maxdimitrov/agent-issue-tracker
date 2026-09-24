@@ -321,7 +321,7 @@ probe → print nothing.
 
    If the operator would rather use a fresh window, they can interrupt — this inline handoff is the default path. The same inline-brainstorm convention applies when re-entering an existing worktree via `EnterWorktree path=...`.
 
-   **`--loop`.** After the handoff paragraph above has run, arm the clearing loop: `"${CLAUDE_PLUGIN_ROOT}/scripts/loop-record.sh" create clear <ref> <epic-slug> [--draft] [--merge] --interval <loops.interval> …` with the `loops:` budgets, then `CronCreate` a recurring job at `loops.interval` on an off-minute with prompt `/agent-issue-tracker:tracker-loop clear <ref>`, then `loop-record.sh set-cron <id> <job-id>`. Report the loop id, the seven-day cron expiry, and the `/loop` / `/schedule` alternatives — the same three lines `/work-issue` Step 7 prints. If `CronCreate` is unavailable, stop the record with reason `no cron` and print the `/loop` line instead.
+   **`--loop`.** After the handoff paragraph above has run, arm the clearing loop: `"${CLAUDE_PLUGIN_ROOT}/scripts/loop-record.sh" create clear <ref> <epic-slug> [--draft] [--merge] --interval <loops.interval> …` with the `loops:` budgets, then `CronCreate` a recurring job at `loops.interval` on an off-minute with prompt `/agent-issue-tracker:tracker-loop clear <ref>` plus the `--draft` / `--merge` passed to this invocation, if any (the record's `options` carry them too), then `loop-record.sh set-cron <id> <job-id>`. Report the loop id, the seven-day cron expiry, and the `/loop` / `/schedule` alternatives — the same three lines `/work-issue` Step 7 prints. If `CronCreate` is unavailable, stop the record with reason `no cron` and print the `/loop` line instead.
 
 ### Mode 4 — `<ref> --adopt`: convert a legacy epic to evergreen
 

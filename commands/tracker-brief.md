@@ -11,9 +11,13 @@ Read-only except the window stamp at the end. Never comments, closes, merges, or
 ## Step 0 — Collect the deterministic facts
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/tracker-brief-collect.sh" > "${TMPDIR:-/tmp}/tracker-brief.json"
-jq -c '.window, .viewer, .config, .errors' "${TMPDIR:-/tmp}/tracker-brief.json"
+TB="$(mktemp "${TMPDIR:-/tmp}/tracker-brief-XXXXXX")"
+"${CLAUDE_PLUGIN_ROOT}/scripts/tracker-brief-collect.sh" > "$TB"
+echo "$TB"
+jq -c '.generated_at, .window, .viewer, .config, .errors' "$TB"
 ```
+
+`mktemp` gives each run its own file, so parallel sessions never overwrite each other's facts. Shell variables do not survive between tool calls: note the printed path (`<brief-json>` below; every later `jq` read uses it) and the `generated_at` value, which Step 4 hands back to `--commit-run`.
 
 The script always exits 0 and always prints one JSON object. It covers this repo's worktrees, PRs on the git host (authored, review-requested, mentions, merged in window, all-time authored), per-PR review threads + comments + CI, the resume notes `/session-brief` wrote, `/tracker-loop` records, and a `ledger` joining all of it on issue ref. It does **not** read the tracker — a shell script has no backend access — so tracker activity is gathered in Step 1 and `ledger[].tracker_status` in Step 2.
 
@@ -68,10 +72,11 @@ When the `Artifact` tool exists in this session, also publish the full brief (th
 Then stamp the window so the next run picks up exactly here:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/tracker-brief-collect.sh" --commit-run
+"${CLAUDE_PLUGIN_ROOT}/scripts/tracker-brief-collect.sh" --commit-run "<generated_at from Step 0>"
+rm -f "<brief-json>"
 ```
 
-Stamp **only after** the brief is written. Stamping a failed run silently skips that window forever.
+Stamp **only after** the brief is written. Stamping a failed run silently skips that window forever. Pass Step 0's `generated_at`, not nothing: the stamp then marks when the facts were collected, so activity that arrived while the brief was being written falls inside the next run's window instead of being skipped.
 
 ## Known traps
 
@@ -81,5 +86,6 @@ Stamp **only after** the brief is written. Stamping a failed run silently skips 
 | `git merge-base --is-ancestor` as landed-proof | False negative on squash/rebase merges. Use `landed_pr` |
 | Verdicting every ledger row | The PR join is all-time. Filter `actionable` first |
 | Stamping `--commit-run` before the brief is written | That window is skipped permanently |
+| `--commit-run` without Step 0's `generated_at` | It stamps now, so whatever arrived while the brief was being written is never shown |
 | Reading the tracker with `gh issue list` or an MCP call directly | Backend-agnostic means contract ops only; `backends/<backend>.md` has the literal call |
 | Treating an empty `errors[]`-less section as "nothing happened" | Say what was checked so an absence reads as a result |

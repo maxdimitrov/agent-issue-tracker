@@ -2,7 +2,10 @@
 # session-brief-collect.sh -- deterministic facts for /session-brief.
 #
 # Contract: ALWAYS exits 0, ALWAYS prints one JSON object on stdout. Missing
-# data is null / [] / false, never an error and never a hang. Read-only with
+# data is null / [] / false, never a hang. A failed gh step additionally
+# leaves one named entry in the top-level errors[] (empty when every step
+# worked), and repo.gh_ok says whether `gh api user` succeeded, so a caller
+# can tell "no PR for this branch" from "gh could not answer". Read-only with
 # respect to git, the git host and the repo; the only write is mkdir -p on
 # the state directory so the resume note has somewhere to land.
 #
@@ -17,6 +20,10 @@ set -uo pipefail
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
 CAP="${AIT_TIMEOUT:-15}"
+ERRORS='[]'
+# note_err <msg> - one errors[] entry per failed gh step (same shape as
+# tracker-brief-collect.sh's errors[]: a flat list of strings).
+note_err() { ERRORS="$(jq -c --arg e "$1" '. + [$e]' <<<"$ERRORS" 2>/dev/null || echo "$ERRORS")"; }
 
 # gh_out <cmd...> - stdout only when the capped gh call exits 0; empty
 # otherwise. Thin wrapper over the shared ait_gh_out (scripts/lib/common.sh)
@@ -24,7 +31,7 @@ CAP="${AIT_TIMEOUT:-15}"
 gh_out() { ait_gh_out "$CAP" "$@"; }
 
 if ! command -v jq >/dev/null 2>&1; then
-  printf '{"error":"jq not found on PATH","session":null,"repo":null,"git":null,"ticket":null,"pr":null,"ci":null,"review":null,"handoff":null,"loop":null,"config":null}\n'
+  printf '{"error":"jq not found on PATH","session":null,"repo":null,"git":null,"ticket":null,"pr":null,"ci":null,"review":null,"handoff":null,"loop":null,"config":null,"errors":["jq not found on PATH"]}\n'
   exit 0
 fi
 have_gh=false
@@ -54,8 +61,8 @@ fi
 # spill <name> <json> [<default>] - writes <json> for --slurpfile loading
 # (ait_spill_json, common.sh) and prints the file path. On failure (a full
 # disk, or AIT_TMP unavailable), falls back to a fresh file holding
-# <default> ("null" unless given) -- this script has no errors[] field, so
-# it degrades silently the same way every other field here already does.
+# <default> ("null" unless given). errors[] is reserved for gh failures, so
+# this degrades silently the same way every other non-gh field here does.
 spill() {
   local name="$1" content="$2" default="${3:-null}" f
   f="$(ait_spill_json "$AIT_TMP" "$name" "$content")"
@@ -139,21 +146,40 @@ if [ -n "$TICKET_KEY" ]; then
 fi
 
 # --------------------------------------------------------- PR / CI / review
-PR=null; PR_NUMBER=""; CI=null; REVIEW=null; ME=""; NWO=""; NWO_JSON=null
+PR=null; PR_NUMBER=""; CI=null; REVIEW=null; ME=""; NWO=""; NWO_JSON=null; GH_OK=false
+if [ "$IS_GIT" = true ] && [ "$have_gh" = false ] && [ "$DETACHED" = false ]; then
+  note_err "gh unavailable -- PR data skipped"
+fi
 if [ "$IS_GIT" = true ] && [ "$have_gh" = true ] && [ "$DETACHED" = false ]; then
+  # gh_ok is the auth probe: true only when `gh api user` answered. ME
+  # stays empty otherwise, and no thread is then marked awaiting_you.
+  ME="$(gh_out gh api user -q .login)"
+  if [ -n "$ME" ]; then GH_OK=true; else note_err "gh api user failed (auth?)"; fi
+
   NWO="$(gh_out gh repo view --json nameWithOwner -q .nameWithOwner)"
-  [ -n "$NWO" ] && NWO_JSON="$(ait_json_str "$NWO")"
+  if [ -n "$NWO" ]; then NWO_JSON="$(ait_json_str "$NWO")"; else note_err "gh repo view failed"; fi
 
   # statusCheckRollup is deliberately absent: the checks scope is Apps-only,
   # so a fine-grained PAT 403s the whole query. CI comes from the Actions API.
-  PR_JSON="$(gh_out gh pr view --json number,url,state,isDraft,mergeable,baseRefName,updatedAt,title,reviewDecision)"
-  if [ -n "$PR_JSON" ] && jq -e 'type == "object"' >/dev/null 2>&1 <<<"$PR_JSON"; then
+  # gh exits 1 both when the branch has no PR and when the call itself
+  # fails; only the first says "no pull requests found" on stderr, so that
+  # stream is kept (in the spill dir) to tell the two apart.
+  PR_ERR="/dev/null"
+  [ -n "$AIT_TMP" ] && PR_ERR="$AIT_TMP/pr-view.err"
+  PR_JSON="$(ait_run_capped "$CAP" gh pr view --json number,url,state,isDraft,mergeable,baseRefName,updatedAt,title,reviewDecision 2>"$PR_ERR")"
+  PR_RC=$?
+  if [ "$PR_RC" -eq 0 ] && [ -n "$PR_JSON" ] && jq -e 'type == "object"' >/dev/null 2>&1 <<<"$PR_JSON"; then
     PR="$PR_JSON"
     PR_NUMBER="$(jq -r '.number // empty' <<<"$PR_JSON")"
+  elif [ "$PR_RC" -ne 0 ] && grep -qi 'no pull requests found' "$PR_ERR" 2>/dev/null; then
+    : # the branch has no PR -- not an error
+  else
+    note_err "gh pr view failed"
   fi
 
   if [ -n "$NWO" ] && [ -n "$BRANCH_RAW" ]; then
     RUNS="$(gh_out gh api "repos/$NWO/actions/runs?branch=$BRANCH_RAW&per_page=30")"
+    [ -n "$RUNS" ] || note_err "gh actions runs failed"
     if [ -n "$RUNS" ]; then
       # Newest run per workflow, then a primary. The single newest run is
       # often a skipped bot workflow, not the test suite anyone cares about.
@@ -178,6 +204,7 @@ if [ "$IS_GIT" = true ] && [ "$have_gh" = true ] && [ "$DETACHED" = false ]; the
           FAILED="$(jq '[(.jobs // [])[] | select(.conclusion == "failure") | {name, url: .html_url}]' <<<"$JOBS_RAW" 2>/dev/null || echo "[]")"
         else
           FAILED="[]"
+          note_err "gh actions jobs failed"
         fi
         JQ_ARGS=()
         add_slurp f "${FAILED:-[]}" '[]'
@@ -188,7 +215,6 @@ if [ "$IS_GIT" = true ] && [ "$have_gh" = true ] && [ "$DETACHED" = false ]; the
 
   # Resolved state lives only in GraphQL -- the REST comments API can't see it.
   if [ -n "$NWO" ] && [ -n "$PR_NUMBER" ]; then
-    ME="$(gh_out gh api user -q .login)"
     OWNER="${NWO%%/*}"
     REPO="${NWO##*/}"
     # shellcheck disable=SC2016
@@ -210,11 +236,13 @@ if [ "$IS_GIT" = true ] && [ "$have_gh" = true ] && [ "$DETACHED" = false ]; the
             last_author: (.comments.nodes[-1].author.login // null),
             created: (.comments.nodes[0].createdAt // null)
           } ]
-        | map(. + {awaiting_you: ((.resolved | not) and (.last_author != $me))})
+        | map(. + {awaiting_you: ((.resolved | not) and $me != "" and (.last_author != $me))})
         | {threads: ., open_count: (map(select(.resolved | not)) | length),
            resolved_count: (map(select(.resolved)) | length),
            awaiting_you_count: (map(select(.awaiting_you)) | length)}' <<<"$THREADS" 2>/dev/null || echo null)"
       [ -n "$REVIEW" ] || REVIEW=null
+    else
+      note_err "gh graphql review threads failed"
     fi
   fi
 fi
@@ -227,7 +255,7 @@ fi
 TRANSCRIPT=""; SOURCE=""
 matches_cwd() { # <file> <normalised-lowercase-path>
   tail -c 300000 "$1" 2>/dev/null \
-    | jq -R -r 'fromjson? | .cwd // empty' 2>/dev/null | tail -50 \
+    | jq -R -r 'fromjson? | .cwd // empty' 2>/dev/null | tr -d '\r' | tail -50 \
     | tr "\\\\" "/" | tr '[:upper:]' '[:lower:]' | grep -Fxq "$2"
 }
 if [ -n "${AIT_TRANSCRIPT:-}" ] && [ -f "$AIT_TRANSCRIPT" ]; then
@@ -331,7 +359,16 @@ fi
 # -------------------------------------------------------------------- loop
 LOOP=null
 if [ -d "$STATE_DIR/loops" ] && [ -n "$BRANCH_RAW" ]; then
-  LOOP="$(cat "$STATE_DIR"/loops/*.json 2>/dev/null | jq -s --arg b "$BRANCH_RAW" '
+  # Each record is parsed on its own (as loop-record.sh all_records does),
+  # so one corrupt file cannot blank every other loop.
+  LOOP_LINES=""
+  for f in "$STATE_DIR"/loops/*.json; do
+    [ -f "$f" ] || continue
+    line="$(jq -c . "$f" 2>/dev/null)" || continue
+    LOOP_LINES="$LOOP_LINES$line
+"
+  done
+  LOOP="$(printf '%s' "$LOOP_LINES" | jq -s --arg b "$BRANCH_RAW" '
     [.[] | select(.state == "live" and .branch == $b)] | first // null
     | if . == null then null else {
         id, mode, ref, started, cron_job_id, stop_reason,
@@ -355,6 +392,7 @@ add_slurp ci "${CI:-null}"
 add_slurp review "${REVIEW:-null}"
 add_slurp dirty_files "${DIRTY_FILES:-[]}" '[]'
 add_slurp commits "${COMMITS:-[]}" '[]'
+add_slurp errors "${ERRORS:-[]}" '[]'
 
 jq -n \
   --argjson pr "${PR:-null}" \
@@ -382,14 +420,16 @@ jq -n \
   --argjson behind "${BEHIND:-0}" \
   --argjson dirty_count "${DIRTY_COUNT:-0}" \
   --argjson gh "$have_gh" \
+  --argjson gh_ok "$GH_OK" \
   --argjson resume_exists "$RESUME_EXISTS" \
   "${JQ_ARGS[@]}" \
   '($session[0]) as $session | ($ci[0]) as $ci | ($review[0]) as $review
   | ($dirty_files[0]) as $dirty_files | ($commits[0]) as $commits
+  | ($errors[0]) as $errors
   | {
     session: $session,
     repo: {cwd: $cwd, root: $root, is_git: $is_git, is_worktree: $is_worktree,
-           main_repo: $main_repo, name_with_owner: $nwo, gh_available: $gh,
+           main_repo: $main_repo, name_with_owner: $nwo, gh_available: $gh, gh_ok: $gh_ok,
            viewer: (if $me == "" then null else $me end)},
     git: {branch: $branch, base: $base, on_base: $on_base, detached: $detached,
           ahead: $ahead, behind: $behind, dirty_count: $dirty_count,
@@ -402,7 +442,8 @@ jq -n \
     loop: $loop,
     config: {path: (if $config_path == "" then null else $config_path end),
              backend: (if $backend == "" then null else $backend end),
-             state_dir: $state_dir}
+             state_dir: $state_dir},
+    errors: $errors
   }'
 
 exit 0

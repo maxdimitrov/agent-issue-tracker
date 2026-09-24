@@ -1,5 +1,7 @@
 """Subprocess tests for scripts/session-brief-collect.sh."""
 import json
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -146,6 +148,7 @@ def test_pr_ci_review_from_gh(repo, tmp_path, gh):
     assert out["review"]["awaiting_you_count"] == 1
     assert threads[0]["awaiting_you"] is True and threads[0]["excerpt"] == "rename this"
     assert threads[1]["resolved"] is True and threads[1]["awaiting_you"] is False
+    assert out["repo"]["gh_ok"] is True and out["errors"] == []
 
 
 def test_gh_failure_degrades_to_null(repo, tmp_path):
@@ -154,6 +157,55 @@ def test_gh_failure_degrades_to_null(repo, tmp_path):
     assert out["repo"]["gh_available"] is True
     assert out["pr"] is None and out["ci"] is None and out["review"] is None
     assert out["ticket"]["key"] == "#42"
+    # A failed gh is not "no PR": gh_ok is false and each failed step is named.
+    assert out["repo"]["gh_ok"] is False
+    assert "gh api user failed (auth?)" in out["errors"]
+    assert "gh pr view failed" in out["errors"]
+
+
+GH_NO_PR_STUB = r'''
+case "$*" in
+  *"repo view"*)   echo "acme/widgets" ;;
+  *"pr view"*)     echo 'no pull requests found for branch "feat/42-widget"' >&2; exit 1 ;;
+  *"actions/runs"*) echo '{"workflow_runs":[]}' ;;
+  *"api user"*)    echo "me" ;;
+  *) exit 1 ;;
+esac
+'''
+
+
+def test_no_pr_for_branch_is_not_an_error(repo, tmp_path):
+    stub = make_stub(tmp_path / "bin", "gh", GH_NO_PR_STUB)
+    out = run(repo, env_with_path(isolated_env(tmp_path), stub))
+    assert out["pr"] is None
+    assert out["repo"]["gh_ok"] is True
+    assert out["errors"] == []
+
+
+GH_NO_USER_STUB = r'''
+case "$*" in
+  *"repo view"*)   echo "acme/widgets" ;;
+  *"pr view"*)     cat "$GH_PR" ;;
+  *"actions/runs/1/jobs"*) cat "$GH_JOBS" ;;
+  *"actions/runs"*) cat "$GH_RUNS" ;;
+  *"api user"*)    exit 1 ;;
+  *"graphql"*)     cat "$GH_THREADS" ;;
+  *) exit 1 ;;
+esac
+'''
+
+
+def test_unknown_viewer_marks_no_thread_awaiting_you(repo, tmp_path, gh):
+    # With `gh api user` failing, ME is empty; an unresolved thread must not
+    # be reported as awaiting the (unknown) viewer.
+    _, extra = gh
+    stub = make_stub(tmp_path / "bin", "gh", GH_NO_USER_STUB)
+    out = run(repo, env_with_path(isolated_env(tmp_path, **extra), stub))
+    assert out["repo"]["gh_ok"] is False and out["repo"]["viewer"] is None
+    assert out["errors"] == ["gh api user failed (auth?)"]
+    assert out["review"]["open_count"] == 1
+    assert out["review"]["awaiting_you_count"] == 0
+    assert all(t["awaiting_you"] is False for t in out["review"]["threads"])
 
 
 GH_ERROR_STUB = r'''
@@ -203,6 +255,7 @@ def test_review_graphql_error_degrades_to_null(repo, tmp_path, gh):
     assert out["pr"]["number"] == 57
     assert out["ci"]["conclusion"] == "failure"
     assert out["review"] is None
+    assert out["errors"] == ["gh graphql review threads failed"]
 
 
 def test_session_from_explicit_transcript(repo, tmp_path):
@@ -222,8 +275,12 @@ def test_discovery_prefers_transcript_matching_cwd(repo, tmp_path):
     projects = Path(env["CLAUDE_CONFIG_DIR"]) / "projects"
     sibling = tmp_path / "sibling"
     sibling.mkdir()
-    transcript(projects / "p-a" / "other.jsonl", cwd=str(sibling), user_turns=9)
-    transcript(projects / "p-b" / "mine.jsonl", cwd=str(repo), user_turns=4)
+    other = transcript(projects / "p-a" / "other.jsonl", cwd=str(sibling), user_turns=9)
+    mine = transcript(projects / "p-b" / "mine.jsonl", cwd=str(repo), user_turns=4)
+    # The sibling is the newest file, so only the cwd filter can pick mine.
+    now = time.time()
+    os.utime(mine, (now - 300, now - 300))
+    os.utime(other, (now - 10, now - 10))
     out = run(repo, env)
     assert out["session"]["transcript_source"] == "discovered"
     assert out["session"]["transcript"].endswith("mine.jsonl")
@@ -278,3 +335,16 @@ def test_live_loop_record_for_branch_is_surfaced(repo, tmp_path):
     assert out["loop"]["id"] == "babysit-42-1"
     assert out["loop"]["iterations"] == 1 and out["loop"]["last_action"] == "fix-ci"
     assert out["loop"]["cron_job_id"] == "abc123"
+
+
+def test_corrupt_sibling_loop_record_is_skipped(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    loops = Path(run(repo, env)["config"]["state_dir"]) / "loops"
+    loops.mkdir(parents=True)
+    (loops / "aaa-corrupt.json").write_text("{not json")
+    (loops / "babysit-42-1.json").write_text(json.dumps({
+        "id": "babysit-42-1", "mode": "babysit", "ref": "#42", "branch": "feat/42-widget",
+        "state": "live", "started": "2026-09-24T09:00:00Z", "iterations": [],
+    }))
+    out = run(repo, env)
+    assert out["loop"]["id"] == "babysit-42-1"

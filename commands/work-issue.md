@@ -172,7 +172,7 @@ Run `superpowers:finishing-a-development-branch`: open a PR whose body links the
 Only when `--loop` was passed and Step 6 opened a PR:
 
 1. `LR="${CLAUDE_PLUGIN_ROOT}/scripts/loop-record.sh"`; `$LR create babysit <ref> <branch> [--merge] [--draft] --interval <loops.interval> --max-iterations <…> --max-hours <…> --idle-stop-after <…>` with values from the `loops:` block (`ait_config_get loops.<key>` from `scripts/lib/common.sh`; defaults in `commands/tracker-loop.md`).
-2. `CronCreate` a recurring job at `loops.interval` on an off-minute (the tool's guidance), prompt `/agent-issue-tracker:tracker-loop babysit <ref>`; then `$LR set-cron <id> <job-id>`.
+2. `CronCreate` a recurring job at `loops.interval` on an off-minute (the tool's guidance), prompt `/agent-issue-tracker:tracker-loop babysit <ref>` with this invocation's `--draft` / `--merge` appended when passed (for example `/agent-issue-tracker:tracker-loop babysit #42 --merge`); then `$LR set-cron <id> <job-id>`. The record carries the same flags in `options`, so a fire that lost them still reads them from there.
 3. Tell the operator, in three lines: the loop id and cadence; that session crons expire after seven days and end with the conversation; and that `/loop /agent-issue-tracker:tracker-loop babysit <ref>` (self-paced) or `/schedule` are the alternatives.
 
 `--loop` without a PR (verification failed, no `--draft`) arms nothing and says so.
