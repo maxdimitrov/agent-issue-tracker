@@ -120,6 +120,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands + the SessionStart hook) instead of the v1.0.2-era "9 components
   (6 skills + 3 commands)".
 
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", run 2026-09-25 against the release
+branch (PR #127) before tagging.
+
+- **1. GitHub backend smoke — PASS.** Filed bug (#122), feature (#123),
+  followup (#125), and an **evergreen** epic (#124) with a phased sub-issue
+  (#126) against this repo. Verified labels (`bug`; `enhancement`;
+  `enhancement`+`followup`; `epic`; `enhancement`), `edit_body` (#126's
+  `## Parent epic` placeholder → `#124` rewrite), native sub-issue linkage
+  #124 → {#126} via the typed-integer `sub_issues` API confirmed by GET, and
+  the machine-block comment via **`upsert_comment` create + replace** (Phase 2
+  added; same comment id; earliest-trusted-marker selection, OWNER). Every
+  `backends/github.md` invocation worked as documented on the first try. All
+  five closed after verification.
+- **2. Jira backend smoke — DEFERRED.** Atlassian connector not configured
+  this session. The Jira surface gained `list_updated_issues` (#120); its
+  live check is folded into #109's write pass.
+- **3. `/tracker-init` from blank state — PASS (GitHub static slice).**
+  `examples/issue-tracker.yaml.example` parses (PyYAML 6.0.3); `backend`,
+  `areas`, the `github:`/`jira:` blocks and the new `loops:` block
+  shape-checked. Found and fixed in this release: `commands/tracker-init.md`
+  never named `loops:` as an omitted block. Interactive Jira scaffold
+  deferred with smoke 2.
+- **4. `/tracker-doctor` — PASS.** Valid config → Phase 2 live (`gh auth
+  status` → maxdimitrov; `gh repo view`; `view_issue(#1)` structured);
+  missing-area config → empty label search → WARN + paste-able `gh label
+  create`; malformed YAML → parse error at 11:5, Phase 1 FAIL stops Phases
+  2–3, summary still prints. New `loops:` validation: a well-formed block
+  gives no findings; `pr_mode: yolo` / `max_iterations: -5` FAIL in Phase 1
+  as the check table specifies; an absent block is the WARN-only note.
+  `jq` 1.8.1 found.
+- **5. `/resume-initiative` against both epic shapes — PASS.** Evergreen:
+  live #124 data fed through the executable spec
+  (`tests/test_evergreen_fixtures.py`) — the one trusted machine block
+  selected, phases parsed (`Phase 1` → #126, `Phase 2` empty), #126 clean
+  (no `unphased`/`unlinked`), no dead refs, next-up correctly none (all
+  closed). Legacy: #59 legacy-detected; all four Status fields and the
+  6-entry `## Children` mirror parse; drift pass reports zero findings.
+- **6. Install path — PASS (isolated-config-dir variant).** Bare
+  `CLAUDE_CONFIG_DIR`: `claude plugin marketplace add
+  maxdimitrov/agent-issue-tracker#chore/release-1.9.0` and `claude plugin
+  install agent-issue-tracker` both exit 0; `installed_plugins.json` records
+  version **1.9.0** at the release commit.
+- **7. Plugin loads enabled post-install — PASS.** Same dir: without
+  `superpowers` the plugin reports `failed to load` naming the dependency;
+  after installing it, `claude plugin list` shows `enabled` at 1.9.0 and
+  `claude plugin details` inventories Skills (18) (6 skills + 12 commands)
+  and the SessionStart hook.
+- **8. Session-title hook — PASS.** Via Git Bash against a real temp repo
+  and tracker config: branch `max/88-affordance-parity` with a 3-day-old
+  transcript emitted `#88 affordance-parity` (no `idle Nd`, removed by
+  #116); a manual rename made later runs silent and wrote the `.pinned`
+  file. #116 end to end: on `main`, `#N` tokens only inside an assistant
+  record and a `tool_result` block (`#302-1234567`, `INT FOR APR-2026`)
+  produced no title; a user record `let's work #42` produced `#42`. A stub
+  `claude` printing a phrase then exiting 124 still yielded
+  `#88 affordance-parity · wiring board webhook`. The hook suite now runs on
+  Windows too: 45 passed locally.
+- **9. Briefs — PASS.** `/session-brief` on `chore/release-1.9.0` (open
+  PR #127): PR/CI line rendered (`OPEN, draft` · CI `success`) and the resume
+  note written under the cache dir. The ticket link is absent because a
+  release branch carries no issue ref (`ticket: null`, as the command
+  specifies); the ticket-link path is pinned by
+  `tests/test_session_brief_collect.py`. `/tracker-brief` run twice: the
+  second run's window started exactly at the first run's committed stamp.
+  Collector `errors[]` empty throughout.
+- **10. Babysit loop — PASS.** Draft PR #128 with a deliberately failing
+  test. Iteration 1 saw `ci.conclusion == "failure"`, took **fix-ci** and
+  pushed the fix; iteration 2 reported `wait-ci`, iteration 3 the idle
+  `wait` (`trailing_noops: 1`). `/tracker-loop stop` marked the record
+  stopped; the next fire reported it stopped and took no action;
+  `--restart` created a fresh record. PR closed unmerged, branch deleted.
+  Three doc gaps (no `idle` pacing row, the step-6 checkpoint verdict on
+  long multi-branch transcripts, `128` vs `#128` refs) filed on #121.
+
 ## [1.8.0] - 2026-07-28
 
 ### Added
