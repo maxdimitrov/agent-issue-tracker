@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-09-25
+
 ### Added
 
 - **`/session-brief`, `/tracker-brief`, `/tracker-loop`** — ports of the
@@ -108,6 +110,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   budget, status 124). Docs that spelled the old format (`README.md`,
   `CONTRIBUTING.md` smoke 8, `skills/initiative-tracking/SKILL.md`, the
   design spec) are updated in the same change.
+
+- **`/tracker-init` names the `loops:` block as an explicit omission.** The
+  scaffolder listed `types:` and `triage:` as deliberately omitted but never
+  mentioned the new optional `loops:` block, so a fresh config tripped
+  `/tracker-doctor`'s WARN-only "loops absent" note with no pointer from
+  init. Found by release smoke 3.
+- **Release gate smoke 7 counts the current component set** (6 skills + 12
+  commands + the SessionStart hook) instead of the v1.0.2-era "9 components
+  (6 skills + 3 commands)".
 
 ## [1.8.0] - 2026-07-28
 
