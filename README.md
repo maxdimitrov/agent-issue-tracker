@@ -169,15 +169,17 @@ The dependency is load-bearing. The skills cite `superpowers:brainstorming`, `su
 
 The ten-operation contract every backend implements lives in [`backends/_interface.md`](backends/_interface.md). Reference implementations: [`backends/github.md`](backends/github.md) (via `gh` CLI), [`backends/jira.md`](backends/jira.md) (via the Atlassian Remote MCP). The CI `backend-contract` job asserts every contract operation heading appears in every backend file — catches drift on PR.
 
-GitLab, Linear, Asana, plaintext-file, and Jira Server / Data Center are filed as day-one follow-on issues. See [CONTRIBUTING.md](CONTRIBUTING.md) for the backend-addition checklist.
+A GitLab backend is filed as [#4](https://github.com/maxdimitrov/agent-issue-tracker/issues/4) and waits for a consumer; other trackers are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the backend-addition checklist.
 
 ## Roadmap
 
-- **v1.0.0** (this release) — five skills, three slash commands, GitHub + Jira backends, full CI.
-- **v1.4** (shipped) — `/audit-skills` detector + library as the enforcement helper for `skill-currency`.
-- **v2** (planned) — MCP server form factor so Cursor / Zed / other MCP-compatible clients can consume the tooling layer.
+The current release is the top entry in [CHANGELOG.md](CHANGELOG.md); every shipped capability is recorded there with its issue and PR numbers. Open work, in priority order, lives in [the issues list](https://github.com/maxdimitrov/agent-issue-tracker/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement):
 
-Day-one follow-on issues filed against this repo cover each post-v1 enhancement; see [the issues list](https://github.com/maxdimitrov/agent-issue-tracker/issues?q=is%3Aissue+label%3Aenhancement) under the `enhancement` label.
+- **Post-merge finish phase** for `/work-issue` — merged-vs-released transitions, index refresh, merge method, worktree cleanup (#115).
+- **Doctor write probe** — `/tracker-doctor` proves the GitHub token can *write* issues, for the consumer repo and for upstream contributions (#113).
+- **Active-sprint assignment** alongside `jira.in_progress_transition` (#112).
+- **Session-boundary nudges** via hook `systemMessage` (#114, needs a design pass).
+- **Config resolution** — env-var overrides and a global `~/.claude/issue-tracker.yaml` fallback (#7, needs a design pass).
 
 ## License
 

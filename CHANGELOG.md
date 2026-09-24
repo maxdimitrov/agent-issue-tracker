@@ -57,6 +57,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Replaces the runtime `ToolSearch` hedge; empty `allowedValues`
   (no Components configured) is surfaced as the same `WARN-info`.
 
+- **Docs drift sweep (backlog triage 2026-09-24).** `commands/tracker-doctor.md`
+  no longer cites a `/audit-pii` sibling that never existed in this repo
+  (it stayed local to the originating project; the porting spec records
+  the decision). `README.md` "Roadmap" was frozen at the v1.0.0 framing
+  ("this release", "v1.4 shipped", "v2 MCP server planned") four releases
+  on; it now points at the CHANGELOG for what shipped and at the open
+  `enhancement` issues for what's next. The "Adding a backend" paragraph
+  claimed Linear / Asana / plaintext-file / Jira Server follow-on issues
+  that were never filed (or, for Jira Server, closed as not planned).
+
 ## [1.8.0] - 2026-07-28
 
 ### Added
