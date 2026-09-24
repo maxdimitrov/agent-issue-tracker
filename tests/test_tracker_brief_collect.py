@@ -314,3 +314,29 @@ def test_branch_ref_map_survives_multiline_jq_output(repo, tmp_path):
     rows = {r["ref"]: r for r in out["ledger"]}
     assert "#500" in rows
     assert rows["#500"]["open_pr"]["number"] == 80
+
+
+def test_large_fragments_do_not_overflow_argv(repo, tmp_path):
+    # Regression: running this collector against a real, active repo (100
+    # all-time PRs plus deep-dive detail) printed zero bytes with exit 0 --
+    # `jq: Argument list too long` on stderr -- because every fragment rode
+    # to jq on argv via --argjson. The OS process argument limit (roughly
+    # 32 KB on Windows) made the jq invocation itself never start. Forces
+    # that path deterministically with 100 PRs, each carrying a 2 KB title,
+    # so ALLTIME alone is well over 64 KB (and BRANCH_REFS, built from 100
+    # distinct branches, exercises the same limit on the branch-ref map).
+    big_all = [pr(1000 + i, "x" * 2048, f"feat/{1000 + i}-big") for i in range(100)]
+    files = {"GH_OPEN": [], "GH_MERGED": [], "GH_ALL": big_all,
+             "GH_VIEW": PR_VIEW, "GH_THREADS": THREADS, "GH_RUNS": RUNS}
+    extra = {"GH_CALLS": (tmp_path / "gh-calls").as_posix()}
+    for k, v in files.items():
+        p = tmp_path / f"{k}.json"
+        p.write_text(json.dumps(v))
+        extra[k] = p.as_posix()
+    stub = make_stub(tmp_path / "bin-big", "gh", GH_STUB)
+    env = env_with_path(isolated_env(tmp_path, **extra), stub)
+    out = run(repo, env)
+    for key in ("generated_at", "window", "viewer", "config", "worktrees", "resume_notes",
+                "loops", "prs", "pr_detail", "ledger", "orphan_worktrees", "errors"):
+        assert key in out
+    assert len(out["prs"]["all_time_authored"]) == 100
