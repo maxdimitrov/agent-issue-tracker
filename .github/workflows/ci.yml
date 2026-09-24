@@ -83,4 +83,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Shellcheck hook scripts
-        run: shellcheck hooks/*.sh
+        run: shellcheck -x hooks/*.sh scripts/*.sh scripts/lib/*.sh

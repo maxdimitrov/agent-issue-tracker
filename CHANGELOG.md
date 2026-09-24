@@ -7,8 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`/session-brief`, `/tracker-brief`, `/tracker-loop`** — ports of the
+  operator's personal session/morning briefs, re-rooted on the configured
+  tracker backend and `.claude/worktrees/`, plus a one-iteration loop
+  runtime with three modes (`babysit`, `clear`, `poll`), budgets kept on
+  disk, and recurrence from `/loop` or a `--loop`-armed session cron on
+  `/work-issue` and `/resume-initiative --start`. State lives under
+  `${XDG_CACHE_HOME:-~/.cache}/agent-issue-tracker/<project-key>/`.
+- **Backend contract 10 → 11: `list_updated_issues`** — issues with
+  activity since a timestamp, optionally restricted to the viewer.
+  GitHub via `gh issue list --search "updated:>=… involves:@me"`; Jira
+  via JQL `updated >= …` (live verification deferred to the next Jira
+  smoke).
+- **`scripts/lib/common.sh`** — shared ref/slug parsing (the session-title
+  hook now sources it), project key, state dir, flat config reader and
+  issue-URL rendering. Shellcheck now covers `scripts/`.
+- **`loops:` config block** (optional) — validated by `/tracker-doctor`.
+
 ### Changed
 
+- **Session-title hook: stricter leading-number rule.** A leading number
+  in the branch leaf becomes an issue ref only when it is followed by
+  `-` or ends the leaf, so `release/1.8.0` and `feat/42_widget` no
+  longer yield a ref (`feat/42-widget` and `feat/42` still give `#42`).
+  The rule now lives in `scripts/lib/common.sh` and the hook sources it.
 - **Live read-only verification of the Jira surface (#109, partial).**
   Re-verified the read half of `backends/jira.md` against a live Jira
   Cloud site via the Atlassian Remote MCP (2026-07-28): issue-type

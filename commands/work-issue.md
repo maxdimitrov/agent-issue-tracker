@@ -2,7 +2,7 @@
 description: Drive ONE named issue end-to-end through the full mandated agent pipeline — read, scope, worktree, brainstorm → plan → execute → verify → PR.
 ---
 
-# /work-issue <ref> [--start] [--draft | --merge]
+# /work-issue <ref> [--start] [--draft | --merge] [--loop]
 
 Take a single named issue and drive it to a PR through the full mandated agent workflow. `/work-issue` is the single-issue counterpart to [`/resume-initiative`](resume-initiative.md): where `/resume-initiative` is epic/initiative-oriented (it walks an initiative tree and picks the next workable leaf), `/work-issue` takes ONE issue you name and runs it end-to-end — read the body, assess scope, create an isolated worktree, then brainstorm → plan → execute → verify → open a PR. The configured backend is resolved from `.claude/issue-tracker.yaml` in the consumer project, the same as `/resume-initiative`.
 
@@ -30,6 +30,7 @@ The third row describes the *class* of command some consumer projects ship — a
 | `/work-issue <ref> --start` | Same read + scope + worktree, then proceed **straight into the inline workflow** without pausing for confirmation (mirrors `/resume-initiative --start`). |
 | `/work-issue <ref> --draft` | Modifier (combinable with `--start`). The finish step opens a **draft** PR instead of a ready-for-review PR. Everything else is identical. |
 | `/work-issue <ref> --merge` | Modifier (combinable with `--start`). **Explicit operator override of the default merge gate:** after verification passes and the ready-for-review PR is open, the finish step also merges it via the git host — arm auto-merge where the repo supports it (GitHub: `gh pr merge --squash --auto`, so required checks still gate the actual merge), falling back to a direct squash-merge only when auto-merge is unavailable. Mutually exclusive with `--draft`: if both are passed, refuse with a clear message instead of guessing. |
+| `/work-issue <ref> --loop` | Modifier (combinable with `--start`, `--draft`, `--merge`). After Step 6 opens the PR, Step 7 arms a session cron that runs `/agent-issue-tracker:tracker-loop babysit <ref>` at `loops.interval` until the PR merges, is approved, or needs a judgement call. |
 
 `--start` and `--draft` are orthogonal: `/work-issue #42 --start --draft` runs the whole pipeline inline and finishes with a draft PR. `--merge` combines with `--start` the same way (`--start --merge` runs inline and merges on green) but never with `--draft` — a draft PR is by definition not ready to merge.
 
@@ -166,6 +167,16 @@ Run `superpowers:finishing-a-development-branch`: open a PR whose body links the
 
 `--draft` opens a **draft** PR. The PR is the **human gate by default** — `/work-issue` does **not** merge the PR, on any backend, in any mode, **unless the operator passed `--merge`** (the explicit per-invocation override; see Invocation modes). Even with `--merge`, never merge on red: if Step 5 verification did not pass, no ready-for-review PR exists to merge in the first place. Note the override authorizes only this command's behavior — the harness's own permission layer may still require its own approval for the merge action, and that layer is the operator's to configure, not this command's to bypass. With `--start`, the run proceeds straight from worktree creation (Step 3) through Steps 4–6 inline without pausing for confirmation, mirroring `/resume-initiative --start`. Without `--start`, the run pauses at the end of Step 3 for the operator to confirm before Step 4.
 
+### Step 7 — Arm the loop (`--loop` only)
+
+Only when `--loop` was passed and Step 6 opened a PR:
+
+1. `LR="${CLAUDE_PLUGIN_ROOT}/scripts/loop-record.sh"`; `$LR create babysit <ref> <branch> [--merge] [--draft] --interval <loops.interval> --max-iterations <…> --max-hours <…> --idle-stop-after <…>` with values from the `loops:` block (`ait_config_get loops.<key>` from `scripts/lib/common.sh`; defaults in `commands/tracker-loop.md`).
+2. `CronCreate` a recurring job at `loops.interval` on an off-minute (the tool's guidance), prompt `/agent-issue-tracker:tracker-loop babysit <ref>` with this invocation's `--draft` / `--merge` appended when passed (for example `/agent-issue-tracker:tracker-loop babysit #42 --merge`); then `$LR set-cron <id> <job-id>`. The record carries the same flags in `options`, so a fire that lost them still reads them from there.
+3. Tell the operator, in three lines: the loop id and cadence; that session crons expire after seven days and end with the conversation; and that `/loop /agent-issue-tracker:tracker-loop babysit <ref>` (self-paced) or `/schedule` are the alternatives.
+
+`--loop` without a PR (verification failed, no `--draft`) arms nothing and says so.
+
 ## Conventions assumed
 
 - **The issue body is an agent prompt.** Every issue this plugin files carries the agent-prompt shape (Goal, Locus, Skills to load, Constraints, Acceptance, Verify) per the `bug-tracking` / `feature-request` / `followup-tracking` skills. `/work-issue` uses that body as starting context; it does not re-derive the problem. A body too vague to drive a run is itself the finding — report it and stop rather than inventing scope.
@@ -182,3 +193,4 @@ Run `superpowers:finishing-a-development-branch`: open a PR whose body links the
 - **Cross-repo `owner/repo#N` ref** → the worktree is created in the consumer's current working directory regardless; only the `view_issue` body fetch hits the child's repo via the backend. The backend module documents how it handles cross-repo refs.
 - **Start-side initiative sync fails** (parent epic unfetchable; legacy parent — Status block missing; evergreen parent — machine-block comment read/write rejected; board write or transition rejected) → WARN and continue; status writes never block the run. Legacy parents catch up on the close side via `initiative-tracking`'s legacy Maintenance ritual (formerly tracked as follow-up #87). For evergreen parents, #87 is superseded: there is no close-side body edit left to catch up with — child membership, status, and counts are all derived at read time.
 - **Start-side sync succeeds but emits no in-progress signal** (parentless issue AND no configured affordance) → one WARN from Step 3 naming both halves, then continue. Not a failure — every individual step did what it documents — but it is the only path on which a completed run leaves the tracker indistinguishable from untouched, so it must not be silent. Fix is config (`/tracker-doctor` Phase 1 flags an unset `jira.in_progress_transition`) or filing the issue under an epic.
+- **`--loop` but `CronCreate` is unavailable** (cron disabled by `CLAUDE_CODE_DISABLE_CRON`, or not in the tool surface) → stop the record with reason `no cron`, print the `/loop …` line for the operator to run by hand, and continue; the PR is already open.

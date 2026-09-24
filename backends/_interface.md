@@ -6,7 +6,7 @@ The contract is THE source of truth. If a backend module diverges from this cont
 
 ## Operations
 
-Ten operations. Inputs are tracker-agnostic field names; the backend module translates them into tracker-specific fields (label vs component vs custom field, etc.).
+Eleven operations. Inputs are tracker-agnostic field names; the backend module translates them into tracker-specific fields (label vs component vs custom field, etc.).
 
 ### `create_issue`
 
@@ -73,6 +73,20 @@ Ten operations. Inputs are tracker-agnostic field names; the backend module tran
 **Output:** list of `{ref, title, status}` entries — the parent's **direct** children only. Includes **both open and closed** children, which is the deliberate difference from `list_open_issues`. Depth is the skill's concern, not this op's — `initiative-tracking` recurses over each node's persistent structure per invariant 6 (machine-block `## Phases` map for evergreen-shape epics, body `## Children` mirror for legacy-shape), calling this op once per node. For adoption of legacy-shape epics, closed children are needed to render them in the body `## Children` mirror as `[x] … — closed`.
 
 **Nesting (invariant 6):** native parent queries reach exactly as far as the backend's linkage ceiling (e.g. Jira's three-level Epic → Story/Task → Sub-task cap). Below that ceiling there are no *native* children to enumerate by construction — deeper nesting lives in persistent structure (machine-block `## Phases` for evergreen epics, body `## Children` mirror for legacy) — so this op is reliable precisely where adoption needs it: reconciling one node's direct children at a time. A backend whose native ceiling is shallower than a given tree is NOT in violation; the persistent structure remains the depth-of-record.
+
+---
+
+### `list_updated_issues`
+
+**Purpose:** List issues with activity inside a time window — the read `/tracker-brief` uses to answer "what moved in the tracker while I was away". Comment-level activity is NOT part of this op; callers pair it with `read_comments` on the returned refs.
+
+**Inputs:**
+- `since` — ISO-8601 UTC timestamp; only issues updated at or after it are returned
+- `involving_me` (optional, default `true`) — restrict to issues the viewer is assigned to, reported, watches, or is mentioned in, as the backend defines involvement
+
+**Output:** list of `{ref, title, status, updated, url}` entries, newest `updated` first, capped at 50 by the backend. `updated` is ISO-8601 UTC; `url` is the issue's browser URL.
+
+**Note:** `involving_me` is best-effort per backend — GitHub's `involves:` qualifier and Jira's assignee/reporter/watcher trio are not the same set. Callers treat the result as "probably relevant", not authoritative.
 
 ---
 
@@ -166,7 +180,7 @@ Epic nodes under the evergreen model (see `skills/initiative-tracking/SKILL.md`)
 
 ## Optional backend-specific capabilities
 
-The ten operations above are the entire contract. A backend MAY document
+The eleven operations above are the entire contract. A backend MAY document
 additional, backend-specific affordances that are NOT contract operations and are
 NOT required of any other backend. Such affordances live under plain `##` headings
 in the backend module — never a `` ### `op` `` operation heading — so the
@@ -178,7 +192,7 @@ The first such affordance is **GitHub Projects (v2) board population** — see
 `backends/github.md` "GitHub Projects v2 board (optional)". It mirrors an
 initiative's issue tree onto a GitHub Projects board as a human-facing view. It is
 GitHub-only; `backends/jira.md` records it as n/a. It adds **no** contract
-operation: the ten ops stay ten, and op-parity remains green.
+operation: the eleven ops stay eleven, and op-parity remains green.
 
 The second is **in-progress status marking** — the "this issue is being worked"
 signal a driver sets when work starts (`/work-issue` Step 3;
@@ -199,7 +213,7 @@ best-effort — WARN, never block.
 To add a new backend (GitLab, Linear, Jira Server, plain-file, etc.):
 
 1. Create `backends/<name>.md`.
-2. For each of the ten operations above, document the literal CLI command, MCP tool call, or API request that implements it. Use the same field names as the contract; translate to tracker-specific fields inside the documentation.
+2. For each of the eleven operations above, document the literal CLI command, MCP tool call, or API request that implements it. Use the same field names as the contract; translate to tracker-specific fields inside the documentation.
 3. Document how the six cross-backend invariants are satisfied — including invariant 6 (where the new backend's native parent-child linkage ceiling sits, so `initiative-tracking` knows how deep native augmentation goes before the body mirror is the sole record).
 4. Add a `<name>` block to the config schema in `examples/issue-tracker.yaml.example` with all required + optional fields.
 5. Ship a minimal `examples/<name>-config.yaml`.

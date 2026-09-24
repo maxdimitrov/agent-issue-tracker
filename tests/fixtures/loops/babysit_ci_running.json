@@ -1,0 +1,1 @@
+{"observation": {"pr": {"state": "OPEN", "mergeable": "MERGEABLE", "reviewDecision": "REVIEW_REQUIRED"}, "ci": {"status": "in_progress", "conclusion": null}}, "expected": "wait:ci"}
