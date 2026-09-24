@@ -1,5 +1,6 @@
 """Subprocess tests for scripts/session-brief-collect.sh."""
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -77,7 +78,7 @@ def transcript(path, cwd, branch="feat/42-widget", user_turns=3, compactions=0, 
     base = 1_758_700_000
     for i in range(user_turns):
         t = base + int(i * hours * 3600 / max(user_turns - 1, 1))
-        stamp = __import__("datetime").datetime.utcfromtimestamp(t).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        stamp = datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         lines.append({"type": "user", "timestamp": stamp, "cwd": cwd, "gitBranch": branch,
                       "message": {"content": f"prompt {i}"}})
         lines.append({"type": "assistant", "timestamp": stamp, "cwd": cwd, "gitBranch": branch,
@@ -155,6 +156,55 @@ def test_gh_failure_degrades_to_null(repo, tmp_path):
     assert out["ticket"]["key"] == "#42"
 
 
+GH_ERROR_STUB = r'''
+err='{"data":null,"errors":[{"message":"x"}]}'
+case "$*" in
+  *"repo view"*)   echo "acme/widgets" ;;
+  *"pr view"*)     echo "$err"; exit 1 ;;
+  *"actions/runs"*) echo "$err"; exit 1 ;;
+  *"api user"*)    echo "me" ;;
+  *"graphql"*)     echo "$err"; exit 1 ;;
+  *) exit 1 ;;
+esac
+'''
+
+
+def test_gh_error_body_on_nonzero_exit_degrades_to_null(repo, tmp_path):
+    # gh writes error bodies to stdout even when it exits non-zero. A naive
+    # `cmd || echo ""` still captures that body via command substitution, so
+    # this must not turn into a well-formed-looking pr/ci/review payload.
+    stub = make_stub(tmp_path / "bin", "gh", GH_ERROR_STUB)
+    out = run(repo, env_with_path(isolated_env(tmp_path), stub))
+    assert out["repo"]["gh_available"] is True
+    assert out["pr"] is None and out["ci"] is None and out["review"] is None
+
+
+GH_STUB_REVIEW_ERROR = r'''
+err='{"data":null,"errors":[{"message":"x"}]}'
+case "$*" in
+  *"repo view"*)   echo "acme/widgets" ;;
+  *"pr view"*)     cat "$GH_PR" ;;
+  *"actions/runs/1/jobs"*) cat "$GH_JOBS" ;;
+  *"actions/runs"*) cat "$GH_RUNS" ;;
+  *"api user"*)    echo "me" ;;
+  *"graphql"*)     echo "$err"; exit 1 ;;
+  *) exit 1 ;;
+esac
+'''
+
+
+def test_review_graphql_error_degrades_to_null(repo, tmp_path, gh):
+    # pr/ci succeed (so pr_number is set and the graphql call actually
+    # fires); only the graphql call itself returns an error body + exit 1.
+    _, extra = gh
+    stub = make_stub(tmp_path / "bin", "gh", GH_STUB_REVIEW_ERROR)
+    env = env_with_path(isolated_env(tmp_path, **extra), stub)
+    out = run(repo, env)
+    assert out["pr"]["number"] == 57
+    assert out["ci"]["conclusion"] == "failure"
+    assert out["review"] is None
+
+
 def test_session_from_explicit_transcript(repo, tmp_path):
     t = transcript(tmp_path / "t.jsonl", cwd=str(repo), user_turns=30, compactions=1, hours=3.0)
     out = run(repo, isolated_env(tmp_path, AIT_TRANSCRIPT=t.as_posix()))
@@ -185,6 +235,29 @@ def test_discovery_finds_nothing_when_no_cwd_matches(repo, tmp_path):
     projects = Path(env["CLAUDE_CONFIG_DIR"]) / "projects"
     transcript(projects / "p-a" / "other.jsonl", cwd=str(tmp_path / "elsewhere"))
     assert run(repo, env)["session"] is None
+
+
+def test_discovery_does_not_borrow_main_repo_transcript_from_worktree(repo, tmp_path):
+    wt = tmp_path / "wt"
+    git(repo, "worktree", "add", "-q", "-b", "fix/9-y", wt.as_posix())
+    env = isolated_env(tmp_path)
+    projects = Path(env["CLAUDE_CONFIG_DIR"]) / "projects"
+    # Only the main repo's cwd is recorded; the worktree has no transcript
+    # of its own, and must not fall back to the main checkout's session.
+    transcript(projects / "p-a" / "main.jsonl", cwd=str(repo), user_turns=5)
+    assert run(wt, env)["session"] is None
+
+
+def test_tickets_seen_matches_library_issue_branch(repo, tmp_path):
+    t = transcript(tmp_path / "t.jsonl", cwd=str(repo), branch="fix/issue-12", user_turns=3)
+    out = run(repo, isolated_env(tmp_path, AIT_TRANSCRIPT=t.as_posix()))
+    assert out["session"]["tickets_seen"] == ["#12"]
+
+
+def test_tickets_seen_excludes_version_segment_branch(repo, tmp_path):
+    t = transcript(tmp_path / "t.jsonl", cwd=str(repo), branch="release/1.8.0", user_turns=3)
+    out = run(repo, isolated_env(tmp_path, AIT_TRANSCRIPT=t.as_posix()))
+    assert out["session"]["tickets_seen"] == []
 
 
 def test_live_loop_record_for_branch_is_surfaced(repo, tmp_path):

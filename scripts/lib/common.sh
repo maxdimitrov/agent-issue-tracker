@@ -94,7 +94,7 @@ ait_slug_from_branch() {
 ait_norm_path() {
   local p="$1"
   [ -d "$p" ] || { printf '%s' "$p"; return 0; }
-  ( cd "$p" 2>/dev/null && { pwd -W 2>/dev/null || pwd; } ) | tr '\\' '/' | tr -d '\n'
+  ( cd "$p" 2>/dev/null && { pwd -W 2>/dev/null || pwd; } ) | tr "\\\\" "/" | tr -d '\n'
 }
 
 # ait_main_repo [<dir>] - root of the main checkout shared by all worktrees.
@@ -118,7 +118,8 @@ ait_project_key() {
 
 ait_state_dir() {
   local root="${AIT_STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/agent-issue-tracker}"
-  local dir="$root/$(ait_project_key "${1:-.}")"
+  local dir
+  dir="$root/$(ait_project_key "${1:-.}")"
   mkdir -p "$dir" 2>/dev/null
   printf '%s' "$dir"
 }
