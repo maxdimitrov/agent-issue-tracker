@@ -153,6 +153,7 @@ Emit the following blocks conditionally:
 
 Omit `types:` block entirely (v1 does not prompt for this; plugin defaults apply).
 Omit `triage:` block entirely (same reason).
+Omit `loops:` block entirely (optional; `/tracker-loop` uses the defaults documented in `examples/issue-tracker.yaml.example`). `/tracker-doctor` reports its absence as a WARN-only note, so the operator can add the block if they want a custom `poll_label` or budgets.
 
 ### Phase 7 — Write
 
