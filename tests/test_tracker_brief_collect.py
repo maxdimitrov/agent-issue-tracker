@@ -137,6 +137,20 @@ def test_first_run_window_and_stamp(repo, tmp_path):
     assert again["window"]["last_run"] == stamp["committed"]
 
 
+def test_commit_run_stamps_given_collection_time(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    collected = run(repo, env)["generated_at"]
+    stamp = run(repo, env, "--commit-run", "2026-09-24T06:00:00Z")
+    assert stamp["committed"] == "2026-09-24T06:00:00Z" and "warning" not in stamp
+    again = run(repo, env)
+    assert again["window"]["since"] == "2026-09-24T06:00:00Z"
+    # The command passes the emit's generated_at straight back.
+    assert run(repo, env, "--commit-run", collected)["committed"] == collected
+    bad = run(repo, env, "--commit-run", "yesterday")
+    assert bad["committed"] != "yesterday" and "warning" in bad
+    assert json.loads(Path(bad["state_file"]).read_text())["previous_run"] == collected
+
+
 def test_since_override_and_summarize_mode(repo, tmp_path):
     out = run(repo, isolated_env(tmp_path, AIT_SINCE="2026-01-01T00:00:00Z"))
     assert out["window"]["since"] == "2026-01-01T00:00:00Z"
@@ -179,6 +193,7 @@ def test_ledger_joins_by_exact_ref(repo, tmp_path, gh):
     out = run(repo, env)
     rows = {r["ref"]: r for r in out["ledger"]}
     assert rows["#604"]["open_pr"]["number"] == 70
+    assert rows["#604"]["merged_pr"] is None  # "#604" must not steal "[#6041]"'s PR
     assert rows["#604"]["worktree"] is None
     assert rows["#6041"]["merged_pr"]["number"] == 60 and rows["#6041"]["open_pr"] is None
     assert rows["#6041"]["worktree"]["branch"] == "feat/6041-big"
@@ -221,6 +236,38 @@ def test_resume_notes_and_loops_join_ledger(repo, tmp_path, gh):
     assert [a["action"] for a in lp["actions_in_window"]] == ["fix-ci"]
     rows = {r["ref"]: r for r in out["ledger"]}
     assert rows["#6041"]["resume_note"]["slug"] == "6041" and rows["#6041"]["actionable"] is True
+    assert rows["#604"]["loops"][0]["id"] == "babysit-604-1"
+
+
+def test_poll_loop_label_is_not_a_ledger_key(repo, tmp_path, gh):
+    stub, extra = gh
+    env = env_with_path(isolated_env(tmp_path, AIT_SINCE="2026-09-24T00:00:00Z", **extra), stub)
+    state = Path(run(repo, env)["config"]["state_dir"])
+    (state / "loops").mkdir(parents=True)
+    (state / "loops" / "poll-agent-ready-1.json").write_text(json.dumps({
+        "id": "poll-agent-ready-1", "mode": "poll", "ref": "agent-ready", "branch": None,
+        "state": "live", "stop_reason": None, "started": "2026-09-24T01:00:00Z",
+        "prs_opened": ["#71"], "iterations": []}))
+    out = run(repo, env)
+    rows = {r["ref"]: r for r in out["ledger"]}
+    assert "agent-ready" not in rows
+    assert rows["#71"]["loops"][0]["id"] == "poll-agent-ready-1"
+    assert rows["#71"]["actionable"] is True
+    assert [lp["id"] for lp in out["loops"]] == ["poll-agent-ready-1"]
+
+
+def test_corrupt_sibling_loop_record_is_skipped(repo, tmp_path, gh):
+    stub, extra = gh
+    env = env_with_path(isolated_env(tmp_path, AIT_SINCE="2026-09-24T00:00:00Z", **extra), stub)
+    state = Path(run(repo, env)["config"]["state_dir"])
+    (state / "loops").mkdir(parents=True)
+    (state / "loops" / "aaa-corrupt.json").write_text("{not json")
+    (state / "loops" / "babysit-604-1.json").write_text(json.dumps({
+        "id": "babysit-604-1", "mode": "babysit", "ref": "#604", "branch": "feat/604-widget",
+        "state": "live", "started": "2026-09-24T01:00:00Z", "prs_opened": [], "iterations": []}))
+    out = run(repo, env)
+    assert [lp["id"] for lp in out["loops"]] == ["babysit-604-1"]
+    rows = {r["ref"]: r for r in out["ledger"]}
     assert rows["#604"]["loops"][0]["id"] == "babysit-604-1"
 
 

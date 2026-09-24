@@ -438,3 +438,50 @@ and stays silent when absent.
 - Cron fires only when the REPL is idle. A loop iteration that runs a full
   `/work-issue` pipeline can take long enough that a fixed-interval cron
   skips fires; no catch-up is attempted, by harness design.
+
+## 11. Implementation notes
+
+Where the shipped code departs from the sections above, it wins; the
+departures are recorded here.
+
+- **Poll babysits one PR per iteration (6.5 vs 6.2).** 6.5's "one babysit
+  iteration for each PR this loop opened" is superseded by 6.2 step 5's
+  one-action rule: a poll iteration babysits only the oldest still-open PR
+  it opened, and may dispatch a new issue in the same iteration only when
+  that babysit took no mutating action.
+- **Project key (3.2).** `ait_project_key` hashes the main-repo path
+  (`ait_main_repo`) rather than the git common dir. The two are equivalent
+  for this purpose and equally stable across worktrees of one repo.
+- **Library tests (7).** `scripts/lib/common.sh` is tested with pytest
+  (`tests/test_common_lib.py`) inside the existing CI test job, not with a
+  bash test file and a CI step of its own.
+- **Checkpoint continuation (6.2 steps 1, 6 and 8).** The collector runs
+  first, before the record is loaded. A `fresh session` checkpoint appends
+  the iteration, writes the resume note, then stops the record with reason
+  `checkpoint: fresh session` and the current transcript path
+  (`loop-record.sh stop … --transcript`, stored as `stop_transcript`). The
+  loop continues only from a *different* session: a fire whose transcript
+  is non-null and differs from `stop_transcript` runs `loop-record.sh reopen`, which
+  returns the record to `live` with `started`, `iterations`, `prs_opened`,
+  `budget` and `options` kept, so the budgets keep counting. A fire from the
+  same session reports the loop as checkpointed and does nothing;
+  `--restart` always begins a fresh record.
+- **Flags on driver-armed loops (6.8).** The drivers append `--draft` /
+  `--merge` to the cron prompt, and `/tracker-loop` falls back to the
+  record's `options` when neither flag is on its command line. In poll, an
+  effective `--merge` on the loop wins over `loops.pr_mode` and is passed
+  through as `--merge`; otherwise an effective `--draft` passes `--draft`;
+  otherwise `loops.pr_mode` decides (`draft`, the default, passes
+  `--draft`; `ready` passes neither).
+- **gh failure is not "no PR" (6.3).** `session-brief-collect.sh` reports a
+  top-level `errors[]` and `repo.gh_ok`. Whenever `gh_ok` is false or
+  `errors[]` names a gh step, a babysit iteration waits (5m, no-op)
+  whatever `pr`, `ci` and `review` say; the decision table is consulted
+  only when the collector reports no gh errors.
+- **Skip comments (6.4, 6.10).** The clear-mode skip comment is written
+  with `upsert_comment` under a `tracker-loop:skip` marker, so it is a
+  contract op and idempotent across iterations.
+- **Tracker-brief window stamp (5.1).** `--commit-run <generated_at>`
+  stamps the collection time, not the write time. Loop refs become ledger
+  keys only when they are issue-shaped; a poll loop contributes the refs in
+  its `prs_opened` instead of its label.

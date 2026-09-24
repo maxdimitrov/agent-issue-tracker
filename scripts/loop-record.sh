@@ -13,7 +13,9 @@
 #   loop-record.sh append <id> <action> <detail> [--noop]
 #   loop-record.sh add-pr <id> <pr-ref>
 #   loop-record.sh set-cron <id> <job-id>
-#   loop-record.sh stop <id> <reason>
+#   loop-record.sh stop <id> <reason> [--transcript <path>]
+#                                                 # --transcript: stored as stop_transcript
+#   loop-record.sh reopen <id>                    # stopped -> live, counters kept
 #   loop-record.sh get <id>
 #   loop-record.sh list                           # live records, summarised
 #
@@ -97,7 +99,7 @@ case "$cmd" in
       --argjson merge "$merge" --argjson draft "$draft" \
       --argjson maxi "$maxi" --argjson maxh "$maxh" --argjson idle "$idle" \
       '{id: $id, mode: $mode, ref: $ref, branch: (if $branch == "" then null else $branch end),
-        started: $now, state: "live", stop_reason: null, stopped: null,
+        started: $now, state: "live", stop_reason: null, stop_transcript: null, stopped: null,
         cron_job_id: (if $cron == "" then null else $cron end),
         options: {merge: $merge, draft: $draft, interval: $interval},
         budget: {max_iterations: $maxi, max_hours: $maxh, idle_stop_after: $idle},
@@ -166,11 +168,28 @@ case "$cmd" in
     jq -c '{id, cron_job_id}' "$(path_of "$1")"
     ;;
   stop)
-    [ $# -ge 2 ] || usage "stop <id> <reason>"
-    require "$1"
+    [ $# -ge 2 ] || usage "stop <id> <reason> [--transcript <path>]"
+    id="$1"; reason="$2"; shift 2
+    transcript=""
+    if [ $# -gt 0 ]; then
+      if [ "$1" != "--transcript" ] || [ $# -lt 2 ]; then
+        usage "stop <id> <reason> [--transcript <path>]"
+      fi
+      transcript="$2"
+    fi
+    require "$id"
     # shellcheck disable=SC2016
-    modify "$1" --arg r "$2" --arg at "$(now)" '.state = "stopped" | .stop_reason = $r | .stopped = $at'
-    jq -c '{id, state, stop_reason, cron_job_id}' "$(path_of "$1")"
+    modify "$id" --arg r "$reason" --arg at "$(now)" --arg t "$transcript"       '.state = "stopped" | .stop_reason = $r | .stopped = $at
+       | .stop_transcript = (if $t == "" then null else $t end)'
+    jq -c '{id, state, stop_reason, cron_job_id}' "$(path_of "$id")"
+    ;;
+  reopen)
+    # Continue a checkpointed loop in a new session: back to live with the
+    # started time, iterations, prs_opened, budget and options untouched.
+    [ $# -ge 1 ] || usage "reopen <id>"
+    require "$1"
+    modify "$1" '.state = "live" | .stop_reason = null | .stop_transcript = null | .stopped = null'
+    jq -c '{id, state, iterations: (.iterations | length)}' "$(path_of "$1")"
     ;;
   get)
     [ $# -ge 1 ] || usage "get <id>"
@@ -182,6 +201,6 @@ case "$cmd" in
       | {id, mode, ref, branch, started, cron_job_id, prs_opened,
          iterations: (.iterations | length), last_action: (.iterations | last | .action // null)}]'
     ;;
-  *) usage "create|find|check|append|add-pr|set-cron|stop|get|list" ;;
+  *) usage "create|find|check|append|add-pr|set-cron|stop|reopen|get|list" ;;
 esac
 exit 0

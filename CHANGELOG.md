@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Session-title hook: stricter leading-number rule.** A leading number
+  in the branch leaf becomes an issue ref only when it is followed by
+  `-` or ends the leaf, so `release/1.8.0` and `feat/42_widget` no
+  longer yield a ref (`feat/42-widget` and `feat/42` still give `#42`).
+  The rule now lives in `scripts/lib/common.sh` and the hook sources it.
 - **Live read-only verification of the Jira surface (#109, partial).**
   Re-verified the read half of `backends/jira.md` against a live Jira
   Cloud site via the Atlassian Remote MCP (2026-07-28): issue-type

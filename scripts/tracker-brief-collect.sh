@@ -11,7 +11,8 @@
 #
 # Usage:
 #   tracker-brief-collect.sh                 # emit facts (read-only)
-#   tracker-brief-collect.sh --commit-run    # stamp last_run=now
+#   tracker-brief-collect.sh --commit-run [<generated_at>]
+#                                            # stamp last_run=<generated_at> (default now)
 #
 # Env:
 #   AIT_STATE_DIR    state root (default ${XDG_CACHE_HOME:-~/.cache}/agent-issue-tracker)
@@ -86,13 +87,25 @@ if [ -n "$CONFIG" ]; then
 fi
 
 # ------------------------------------------------------------ --commit-run
+# Stamps the COLLECTION time (the emit's generated_at, passed back by the
+# command) rather than the write time, so activity that arrives while the
+# brief is being read falls inside the next window. Without an argument, or
+# with one that is not a UTC ISO-8601 second timestamp, it stamps now.
 if [ "${1:-}" = "--commit-run" ]; then
   NOW="$(iso_now)"
+  WARN=""
+  if [ -n "${2:-}" ]; then
+    case "$2" in
+      [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) NOW="$2" ;;
+      *) WARN="ignored malformed timestamp '$2' -- stamped now" ;;
+    esac
+  fi
   PREV="$(jq -r '.last_run // empty' "$STATE" 2>/dev/null)"
   jq -n --arg now "$NOW" --arg prev "${PREV:-}" \
     '{last_run: $now, previous_run: (if $prev == "" then null else $prev end)}' \
     >"$STATE.tmp" 2>/dev/null && mv "$STATE.tmp" "$STATE" 2>/dev/null
-  jq -n --arg now "$NOW" --arg p "$STATE" '{committed: $now, state_file: $p}'
+  jq -n --arg now "$NOW" --arg p "$STATE" --arg w "$WARN" \
+    '{committed: $now, state_file: $p} + (if $w == "" then {} else {warning: $w} end)'
   exit 0
 fi
 
@@ -432,7 +445,16 @@ fi
 # ------------------------------------------------------------------- loops
 LOOPS='[]'
 if [ -d "$STATE_DIR/loops" ]; then
-  LOOPS="$(cat "$STATE_DIR"/loops/*.json 2>/dev/null | jq -s -c --arg since "$SINCE" '
+  # Each record is parsed on its own (as loop-record.sh all_records does),
+  # so one corrupt file cannot blank every other loop.
+  LOOP_LINES=""
+  for f in "$STATE_DIR"/loops/*.json; do
+    [ -f "$f" ] || continue
+    line="$(jq -c . "$f" 2>/dev/null)" || continue
+    LOOP_LINES="$LOOP_LINES$line
+"
+  done
+  LOOPS="$(printf '%s' "$LOOP_LINES" | jq -s -c --arg since "$SINCE" '
     [.[] | {id, mode, ref, branch, state, stop_reason, started,
             iterations_count: ((.iterations // []) | length),
             last_action: ((.iterations // []) | last | .action // null),
@@ -461,11 +483,17 @@ LEDGER="$(jq -n "${JQ_ARGS[@]}" \
     elif $backend == "jira" and $jira != "" and ($k | test("^[A-Z][A-Z0-9]+-[0-9]+$"))
       then "https://" + $jira + "/browse/" + $k
     else null end;
+  # A loop ref is a ledger key only when it is shaped like an issue ref: a
+  # poll record ref is a label (e.g. agent-ready), which view_issue cannot
+  # read. A poll loop contributes the refs it opened PRs for instead.
+  def issue_ref: type == "string" and (test("^#[0-9]+$") or test("^[A-Z][A-Z0-9]+-[0-9]+$"));
+  def loop_keys: (.ref | select(issue_ref)),
+                 (if .mode == "poll" then ((.prs_opened // [])[] | select(issue_ref)) else empty end);
   ($wt[0]) as $wt | ($rn[0]) as $rn | ($lp[0]) as $lp | ($at[0]) as $at | ($dp[0]) as $dp
-  | ([ ($wt[] | .ref), ($rn[] | .ref), ($lp[] | .ref), ($at[] | .ref) ] | map(select(. != null)) | unique) as $keys
+  | ([ ($wt[] | .ref), ($rn[] | .ref), ($lp[] | loop_keys), ($at[] | .ref) ] | map(select(. != null)) | unique) as $keys
   | [ $keys[] as $k
       | ([$at[] | select(.ref == $k)]) as $prs
-      | ([$lp[] | select(.ref == $k)]) as $loops
+      | ([$lp[] | select(any(loop_keys; . == $k))]) as $loops
       | { ref: $k, ticket_url: url($k),
           worktree:    ([$wt[] | select(.ref == $k)] | first // null),
           resume_note: ([$rn[] | select(.ref == $k)] | first // null),

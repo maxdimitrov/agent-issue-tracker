@@ -66,12 +66,20 @@ def env_with_path(env, bin_dir):
 
 
 def isolated_env(tmp_path, **extra):
-    """Env with the plugin's state dir and Claude config dir under tmp_path."""
+    """Env with the plugin's state dir and Claude config dir under tmp_path.
+
+    gh auth is stripped too (an empty GH_CONFIG_DIR, no token env vars), so
+    a test without a gh stub sees an unauthenticated gh -- exactly as in CI
+    -- instead of making real API calls with the developer's credentials.
+    """
     env = dict(os.environ)
     env["AIT_STATE_DIR"] = (tmp_path / "state").as_posix()
     env["CLAUDE_CONFIG_DIR"] = (tmp_path / "claude").as_posix()
     (tmp_path / "claude" / "projects").mkdir(parents=True, exist_ok=True)
-    for k in ("AIT_TRANSCRIPT", "CLAUDE_CODE_SESSION_ID", "AIT_SINCE"):
+    env["GH_CONFIG_DIR"] = (tmp_path / "gh-config").as_posix()
+    (tmp_path / "gh-config").mkdir(parents=True, exist_ok=True)
+    for k in ("AIT_TRANSCRIPT", "CLAUDE_CODE_SESSION_ID", "AIT_SINCE",
+              "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"):
         env.pop(k, None)
     env.update(extra)
     return env
