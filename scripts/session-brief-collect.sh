@@ -13,9 +13,22 @@
 #   CLAUDE_CONFIG_DIR  where the Claude config tree lives (default $HOME/.claude)
 
 set -uo pipefail
+# shellcheck source=scripts/lib/common.sh
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 
 CAP="${AIT_TIMEOUT:-15}"
+
+# gh_out <cmd...> - stdout only when the capped gh call exits 0; empty
+# otherwise. gh writes error bodies (GraphQL errors, 403s) to stdout even on
+# a non-zero exit, so a bare `cmd || echo ""` still captures that body via
+# command substitution -- this keeps only real data.
+gh_out() {
+  local out rc
+  out="$(ait_run_capped "$CAP" "$@" 2>/dev/null)"
+  rc=$?
+  [ "$rc" -eq 0 ] && printf '%s' "$out"
+  return 0
+}
 
 if ! command -v jq >/dev/null 2>&1; then
   printf '{"error":"jq not found on PATH","session":null,"repo":null,"git":null,"ticket":null,"pr":null,"ci":null,"review":null,"handoff":null,"loop":null,"config":null}\n'
@@ -98,19 +111,19 @@ fi
 # --------------------------------------------------------- PR / CI / review
 PR=null; PR_NUMBER=""; CI=null; REVIEW=null; ME=""; NWO=""; NWO_JSON=null
 if [ "$IS_GIT" = true ] && [ "$have_gh" = true ] && [ "$DETACHED" = false ]; then
-  NWO="$(ait_run_capped "$CAP" gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo "")"
+  NWO="$(gh_out gh repo view --json nameWithOwner -q .nameWithOwner)"
   [ -n "$NWO" ] && NWO_JSON="$(ait_json_str "$NWO")"
 
   # statusCheckRollup is deliberately absent: the checks scope is Apps-only,
   # so a fine-grained PAT 403s the whole query. CI comes from the Actions API.
-  PR_JSON="$(ait_run_capped "$CAP" gh pr view --json number,url,state,isDraft,mergeable,baseRefName,updatedAt,title,reviewDecision 2>/dev/null || echo "")"
+  PR_JSON="$(gh_out gh pr view --json number,url,state,isDraft,mergeable,baseRefName,updatedAt,title,reviewDecision)"
   if [ -n "$PR_JSON" ] && jq -e 'type == "object"' >/dev/null 2>&1 <<<"$PR_JSON"; then
     PR="$PR_JSON"
     PR_NUMBER="$(jq -r '.number // empty' <<<"$PR_JSON")"
   fi
 
   if [ -n "$NWO" ] && [ -n "$BRANCH_RAW" ]; then
-    RUNS="$(ait_run_capped "$CAP" gh api "repos/$NWO/actions/runs?branch=$BRANCH_RAW&per_page=30" 2>/dev/null || echo "")"
+    RUNS="$(gh_out gh api "repos/$NWO/actions/runs?branch=$BRANCH_RAW&per_page=30")"
     if [ -n "$RUNS" ]; then
       # Newest run per workflow, then a primary. The single newest run is
       # often a skipped bot workflow, not the test suite anyone cares about.
@@ -130,8 +143,12 @@ if [ "$IS_GIT" = true ] && [ "$have_gh" = true ] && [ "$DETACHED" = false ]; the
       RUN_ID="$(jq -r '.id // empty' <<<"$CI" 2>/dev/null)"
       CONCL="$(jq -r '.conclusion // empty' <<<"$CI" 2>/dev/null)"
       if [ -n "$RUN_ID" ] && [ "$CONCL" = "failure" ]; then
-        FAILED="$(ait_run_capped "$CAP" gh api "repos/$NWO/actions/runs/$RUN_ID/jobs" 2>/dev/null \
-          | jq '[(.jobs // [])[] | select(.conclusion == "failure") | {name, url: .html_url}]' 2>/dev/null || echo "[]")"
+        JOBS_RAW="$(gh_out gh api "repos/$NWO/actions/runs/$RUN_ID/jobs")"
+        if [ -n "$JOBS_RAW" ]; then
+          FAILED="$(jq '[(.jobs // [])[] | select(.conclusion == "failure") | {name, url: .html_url}]' <<<"$JOBS_RAW" 2>/dev/null || echo "[]")"
+        else
+          FAILED="[]"
+        fi
         CI="$(jq --argjson f "${FAILED:-[]}" '. + {failed_jobs: $f}' <<<"$CI")"
       fi
     fi
@@ -139,14 +156,15 @@ if [ "$IS_GIT" = true ] && [ "$have_gh" = true ] && [ "$DETACHED" = false ]; the
 
   # Resolved state lives only in GraphQL -- the REST comments API can't see it.
   if [ -n "$NWO" ] && [ -n "$PR_NUMBER" ]; then
-    ME="$(ait_run_capped "$CAP" gh api user -q .login 2>/dev/null || echo "")"
+    ME="$(gh_out gh api user -q .login)"
     OWNER="${NWO%%/*}"
     REPO="${NWO##*/}"
-    THREADS="$(ait_run_capped "$CAP" gh api graphql \
+    # shellcheck disable=SC2016
+    THREADS="$(gh_out gh api graphql \
       -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){
         reviewThreads(first:60){nodes{isResolved isOutdated path line
           comments(first:25){totalCount nodes{author{login} body createdAt}}}}}}}' \
-      -F o="$OWNER" -F r="$REPO" -F n="$PR_NUMBER" 2>/dev/null || echo "")"
+      -F o="$OWNER" -F r="$REPO" -F n="$PR_NUMBER")"
     if [ -n "$THREADS" ]; then
       REVIEW="$(jq --arg me "$ME" '
         [ (.data.repository.pullRequest.reviewThreads.nodes // [])[] | {
@@ -178,7 +196,7 @@ TRANSCRIPT=""; SOURCE=""
 matches_cwd() { # <file> <normalised-lowercase-path>
   tail -c 300000 "$1" 2>/dev/null \
     | jq -R -r 'fromjson? | .cwd // empty' 2>/dev/null | tail -50 \
-    | tr '\\' '/' | tr '[:upper:]' '[:lower:]' | grep -Fxq "$2"
+    | tr "\\\\" "/" | tr '[:upper:]' '[:lower:]' | grep -Fxq "$2"
 }
 if [ -n "${AIT_TRANSCRIPT:-}" ] && [ -f "$AIT_TRANSCRIPT" ]; then
   TRANSCRIPT="$AIT_TRANSCRIPT"; SOURCE="env"
@@ -190,21 +208,18 @@ fi
 if [ -z "$TRANSCRIPT" ]; then
   projects="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
   want="$(printf '%s' "$CWD" | tr '[:upper:]' '[:lower:]')"
-  main_l="$(printf '%s' "$MAIN_RAW" | tr '[:upper:]' '[:lower:]')"
-  if [ -d "$projects" ]; then
+  if [ -d "$projects" ] && [ -n "$want" ]; then
     cands="$(find "$projects" -mindepth 2 -maxdepth 2 -name '*.jsonl' -mmin -30 2>/dev/null \
       | while IFS= read -r f; do printf '%s\t%s\n' "$(ait_file_mtime "$f")" "$f"; done \
       | sort -rn | cut -f2-)"
-    for target in "$want" "$main_l"; do
-      [ -n "$target" ] || continue
-      while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        if matches_cwd "$f" "$target"; then TRANSCRIPT="$f"; SOURCE="discovered"; break; fi
-      done <<EOF
+    # Match only THIS cwd, never the main repo's: a worktree session must
+    # never borrow a sibling session's transcript from the primary checkout.
+    while IFS= read -r f; do
+      [ -n "$f" ] || continue
+      if matches_cwd "$f" "$want"; then TRANSCRIPT="$f"; SOURCE="discovered"; break; fi
+    done <<EOF
 $cands
 EOF
-      [ -n "$TRANSCRIPT" ] && break
-    done
   fi
 fi
 
@@ -217,8 +232,6 @@ if [ -n "$TRANSCRIPT" ]; then
     def txt: if (.message.content | type) == "string" then .message.content
              else ([(.message.content // [])[] | select(type == "object" and .type == "text") | .text] | join(" ")) end;
     def is_prompt: .type == "user" and (.toolUseResult | not) and (.isMeta != true) and (.isSidechain != true);
-    def refof: ((capture("(?<k>[A-Z][A-Z0-9]+-[0-9]+)") | .k)
-                // ((split("/") | last) | capture("^(?<n>[0-9]+)") | "#" + .n));
     ([.[] | select(is_prompt) | txt | gsub("\\s+"; " ")] | map(select(length > 0))) as $p
     | {
         transcript: $path, transcript_source: $src, transcript_bytes: $bytes,
@@ -235,9 +248,27 @@ if [ -n "$TRANSCRIPT" ]; then
       }
     | . + {span_hours: (if .started and .last_activity
              then (((.last_activity - .started) / 360 | floor) / 10) else null end)}
-    | . + {tickets_seen: ([.branches_seen[] | refof] | unique)}
   ' 2>/dev/null || echo null)"
   [ -n "$SESSION" ] || SESSION=null
+
+  # tickets_seen mirrors common.sh's ait_ref_from_branch rules exactly,
+  # instead of reimplementing branch->ref parsing in jq (which drifted from
+  # the library's leading-number tightening -- commit f862076).
+  if [ "$SESSION" != "null" ]; then
+    TICKETS_JSON='[]'
+    SEEN='|'
+    while IFS= read -r b; do
+      [ -n "$b" ] || continue
+      r="$(ait_ref_from_branch "$b")" || continue
+      [ -n "$r" ] || continue
+      case "$SEEN" in
+        *"|$r|"*) continue ;;
+      esac
+      SEEN="${SEEN}${r}|"
+      TICKETS_JSON="$(jq -n --argjson arr "$TICKETS_JSON" --arg r "$r" '$arr + [$r]')"
+    done < <(jq -r '.branches_seen[]?' <<<"$SESSION" 2>/dev/null)
+    SESSION="$(jq --argjson t "$TICKETS_JSON" '. + {tickets_seen: $t}' <<<"$SESSION")"
+  fi
 fi
 
 # ----------------------------------------------------------------- handoff
