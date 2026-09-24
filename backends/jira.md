@@ -1,6 +1,6 @@
 # Jira Backend
 
-Backend module for the [Atlassian Remote MCP](https://www.atlassian.com/blog/announcements/remote-mcp-server) — the dispatch surface for the `jira` backend. Implements the ten operations from [`_interface.md`](_interface.md). Sibling implementation: [`github.md`](github.md).
+Backend module for the [Atlassian Remote MCP](https://www.atlassian.com/blog/announcements/remote-mcp-server) — the dispatch surface for the `jira` backend. Implements the eleven operations from [`_interface.md`](_interface.md). Sibling implementation: [`github.md`](github.md).
 
 ## Auth
 
@@ -139,6 +139,30 @@ searchJiraIssuesUsingJql({
 **Search-index lag (eventual consistency):** `searchJiraIssuesUsingJql` reads Jira's **search index**, which is *eventually* consistent — a child created or re-parented seconds earlier can be absent from the FIRST query even though it already exists. This is distinct from pagination: a child can be missing even when `pageInfo.hasNextPage` is `false`. Adoption is exactly when this bites (you query an epic's children right after filing them), so when children were just filed, re-query until the child count is stable, and/or cross-check membership via `getJiraIssue(child).fields.parent` — `getJiraIssue` is strongly consistent, while the JQL search index is not.
 
 **Hierarchy ceiling (invariant 6):** the JQL `parent` field resolves the unified parent linkage Jira Cloud maintains down to its three-level cap (Epic → Story/Task → Sub-task). On `jira.parent_link_style: native` this returns a node's direct children at every level the native hierarchy reaches; nesting deeper than the cap is body-mirror-only and is neither returned nor required here. On classic `jira.parent_link_style: epic_link` projects, where Epic → Story linkage lives in the Epic Link customfield rather than `parent`, fall back to `'"Epic Link" = <parent_ref> ORDER BY Rank ASC'` (or the configured `jira.epic_link_field`) — same load-bearing return-order rule as the native path above.
+
+---
+
+### `list_updated_issues`
+
+List issues with activity inside a window.
+
+```
+searchJiraIssuesUsingJql({
+  cloudId: <jira.cloud_id>,
+  jql: 'project = "<jira.project>" AND updated >= "<since as yyyy-MM-dd HH:mm>" [AND (assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser())] ORDER BY updated DESC',
+  maxResults: 50
+})
+```
+
+**Filter assembly:**
+- `since` → `updated >= "<yyyy-MM-dd HH:mm>"` (Jira's JQL date literal has minute granularity; render in the site's timezone or accept the minute of slop)
+- `involving_me` true → append the parenthesised assignee / reporter / watcher clause
+
+Two traps: `commentedByUser()` is not valid JQL on Jira Cloud and throws a syntax error; `comment ~ "<display name>"` parses but always returns zero because mentions are stored as accountId markup. Assignee / reporter / watcher is the reliable involvement surface.
+
+The backend module translates the MCP response to `[{ref, title, status, updated, url}]` with `url = https://<jira.site>/browse/<key>`.
+
+**Live verification:** deferred — this operation cannot be exercised from the development machine (no Atlassian connector in that session). It joins the Jira smoke list for the next release gate.
 
 ---
 
