@@ -1,0 +1,1 @@
+{"observation": {"pr": {"state": "OPEN", "mergeable": "MERGEABLE"}, "ci": {"status": "completed", "conclusion": "failure", "failed_jobs": [{"name": "pytest"}]}, "review": {"threads": [{"awaiting_you": true, "kind": "code"}]}}, "expected": "fix-ci"}

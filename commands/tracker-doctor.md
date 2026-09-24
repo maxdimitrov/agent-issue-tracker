@@ -28,8 +28,9 @@ Read `.claude/issue-tracker.yaml` from the consumer's CWD. Apply these checks in
 | Backend-conditional required block | if `backend: github`, the `github:` block exists with `github.repo` set; if `backend: jira`, the `jira:` block exists with `jira.site`, `jira.cloud_id`, `jira.project`, `jira.issue_types` all set | "missing required `<backend>.<field>` for backend `<backend>`" |
 | `types.*` only contains known keys | each key under `types:` (if present) is one of `bug`, `feature`, `followup`, `epic`, `sub` | "unknown type key under `types:`: `<list>`" |
 | Jira-only: `jira.issue_types` covers all five plugin types | mapping has keys `bug`, `feature`, `epic`, `sub`, `followup` | "missing issue_types mapping for: `<list>`" |
+| `loops.*` well-formed (only when `loops:` is present) | `interval` matches `^[0-9]+[smhd]$`; `max_iterations`, `max_hours`, `idle_stop_after`, `max_concurrent` are positive integers; `pr_mode` is `draft` or `ready`; no unknown keys | "invalid loops config: `<key>`: `<value>` (expected `<rule>`)" |
 
-Four WARN-only items (bullet list):
+Five WARN-only items (bullet list):
 - `areas:` empty or missing — optional, but warn so skills know to fall back to free-form.
 - `subsystems:` empty or missing — optional, but worth surfacing.
 - Jira-only: `jira.parent_link_style: epic_link` but `epic_link_field` not set — defaults to `customfield_10014`; warn but use the default.
@@ -44,6 +45,8 @@ Four WARN-only items (bullet list):
   jira:
     in_progress_transition: "In Progress"   # must match a transition name in your workflow
   ```
+
+- `loops:` absent — fine; `/tracker-loop` uses its built-in defaults (`examples/issue-tracker.yaml.example` documents them). Surfaced only so an operator who expected a custom `poll_label` notices it is not set.
 
 If any check `FAIL`s in Phase 1, **stop here**. Do NOT run Phase 2 or Phase 3. The config is structurally broken; reachability probes against it would just compound the noise. The summary line still prints with the Phase 1 counts.
 

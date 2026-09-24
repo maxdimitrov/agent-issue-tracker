@@ -59,6 +59,18 @@ triage:
 # Default: true.
 session_titles: true
 
+# Optional. Budgets and defaults for /tracker-loop and the --loop flag on
+# /work-issue and /resume-initiative. Every key optional; defaults shown.
+loops:
+  interval: 15m            # cron cadence for --loop; poll idle cadence
+  max_iterations: 50       # per loop record
+  max_hours: 24            # wall-clock since the loop started
+  idle_stop_after: 12      # consecutive no-change iterations before stopping
+  pr_mode: draft           # draft | ready — PRs opened by unattended loops
+  poll_label: agent-ready  # label /tracker-loop poll dispatches on
+  # claim_label: agent-claimed   # applied on dispatch; never removed (no remove_label op)
+  # max_concurrent: 1            # PRs a poll loop keeps open at once
+
 # REQUIRED if `backend: github`. GitHub backend config.
 github:
   # REQUIRED. The "owner/repo" of the tracker repo (where issues are filed).

@@ -103,6 +103,14 @@ The list is **inclusive, not exclusive** — the rule fires on these
 a new message-queue topic, a new event payload field). When in doubt,
 treat it as in scope.
 
+In this plugin's own repo, three more things count as API surface for
+the rule: the `scripts/*.sh` entry points (their subcommands, flags and
+JSON output keys), the functions in `scripts/lib/common.sh`, and the
+keys of the `loops:` config block. A change to any of them updates the
+commands and skills that describe it in the same PR. `commands/*.md`
+need no separate step: `/audit-skills` already scans them through its
+default doc globs.
+
 ## When it does NOT fire — the escape hatch
 
 Skill updates are NOT required for:

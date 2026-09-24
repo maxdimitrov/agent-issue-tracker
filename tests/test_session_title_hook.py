@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from shell_helpers import bash_path
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HOOK = REPO_ROOT / "hooks" / "session-title.sh"
 
@@ -14,9 +16,13 @@ CONFIG_GITHUB = "schema_version: 1\nbackend: github\ngithub:\n  repo: acme/widge
 
 
 def git(proj, *args):
+    # Explicit stdin=DEVNULL avoids inheriting the parent's STD_INPUT_HANDLE:
+    # on Windows that handle intermittently goes invalid across rapid
+    # sequential Popen calls under pytest's capture machinery, and inheriting
+    # it raises a sporadic WinError 6 (see tests/shell_helpers.py::git).
     subprocess.run(
         ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-C", str(proj), *args],
-        check=True, capture_output=True,
+        check=True, capture_output=True, stdin=subprocess.DEVNULL,
     )
 
 
@@ -25,7 +31,8 @@ def project(tmp_path):
     """Temp git repo with a committed main branch and a tracker config."""
     proj = tmp_path / "proj"
     proj.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main", str(proj)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(proj)], check=True,
+                    capture_output=True, stdin=subprocess.DEVNULL)
     git(proj, "commit", "--allow-empty", "-m", "init")
     (proj / ".claude").mkdir()
     (proj / ".claude" / "issue-tracker.yaml").write_text(CONFIG_GITHUB)
@@ -36,7 +43,7 @@ def project(tmp_path):
 def hook_env(tmp_path):
     """Isolated cache dir; AI stage disabled for determinism."""
     env = dict(os.environ)
-    env["XDG_CACHE_HOME"] = str(tmp_path / "cache")
+    env["XDG_CACHE_HOME"] = (tmp_path / "cache").as_posix()
     env["AIT_TITLE_NO_AI"] = "1"
     env.pop("AIT_TITLE_GUARD", None)
     return env
@@ -45,8 +52,8 @@ def hook_env(tmp_path):
 def payload_for(proj, session_id="s1", source="startup", **kw):
     p = {
         "session_id": session_id,
-        "transcript_path": str(proj / "transcript.jsonl"),
-        "cwd": str(proj),
+        "transcript_path": (proj / "transcript.jsonl").as_posix(),
+        "cwd": proj.as_posix(),
         "hook_event_name": "SessionStart",
         "source": source,
     }
@@ -57,10 +64,14 @@ def payload_for(proj, session_id="s1", source="startup", **kw):
 def run_hook(payload, env, stub_bin=None):
     if stub_bin is not None:
         env = dict(env)
-        env["PATH"] = f"{stub_bin}:{env['PATH']}"
+        env["PATH"] = str(stub_bin) + os.pathsep + env["PATH"]
     data = payload if isinstance(payload, str) else json.dumps(payload)
+    # encoding="utf-8": the hook emits UTF-8 (e.g. "·"); text=True alone
+    # decodes with locale.getpreferredencoding(), which on Windows is not
+    # UTF-8 and mangles any non-ASCII byte the hook writes.
     return subprocess.run(
-        [str(HOOK)], input=data, text=True, capture_output=True, env=env, timeout=30
+        [bash_path(), str(HOOK)], input=data, text=True, encoding="utf-8",
+        capture_output=True, env=env, timeout=30
     )
 
 
@@ -105,7 +116,8 @@ def test_malformed_stdin_is_silent(project, hook_env):
 def test_no_config_file_is_a_noop(tmp_path, hook_env):
     bare = tmp_path / "bare"
     bare.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main", str(bare)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(bare)], check=True,
+                    capture_output=True, stdin=subprocess.DEVNULL)
     r = run_hook(payload_for(bare), hook_env)
     assert r.returncode == 0 and r.stdout == ""
 
@@ -152,7 +164,8 @@ def test_default_title_with_regex_metachar_dirname(tmp_path):
     # "proj+abc-3f" must be recognized as the platform default for dir "proj+abc".
     proj = tmp_path / "proj+abc"
     proj.mkdir()
-    subprocess.run(["git", "init", "-q", "-b", "main", str(proj)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(proj)], check=True,
+                    capture_output=True, stdin=subprocess.DEVNULL)
     git(proj, "commit", "--allow-empty", "-m", "init")
     (proj / ".claude").mkdir()
     (proj / ".claude" / "issue-tracker.yaml").write_text(CONFIG_GITHUB)
