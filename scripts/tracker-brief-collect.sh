@@ -96,6 +96,46 @@ if [ "${1:-}" = "--commit-run" ]; then
   exit 0
 fi
 
+# ------------------------------------------------------- tmp dir for spills
+# Large JSON fragments (many PRs, deep-dive detail: threads, comments) are
+# written to files and loaded with --slurpfile rather than handed to jq on
+# argv: the OS process argument limit (roughly 32 KB on Windows) can
+# otherwise make the jq invocation itself silently never start and print
+# nothing, breaking the one-JSON-object contract -- exactly what happened
+# running this collector against a real, active repo (100 all-time PRs
+# alone overflowed it). AIT_TMP falls back to a dir under the (already
+# mkdir -p'd) state dir if mktemp itself is unavailable; nothing here
+# writes inside the repo either way.
+AIT_TMP="$(mktemp -d "${TMPDIR:-/tmp}/ait-XXXXXX" 2>/dev/null)" || AIT_TMP=""
+if [ -z "$AIT_TMP" ]; then
+  AIT_TMP="$STATE_DIR/.tmp-$$"
+  mkdir -p "$AIT_TMP" 2>/dev/null || AIT_TMP=""
+fi
+[ -n "$AIT_TMP" ] && trap 'rm -rf "$AIT_TMP"' EXIT
+
+# spill <name> <json> [<default>] - writes <json> for --slurpfile loading
+# (ait_spill_json, common.sh) and prints the file path. On failure (a full
+# disk, or AIT_TMP unavailable), notes an errors[] entry and falls back to
+# a fresh file holding <default> ("[]" unless given), so a --slurpfile flag
+# built from this always has a valid, parseable file behind it.
+spill() {
+  local name="$1" content="$2" default="${3:-[]}" f
+  f="$(ait_spill_json "$AIT_TMP" "$name" "$content")"
+  if [ -z "$f" ]; then
+    note_err "failed to write tmp fragment '$name'"
+    f="$(mktemp "${TMPDIR:-/tmp}/ait-$name-XXXXXX.json" 2>/dev/null)" || f="/dev/null"
+    printf '%s' "$default" >"$f" 2>/dev/null
+  fi
+  printf '%s' "$f"
+}
+
+# add_slurp <name> <json> [<default>] - spills <json> and appends
+# `--slurpfile <name> <file>` to the JQ_ARGS array (a plain indexed array,
+# safe on bash 3.2 -- unlike associative arrays). --slurpfile always wraps
+# a file's parsed content in an array, so the filter reads the value back
+# as $<name>[0].
+add_slurp() { JQ_ARGS+=(--slurpfile "$1" "$(spill "$1" "$2" "${3:-[]}")"); }
+
 # ------------------------------------------------------------------ window
 NOW_EPOCH="$(date -u +%s)"
 LAST_RUN="$(jq -r '.last_run // empty' "$STATE" 2>/dev/null)"
@@ -231,9 +271,17 @@ if [ "$GH_OK" = true ]; then
   # sorted order would otherwise carry a stray \r into its map key below
   # and never match a PR's (\r-free) headRefName lookup. Same fix already
   # applied to the TARGETS stream further down.
-  branches="$(jq -r -n --argjson a "$AUTHORED" --argjson b "$REVREQ" --argjson c "$MENTIONS" \
-    --argjson d "$MERGED" --argjson e "$ALLTIME" \
-    '[$a[], $b[], $c[], $d[], $e[]] | map(.headRefName // empty) | map(select(. != "")) | unique | .[]' 2>/dev/null \
+  # AUTHORED/REVREQ/MENTIONS/MERGED/ALLTIME go through --slurpfile: on a
+  # busy repo their combined size can exceed the argv limit that broke the
+  # final emit (see the tmp-dir comment above) just as easily here.
+  JQ_ARGS=()
+  add_slurp a "$AUTHORED"
+  add_slurp b "$REVREQ"
+  add_slurp c "$MENTIONS"
+  add_slurp d "$MERGED"
+  add_slurp e "$ALLTIME"
+  branches="$(jq -r -n "${JQ_ARGS[@]}" \
+    '[$a[0][], $b[0][], $c[0][], $d[0][], $e[0][]] | map(.headRefName // empty) | map(select(. != "")) | unique | .[]' 2>/dev/null \
     | tr -d '\r')"
   while IFS= read -r br; do
     [ -n "$br" ] || continue
@@ -248,14 +296,19 @@ if [ "$GH_OK" = true ]; then
       ([(.title // "") | scan("[A-Z][A-Z0-9]+-[0-9]+")] | first)
       // ([(.title // "") | scan("#[0-9]+")] | first)
       // null;
-    def refof: ($branch_refs[(.headRefName // "")] // title_ref);
+    def refof: ($branch_refs[0][(.headRefName // "")] // title_ref);
     def with_refs: map(. + {ref: refof});
   '
-  AUTHORED="$(jq -c --argjson branch_refs "$BRANCH_REFS" "$REF_JQ with_refs" <<<"$AUTHORED")"
-  REVREQ="$(jq -c --argjson branch_refs "$BRANCH_REFS" "$REF_JQ with_refs" <<<"$REVREQ")"
-  MENTIONS="$(jq -c --argjson branch_refs "$BRANCH_REFS" "$REF_JQ with_refs" <<<"$MENTIONS")"
-  MERGED="$(jq -c --argjson branch_refs "$BRANCH_REFS" "$REF_JQ with_refs" <<<"$MERGED")"
-  ALLTIME="$(jq -c --argjson branch_refs "$BRANCH_REFS" "$REF_JQ with_refs" <<<"$ALLTIME")"
+  # BRANCH_REFS (one key per distinct branch across every list above) is
+  # spilled once and the same --slurpfile flag reused for all five
+  # transforms below, rather than re-writing it per call.
+  JQ_ARGS=()
+  add_slurp branch_refs "$BRANCH_REFS" '{}'
+  AUTHORED="$(jq -c "${JQ_ARGS[@]}" "$REF_JQ with_refs" <<<"$AUTHORED")"
+  REVREQ="$(jq -c "${JQ_ARGS[@]}" "$REF_JQ with_refs" <<<"$REVREQ")"
+  MENTIONS="$(jq -c "${JQ_ARGS[@]}" "$REF_JQ with_refs" <<<"$MENTIONS")"
+  MERGED="$(jq -c "${JQ_ARGS[@]}" "$REF_JQ with_refs" <<<"$MERGED")"
+  ALLTIME="$(jq -c "${JQ_ARGS[@]}" "$REF_JQ with_refs" <<<"$ALLTIME")"
 fi
 
 # Deep detail for PRs that are mine or awaiting me. `gh pr checks` and
@@ -266,10 +319,16 @@ if [ "$GH_OK" = true ]; then
   # Process substitution is avoided here: under a non-interactive MSYS bash
   # (as pytest launches it on Windows) /dev/fd is not wired up, so `<(...)`
   # silently fails and every target would be lost. Pass both arrays in as
-  # jq variables instead. MAX_PR_DEEP is bound as a number, not spliced into
-  # the filter text, since it may come straight from an env var.
-  TARGETS="$(jq -n -c --argjson au "$AUTHORED" --argjson rr "$REVREQ" --argjson n "$MAX_PR_DEEP" \
-    '($au + $rr) | unique_by(.url) | .[0:$n]' 2>/dev/null)"
+  # jq variables instead, off argv via --slurpfile for the same argv-limit
+  # reason as everywhere else in this file. MAX_PR_DEEP is a plain --argjson
+  # number, not spliced into the filter text, since it may come straight
+  # from an env var.
+  JQ_ARGS=()
+  add_slurp au "$AUTHORED"
+  add_slurp rr "$REVREQ"
+  JQ_ARGS+=(--argjson n "$MAX_PR_DEEP")
+  TARGETS="$(jq -n -c "${JQ_ARGS[@]}" \
+    '($au[0] + $rr[0]) | unique_by(.url) | .[0:$n]' 2>/dev/null)"
   [ -n "$TARGETS" ] || TARGETS='[]'
   while IFS=$'\037' read -r num url title pref; do
     [ -n "$num" ] || continue
@@ -322,15 +381,24 @@ if [ "$GH_OK" = true ]; then
         | select((.author.login // "") != $me)
         | {author: (.author.login // null), created: (.createdAt // .submittedAt),
            url: (.url // null), state: (.state // null), excerpt: ((.body // "")[0:280])}]' <<<"$meta" 2>/dev/null || echo '[]')"
+    # $meta and $threadlist/$new_comments (comments, reviews, review-thread
+    # excerpts) are the deep-dive fragments the finding called out by name
+    # -- a heavily-reviewed PR's comment history alone can approach the
+    # argv limit -- so they go through --slurpfile; $ci_status is a fixed
+    # five-field shape bounded to one CI run and stays a plain --argjson.
+    JQ_ARGS=()
+    add_slurp meta "$meta" null
+    add_slurp threads "$threadlist"
+    add_slurp newc "${new_comments:-[]}"
     deep_next="$(jq -c --arg nwo "$NWO" --argjson num "$num" --arg url "$url" --arg title "$title" \
       --arg head "$head" --arg pref "$pref" --argjson unresolved "${unresolved:-0}" \
-      --argjson threads "$threadlist" --argjson ci "${ci_status:-null}" \
-      --argjson newc "${new_comments:-[]}" --argjson meta "$meta" \
+      --argjson ci "${ci_status:-null}" \
+      "${JQ_ARGS[@]}" \
       '. + [{repo: $nwo, number: $num, url: $url, title: $title, headRefName: $head,
              ref: (if $pref == "" then null else $pref end),
-             review_decision: ($meta.reviewDecision // null), is_draft: ($meta.isDraft // false),
-             mergeable: ($meta.mergeable // null), updated: ($meta.updatedAt // null),
-             unresolved_threads: $unresolved, threads: $threads, ci: $ci, new_comments: $newc}]' \
+             review_decision: ($meta[0].reviewDecision // null), is_draft: ($meta[0].isDraft // false),
+             mergeable: ($meta[0].mergeable // null), updated: ($meta[0].updatedAt // null),
+             unresolved_threads: $unresolved, threads: $threads[0], ci: $ci, new_comments: $newc[0]}]' \
       <<<"$DEEP" 2>/dev/null)"
     if [ -n "$deep_next" ]; then
       DEEP="$deep_next"
@@ -376,8 +444,16 @@ fi
 # ------------------------------------------------------------------ ledger
 # Join every surface on an EXTRACTED ref compared for equality -- never a
 # substring test: "#604" is inside "[#6041] ..." and would steal that PR.
-LEDGER="$(jq -n --argjson wt "$WORKTREES" --argjson rn "$RESUME" --argjson lp "$LOOPS" \
-  --argjson at "$ALLTIME" --argjson dp "$DEEP" \
+# Every input here is a full list that grows with repo activity, so all
+# five go through --slurpfile rather than argv (the ledger build was one of
+# the intermediate calls named in the argv-limit finding).
+JQ_ARGS=()
+add_slurp wt "$WORKTREES"
+add_slurp rn "$RESUME"
+add_slurp lp "$LOOPS"
+add_slurp at "$ALLTIME"
+add_slurp dp "$DEEP"
+LEDGER="$(jq -n "${JQ_ARGS[@]}" \
   --arg backend "$BACKEND" --arg gh_repo "$GH_REPO" --arg jira "$JIRA_SITE" '
   def url($k):
     if $backend == "github" and $gh_repo != "" and ($k | startswith("#"))
@@ -385,7 +461,8 @@ LEDGER="$(jq -n --argjson wt "$WORKTREES" --argjson rn "$RESUME" --argjson lp "$
     elif $backend == "jira" and $jira != "" and ($k | test("^[A-Z][A-Z0-9]+-[0-9]+$"))
       then "https://" + $jira + "/browse/" + $k
     else null end;
-  ([ ($wt[] | .ref), ($rn[] | .ref), ($lp[] | .ref), ($at[] | .ref) ] | map(select(. != null)) | unique) as $keys
+  ($wt[0]) as $wt | ($rn[0]) as $rn | ($lp[0]) as $lp | ($at[0]) as $at | ($dp[0]) as $dp
+  | ([ ($wt[] | .ref), ($rn[] | .ref), ($lp[] | .ref), ($at[] | .ref) ] | map(select(. != null)) | unique) as $keys
   | [ $keys[] as $k
       | ([$at[] | select(.ref == $k)]) as $prs
       | ([$lp[] | select(.ref == $k)]) as $loops
@@ -423,17 +500,36 @@ LEDGER="$(ensure_json "$LEDGER" '[]' ledger)"
 ORPHANS="$(ensure_json "$ORPHANS" '[]' orphan_worktrees)"
 ERRORS="$(ensure_json "$ERRORS" '[]' "")"
 
+# Every list/object fragment below goes through --slurpfile, never argv:
+# this jq -n call is exactly the one the finding traced the crash to
+# ("Argument list too long" on line ~426 of the pre-fix script), since it
+# is the single call that combines every fragment collected in this run.
+# Only plain scalars (strings, booleans, numbers) stay on --arg/--argjson.
+JQ_ARGS=()
+add_slurp wt "$WORKTREES"
+add_slurp rn "$RESUME"
+add_slurp lp "$LOOPS"
+add_slurp au "$AUTHORED"
+add_slurp rr "$REVREQ"
+add_slurp mn "$MENTIONS"
+add_slurp mg "$MERGED"
+add_slurp at "$ALLTIME"
+add_slurp dp "$DEEP"
+add_slurp ledger "$LEDGER"
+add_slurp orphans "$ORPHANS"
+add_slurp errors "$ERRORS"
+
 jq -n \
   --arg generated "$(iso_now)" --arg since "$SINCE" --arg last "${LAST_RUN:-}" \
   --arg state "$STATE" --arg state_dir "$STATE_DIR" --arg config "$CONFIG" \
   --arg backend "$BACKEND" --arg nwo "$NWO" --arg login "$GH_LOGIN" \
   --argjson first "$FIRST_RUN" --argjson days "$WIN_DAYS" --argjson summ "$SUMMARIZE" \
   --argjson ghok "$GH_OK" --argjson stale_days "$STALE_DAYS" \
-  --argjson wt "$WORKTREES" --argjson rn "$RESUME" --argjson lp "$LOOPS" \
-  --argjson au "$AUTHORED" --argjson rr "$REVREQ" --argjson mn "$MENTIONS" \
-  --argjson mg "$MERGED" --argjson at "$ALLTIME" --argjson dp "$DEEP" \
-  --argjson ledger "$LEDGER" --argjson orphans "$ORPHANS" --argjson errors "$ERRORS" \
-  '{
+  "${JQ_ARGS[@]}" \
+  '($wt[0]) as $wt | ($rn[0]) as $rn | ($lp[0]) as $lp | ($au[0]) as $au | ($rr[0]) as $rr
+  | ($mn[0]) as $mn | ($mg[0]) as $mg | ($at[0]) as $at | ($dp[0]) as $dp
+  | ($ledger[0]) as $ledger | ($orphans[0]) as $orphans | ($errors[0]) as $errors
+  | {
     generated_at: $generated,
     window: {since: $since, last_run: (if $last == "" then null else $last end),
              first_run: $first, days: $days, summarize_mode: $summ, state_file: $state},

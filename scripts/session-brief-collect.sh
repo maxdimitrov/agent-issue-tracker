@@ -36,6 +36,43 @@ BACKEND=""
 [ -n "$CONFIG" ] && { BACKEND="$(ait_config_get backend "$CONFIG")" || BACKEND=""; }
 STATE_DIR="$(ait_state_dir "$PWD")"
 
+# ------------------------------------------------------- tmp dir for spills
+# Large JSON fragments (review threads, CI workflow runs -- either can grow
+# on a busy PR) are written to files and loaded with --slurpfile rather
+# than handed to jq on argv: the OS process argument limit (roughly 32 KB
+# on Windows) can otherwise make the jq invocation itself silently never
+# start and print nothing, breaking the one-JSON-object contract. AIT_TMP
+# falls back to a dir under the (already mkdir -p'd) state dir if mktemp
+# itself is unavailable; nothing here writes inside the repo either way.
+AIT_TMP="$(mktemp -d "${TMPDIR:-/tmp}/ait-XXXXXX" 2>/dev/null)" || AIT_TMP=""
+if [ -z "$AIT_TMP" ]; then
+  AIT_TMP="$STATE_DIR/.tmp-$$"
+  mkdir -p "$AIT_TMP" 2>/dev/null || AIT_TMP=""
+fi
+[ -n "$AIT_TMP" ] && trap 'rm -rf "$AIT_TMP"' EXIT
+
+# spill <name> <json> [<default>] - writes <json> for --slurpfile loading
+# (ait_spill_json, common.sh) and prints the file path. On failure (a full
+# disk, or AIT_TMP unavailable), falls back to a fresh file holding
+# <default> ("null" unless given) -- this script has no errors[] field, so
+# it degrades silently the same way every other field here already does.
+spill() {
+  local name="$1" content="$2" default="${3:-null}" f
+  f="$(ait_spill_json "$AIT_TMP" "$name" "$content")"
+  if [ -z "$f" ]; then
+    f="$(mktemp "${TMPDIR:-/tmp}/ait-$name-XXXXXX.json" 2>/dev/null)" || f="/dev/null"
+    printf '%s' "$default" >"$f" 2>/dev/null
+  fi
+  printf '%s' "$f"
+}
+
+# add_slurp <name> <json> [<default>] - spills <json> and appends
+# `--slurpfile <name> <file>` to the JQ_ARGS array (a plain indexed array,
+# safe on bash 3.2 -- unlike associative arrays); the filter then reads the
+# value back as $<name>[0], since --slurpfile always wraps a file's parsed
+# content in an array.
+add_slurp() { JQ_ARGS+=(--slurpfile "$1" "$(spill "$1" "$2" "${3:-null}")"); }
+
 # ------------------------------------------------------------- repo / git
 IS_GIT=false; ROOT=null; ROOT_RAW=""; IS_WORKTREE=false; MAIN_REPO=null; MAIN_RAW=""
 if git rev-parse --git-dir >/dev/null 2>&1; then
@@ -142,7 +179,9 @@ if [ "$IS_GIT" = true ] && [ "$have_gh" = true ] && [ "$DETACHED" = false ]; the
         else
           FAILED="[]"
         fi
-        CI="$(jq --argjson f "${FAILED:-[]}" '. + {failed_jobs: $f}' <<<"$CI")"
+        JQ_ARGS=()
+        add_slurp f "${FAILED:-[]}" '[]'
+        CI="$(jq "${JQ_ARGS[@]}" '. + {failed_jobs: $f[0]}' <<<"$CI")"
       fi
     fi
   fi
@@ -266,7 +305,9 @@ if [ -n "$TRANSCRIPT" ]; then
     # matching substring, never the trailing \r -- stripped anyway so $b
     # itself is never silently wrong for a future caller.
     done < <(jq -r '.branches_seen[]?' <<<"$SESSION" 2>/dev/null | tr -d '\r')
-    SESSION="$(jq --argjson t "$TICKETS_JSON" '. + {tickets_seen: $t}' <<<"$SESSION")"
+    JQ_ARGS=()
+    add_slurp t "$TICKETS_JSON" '[]'
+    SESSION="$(jq "${JQ_ARGS[@]}" '. + {tickets_seen: $t[0]}' <<<"$SESSION")"
   fi
 fi
 
@@ -301,14 +342,23 @@ if [ -d "$STATE_DIR/loops" ] && [ -n "$BRANCH_RAW" ]; then
 fi
 
 # -------------------------------------------------------------------- emit
+# session (transcript stats + branches/cwds/tickets seen), ci (workflow
+# runs + failed jobs) and review (review threads) are the fragments that
+# can grow with real usage -- a long session or a heavily-reviewed PR -- so
+# they go through --slurpfile, off argv, the same way dirty_files and
+# commits (capped at 25/20 entries, but still lists) do. pr, loop and
+# last_commit are fixed-shape single-record objects (no unbounded nested
+# list) and stay on --argjson, like every other plain scalar here.
+JQ_ARGS=()
+add_slurp session "${SESSION:-null}"
+add_slurp ci "${CI:-null}"
+add_slurp review "${REVIEW:-null}"
+add_slurp dirty_files "${DIRTY_FILES:-[]}" '[]'
+add_slurp commits "${COMMITS:-[]}" '[]'
+
 jq -n \
-  --argjson session "${SESSION:-null}" \
   --argjson pr "${PR:-null}" \
-  --argjson ci "${CI:-null}" \
-  --argjson review "${REVIEW:-null}" \
   --argjson loop "${LOOP:-null}" \
-  --argjson dirty_files "${DIRTY_FILES:-[]}" \
-  --argjson commits "${COMMITS:-[]}" \
   --argjson last_commit "${LAST_COMMIT:-null}" \
   --argjson root "${ROOT:-null}" \
   --argjson main_repo "${MAIN_REPO:-null}" \
@@ -333,7 +383,10 @@ jq -n \
   --argjson dirty_count "${DIRTY_COUNT:-0}" \
   --argjson gh "$have_gh" \
   --argjson resume_exists "$RESUME_EXISTS" \
-  '{
+  "${JQ_ARGS[@]}" \
+  '($session[0]) as $session | ($ci[0]) as $ci | ($review[0]) as $review
+  | ($dirty_files[0]) as $dirty_files | ($commits[0]) as $commits
+  | {
     session: $session,
     repo: {cwd: $cwd, root: $root, is_git: $is_git, is_worktree: $is_worktree,
            main_repo: $main_repo, name_with_owner: $nwo, gh_available: $gh,

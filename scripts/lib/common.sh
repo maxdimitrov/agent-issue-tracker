@@ -32,6 +32,24 @@ ait_run_capped() {
   return $status
 }
 
+# ait_spill_json <dir> <name> <json> - writes <json> to <dir>/<name>.json,
+# for a caller to load back with `jq --slurpfile name <path>` (binding
+# $name to a one-element array wrapping the parsed content, i.e. the
+# caller reads it back as $name[0]). Keeps a large fragment (many PRs,
+# review threads, deep-dive detail) off argv, where the OS process
+# argument limit -- about 32 KB on Windows -- can make the jq invocation
+# itself silently never start and print nothing, breaking a collector's
+# one-JSON-object-on-stdout contract. Prints the file path on success;
+# prints nothing and returns 1 if <dir> is empty or the write fails, so a
+# caller can fall back to a small default written to its own temp file.
+ait_spill_json() {
+  local dir="$1" name="$2" content="$3" f
+  [ -n "$dir" ] || return 1
+  f="$dir/$name.json"
+  printf '%s' "$content" >"$f" 2>/dev/null || return 1
+  printf '%s' "$f"
+}
+
 # ait_gh_out <secs> <cmd...> - stdout only when the capped call exits 0;
 # empty otherwise, and always returns 0 itself. `gh` writes error bodies
 # (GraphQL errors, 403s, truncated output from a killed timeout) to stdout
