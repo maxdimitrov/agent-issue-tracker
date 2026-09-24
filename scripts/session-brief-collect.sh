@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# session-brief-collect.sh — deterministic facts for /session-brief.
+# session-brief-collect.sh -- deterministic facts for /session-brief.
 #
 # Contract: ALWAYS exits 0, ALWAYS prints one JSON object on stdout. Missing
 # data is null / [] / false, never an error and never a hang. Read-only with
@@ -137,7 +137,7 @@ if [ "$IS_GIT" = true ] && [ "$have_gh" = true ] && [ "$DETACHED" = false ]; the
     fi
   fi
 
-  # Resolved state lives only in GraphQL — the REST comments API can't see it.
+  # Resolved state lives only in GraphQL -- the REST comments API can't see it.
   if [ -n "$NWO" ] && [ -n "$PR_NUMBER" ]; then
     ME="$(ait_run_capped "$CAP" gh api user -q .login 2>/dev/null || echo "")"
     OWNER="${NWO%%/*}"
