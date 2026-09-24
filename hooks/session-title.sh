@@ -12,16 +12,17 @@
 
 set -u
 
-# --- portability helpers (macOS bash 3.2 + BSD userland, and Linux) ----------
 tmo() { # tmo <seconds> <cmd...> — timeout(1) if available, else run unbounded
   local s="$1"
   shift
   if command -v timeout >/dev/null 2>&1; then timeout "$s" "$@"; else "$@"; fi
 }
-# GNU first: on Linux, BSD-style `stat -f %m` succeeds with filesystem info
-# (garbage here) instead of failing, so it cannot be the probe.
-file_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
-hash_key() { if command -v shasum >/dev/null 2>&1; then shasum -a 256; else sha256sum; fi; }
+
+# --- stage 0: shared helpers (fail-open when the plugin tree is incomplete) --
+_ait_lib="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/../scripts/lib/common.sh"
+[ -f "$_ait_lib" ] || exit 0
+# shellcheck source=../scripts/lib/common.sh
+. "$_ait_lib"
 
 # --- stage 1: recursion + dependency guards -----------------------------------
 [ -n "${AIT_TITLE_GUARD:-}" ] && exit 0
@@ -84,18 +85,8 @@ branch="$(git -C "$cwd" branch --show-current 2>/dev/null)" || branch=""
 ref=""
 slug=""
 if [ -n "$branch" ]; then
-  leaf="${branch##*/}"
-  ref="$(printf '%s' "$leaf" | grep -oE '[A-Z][A-Z0-9]+-[0-9]+' | head -1)" || true
-  if [ -z "$ref" ]; then
-    num="$(printf '%s' "$leaf" | grep -oE '^[0-9]+' | head -1)" || true
-    if [ -z "$num" ]; then
-      num="$(printf '%s' "$leaf" | grep -oE '(^|-)issue-?[0-9]+' | grep -oE '[0-9]+' | head -1)" || true
-    fi
-    [ -n "$num" ] && ref="#$num"
-  fi
-  slug="$(printf '%s' "$leaf" \
-    | sed -E 's/[A-Z][A-Z0-9]+-[0-9]+//; s/^[0-9]+//; s/(^|-)issue-?[0-9]+//' \
-    | sed -E 's/^[-_]+//; s/[-_]+$//' | cut -c1-24)"
+  ref="$(ait_ref_from_branch "$branch")" || ref=""
+  slug="$(ait_slug_from_branch "$branch")"
 fi
 if [ -z "$ref" ] && [ -f "$transcript_path" ]; then
   ref="$(tail -c 200000 "$transcript_path" 2>/dev/null \
@@ -158,11 +149,11 @@ backend="$(grep -E '^backend:' "$config" 2>/dev/null | head -1 | awk '{print $2}
 if [ "$backend" = "github" ] && [ -n "$branch" ] && command -v gh >/dev/null 2>&1; then
   cache_dir="$state_dir/epic-cache"
   mkdir -p "$cache_dir" 2>/dev/null || true
-  key="$(printf '%s|%s' "${toplevel:-$cwd}" "$branch" | hash_key | cut -c1-16)"
+  key="$(printf '%s|%s' "${toplevel:-$cwd}" "$branch" | ait_hash | cut -c1-16)"
   cache_file="$cache_dir/$key"
   fresh=""
   if [ -f "$cache_file" ]; then
-    cm="$(file_mtime "$cache_file")" || cm=0
+    cm="$(ait_file_mtime "$cache_file")" || cm=0
     case "$cm" in '' | *[!0-9]*) cm=0 ;; esac
     [ $(($(date +%s) - cm)) -lt 86400 ] && fresh=1
   fi
@@ -227,7 +218,7 @@ fi
 # --- stage 8: idle marker --------------------------------------------------------
 idle=""
 if [ -f "$transcript_path" ]; then
-  m="$(file_mtime "$transcript_path")" || m=""
+  m="$(ait_file_mtime "$transcript_path")" || m=""
   case "$m" in *[!0-9]*) m="" ;; esac
   if [ -n "$m" ]; then
     days=$((($(date +%s) - m) / 86400))
