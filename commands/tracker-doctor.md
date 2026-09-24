@@ -4,7 +4,7 @@ description: Validate `.claude/issue-tracker.yaml`: schema, backend reachability
 
 # /tracker-doctor [--smoke-issue <ref>]
 
-Validate the consumer project's `.claude/issue-tracker.yaml`. Runs four sequential check phases: schema validation (file exists, parses, version and backend present, required fields set per backend, type enum check); backend reachability (proof-of-dispatch via `view_issue` per cross-backend invariant #5 in `backends/_interface.md`); vocabulary sanity (warning-level warnings about missing labels or issue types); session-title hook prerequisites (WARN-only, never FAILs). Always exits 0 (informational discipline, same pattern as `/audit-skills` and `/audit-pii`). Sibling pair: `/tracker-init` writes the config; `/tracker-doctor` validates it.
+Validate the consumer project's `.claude/issue-tracker.yaml`. Runs four sequential check phases: schema validation (file exists, parses, version and backend present, required fields set per backend, type enum check); backend reachability (proof-of-dispatch via `view_issue` per cross-backend invariant #5 in `backends/_interface.md`); vocabulary sanity (warning-level warnings about missing labels or issue types); session-title hook prerequisites (WARN-only, never FAILs). Always exits 0 (informational discipline, same pattern as `/audit-skills`). Sibling pair: `/tracker-init` writes the config; `/tracker-doctor` validates it.
 
 ## Invocation modes
 
@@ -188,7 +188,7 @@ gh label create "dashboard" --repo "maxdimitrov/example-project" --description "
 
 ## Invariants
 
-- **Always exits 0.** Informational discipline. Mirrors `/audit-skills` / `/audit-pii`. The operator decides whether `WARN` matters; the validator never gates.
+- **Always exits 0.** Informational discipline. Mirrors `/audit-skills`. The operator decides whether `WARN` matters; the validator never gates.
 - **Read-only.** No `create_issue`, no `edit_body`, no `add_label`, no `close_issue`. No modifications to `.claude/issue-tracker.yaml`. Cross-cuts every check.
 - **Canonical reachability probe is `view_issue`.** Cross-backend invariant #5 from `backends/_interface.md`. Every backend's Phase 2 final step dispatches through that contract operation, not the backend's raw CLI / MCP.
 - **PASS / WARN / FAIL / PASS-WITH-NOTE is fixed.** `FAIL` = dispatch path is broken; `WARN` = dispatch works but vocabulary is incomplete; `PASS` = green; `PASS-WITH-NOTE` = dispatch works but the probe artifact is absent (404).
