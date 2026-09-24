@@ -42,7 +42,8 @@ def test_ref_from_branch(branch, ref):
     ("feat/42-board-support", "board-support"),
     ("fix/issue-17-null-deref", "null-deref"),
     ("feat/a-very-long-branch-name-that-keeps-going-on", "a-very-long-branch-name-"),
-    ("release/1.8.0", "1-8-0"),
+    ("release/1.8.0", "1.8.0"),
+    ("feat/v1.2-widget", "v1.2-widget"),
 ])
 def test_slug_from_branch(branch, slug):
     assert run_lib(f'ait_slug_from_branch "{branch}"').stdout == slug
