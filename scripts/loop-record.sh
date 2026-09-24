@@ -29,13 +29,38 @@ usage() { printf '{"error":"usage: %s"}\n' "$1" >&2; exit 2; }
 path_of() { printf '%s/%s.json' "$DIR" "$1"; }
 require() { [ -f "$(path_of "$1")" ] || { printf '{"error":"no such loop","id":"%s"}\n' "$1"; exit 1; }; }
 # modify <id> <jq options and filter...> -- read-modify-write, atomic.
+# On a corrupt record jq fails: the half-written tmp file is removed, an
+# error JSON is printed and the script exits 1 (never falls through to the
+# unconditional exit 0 at the bottom).
 modify() {
   local id="$1" p
   shift
   p="$(path_of "$id")"
-  jq "$@" "$p" >"$p.tmp" && mv "$p.tmp" "$p"
+  if jq "$@" "$p" >"$p.tmp"; then
+    mv "$p.tmp" "$p"
+  else
+    rm -f "$p.tmp"
+    printf '{"error":"corrupt record","id":"%s"}\n' "$id"
+    exit 1
+  fi
 }
-all_records() { cat "$DIR"/*.json 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]'; }
+# all_records - live records as a JSON array. Parses each file on its own
+# so one corrupt record cannot hide every other live loop from find/list.
+all_records() {
+  local f line out
+  out=""
+  for f in "$DIR"/*.json; do
+    [ -f "$f" ] || continue
+    line="$(jq -c . "$f" 2>/dev/null)" || continue
+    out="$out$line
+"
+  done
+  if [ -n "$out" ]; then
+    printf '%s' "$out" | jq -s '.'
+  else
+    printf '[]'
+  fi
+}
 
 cmd="${1:-}"
 [ $# -gt 0 ] && shift
@@ -58,11 +83,15 @@ case "$cmd" in
       esac
       shift
     done
+    case "$maxi" in ""|*[!0-9]*|0) usage "--max-iterations must be a positive integer" ;; esac
+    case "$maxh" in ""|*[!0-9]*|0) usage "--max-hours must be a positive integer" ;; esac
+    case "$idle" in ""|*[!0-9]*|0) usage "--idle-stop-after must be a positive integer" ;; esac
     slug="$(printf '%s' "$ref" | tr '/#' '--' | sed 's/^-*//' | tr -cd 'A-Za-z0-9._-')"
     base="$(printf '%s-%s-%s' "$mode" "${slug:-x}" "$(date -u +%Y%m%d%H%M%S)")"
     id="$base"; n=2
     while [ -f "$(path_of "$id")" ]; do id="$base-$n"; n=$((n + 1)); done
-    jq -n --arg id "$id" --arg mode "$mode" --arg ref "$ref" --arg branch "$branch" \
+    p="$(path_of "$id")"
+    if jq -n --arg id "$id" --arg mode "$mode" --arg ref "$ref" --arg branch "$branch" \
       --arg now "$(now)" --arg cron "$cron" --arg interval "$interval" \
       --argjson merge "$merge" --argjson draft "$draft" \
       --argjson maxi "$maxi" --argjson maxh "$maxh" --argjson idle "$idle" \
@@ -71,8 +100,14 @@ case "$cmd" in
         cron_job_id: (if $cron == "" then null else $cron end),
         options: {merge: $merge, draft: $draft, interval: $interval},
         budget: {max_iterations: $maxi, max_hours: $maxh, idle_stop_after: $idle},
-        iterations: [], prs_opened: []}' >"$(path_of "$id")"
-    jq -c --arg p "$(path_of "$id")" '{id, path: $p}' "$(path_of "$id")"
+        iterations: [], prs_opened: []}' >"$p.tmp"; then
+      mv "$p.tmp" "$p"
+    else
+      rm -f "$p.tmp"
+      printf '{"error":"create failed","id":"%s"}\n' "$id"
+      exit 1
+    fi
+    jq -c --arg p "$p" '{id, path: $p}' "$p"
     ;;
   find)
     [ $# -ge 2 ] || usage "find <mode> <ref>"
@@ -82,7 +117,7 @@ case "$cmd" in
   check)
     [ $# -ge 1 ] || usage "check <id>"
     require "$1"
-    jq -c --argjson now "$(date -u +%s)" '
+    if ! jq -c --argjson now "$(date -u +%s)" '
       def epoch: sub("\\.[0-9]+Z$"; "Z") | (try fromdateiso8601 catch 0);
       (.iterations | length) as $n
       | (($now - (.started | epoch)) / 3600) as $hours
@@ -92,7 +127,10 @@ case "$cmd" in
         elif $hours >= .budget.max_hours then {ok: false, reason: "budget: max_hours"}
         elif $trailing >= .budget.idle_stop_after then {ok: false, reason: "budget: idle_stop_after"}
         else {ok: true, iterations: $n, hours: (($hours * 10 | floor) / 10), trailing_noops: $trailing} end' \
-      "$(path_of "$1")"
+      "$(path_of "$1")"; then
+      printf '{"error":"corrupt record","id":"%s"}\n' "$1"
+      exit 1
+    fi
     ;;
   append)
     [ $# -ge 2 ] || usage "append <id> <action> <detail> [--noop]"

@@ -101,3 +101,51 @@ def test_unknown_id_and_usage(repo, tmp_path):
     assert rec(repo, env, "get", "nope", expect=1)["error"] == "no such loop"
     r = run_script(SCRIPT, args=("create", "babysit"), env=env, cwd=str(repo))
     assert r.returncode == 2
+
+
+def test_corrupt_record_rc1_no_tmp_left_behind(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    made = rec(repo, env, "create", "babysit", "#42", "feat/42-x")
+    lid = made["id"]
+    p = Path(made["path"])
+    p.write_text("{bad")
+    tmp = p.parent / (p.name + ".tmp")
+    for args in (
+        ("append", lid, "fix-ci", "x"),
+        ("stop", lid, "some reason"),
+        ("add-pr", lid, "#1"),
+        ("set-cron", lid, "job1"),
+        ("check", lid),
+    ):
+        out = rec(repo, env, *args, expect=1)
+        assert out == {"error": "corrupt record", "id": lid}
+        assert not tmp.exists()
+
+
+def test_create_bad_numeric_flag_rc2_leaves_no_file(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    r = run_script(
+        SCRIPT, args=("create", "babysit", "#1", "feat/1", "--max-iterations", "abc"),
+        env=env, cwd=str(repo),
+    )
+    assert r.returncode == 2
+    for loops_dir in Path(env["AIT_STATE_DIR"]).glob("*/loops"):
+        assert list(loops_dir.iterdir()) == []
+
+
+def test_create_success_leaves_no_tmp_file(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    made = rec(repo, env, "create", "babysit", "#42", "feat/42-x")
+    p = Path(made["path"])
+    assert not (p.parent / (p.name + ".tmp")).exists()
+
+
+def test_list_and_find_skip_corrupt_file(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    made = rec(repo, env, "create", "babysit", "#42", "feat/42-x")
+    lid = made["id"]
+    loops_dir = Path(made["path"]).parent
+    (loops_dir / "zzz-corrupt.json").write_text("{not json")
+    live = rec(repo, env, "list")
+    assert [x["id"] for x in live] == [lid]
+    assert rec(repo, env, "find", "babysit", "#42")["id"] == lid
