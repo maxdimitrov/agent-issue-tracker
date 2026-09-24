@@ -7,7 +7,8 @@
 # Usage:
 #   loop-record.sh create <mode> <ref> <branch> [--merge] [--draft] [--cron-id <id>]
 #                  [--max-iterations N] [--max-hours N] [--idle-stop-after N] [--interval <s>]
-#   loop-record.sh find <mode> <ref>              # live record with that mode+ref, or null
+#   loop-record.sh find [--any] <mode> <ref>      # live record with that mode+ref, or null;
+#                                                  # --any: newest record regardless of state
 #   loop-record.sh check <id>                     # {"ok":true,...} or {"ok":false,"reason":...}
 #   loop-record.sh append <id> <action> <detail> [--noop]
 #   loop-record.sh add-pr <id> <pr-ref>
@@ -110,9 +111,16 @@ case "$cmd" in
     jq -c --arg p "$p" '{id, path: $p}' "$p"
     ;;
   find)
-    [ $# -ge 2 ] || usage "find <mode> <ref>"
-    all_records | jq -c --arg m "$1" --arg r "$2" \
-      '[.[] | select(.state == "live" and .mode == $m and .ref == $r)] | first // null'
+    any=false
+    [ "${1:-}" = "--any" ] && { any=true; shift; }
+    [ $# -ge 2 ] || usage "find [--any] <mode> <ref>"
+    if [ "$any" = true ]; then
+      all_records | jq -c --arg m "$1" --arg r "$2" \
+        '[.[] | select(.mode == $m and .ref == $r)] | sort_by(.started) | last // null'
+    else
+      all_records | jq -c --arg m "$1" --arg r "$2" \
+        '[.[] | select(.state == "live" and .mode == $m and .ref == $r)] | first // null'
+    fi
     ;;
   check)
     [ $# -ge 1 ] || usage "check <id>"

@@ -17,14 +17,14 @@ Session crons expire after seven days and end with the conversation; `/schedule`
 ## Modes
 
 ```
-/tracker-loop babysit [<pr-number> | <issue-ref>] [--merge]
-/tracker-loop clear <epic-ref> [--draft | --merge]
-/tracker-loop poll [--label <name>] [--draft | --merge]
+/tracker-loop babysit [<pr-number> | <issue-ref>] [--merge] [--restart]
+/tracker-loop clear <epic-ref> [--draft | --merge] [--restart]
+/tracker-loop poll [--label <name>] [--draft | --merge] [--restart]
 /tracker-loop status
 /tracker-loop stop [<loop-id>]
 ```
 
-`--draft` and `--merge` are mutually exclusive; refuse with a one-line message if both are passed. They pass straight through to the `/work-issue` invocations a loop makes and to the babysit merge rule.
+`--draft` and `--merge` are mutually exclusive; refuse with a one-line message if both are passed. They pass straight through to the `/work-issue` invocations a loop makes and to the babysit merge rule. `--restart` creates a fresh record even when a stopped one already exists for that mode and ref (see step 1).
 
 ## Configuration
 
@@ -48,17 +48,26 @@ Read each key with `"${CLAUDE_PLUGIN_ROOT}/scripts/lib/common.sh"`'s `ait_config
 
 All bookkeeping goes through `"${CLAUDE_PLUGIN_ROOT}/scripts/loop-record.sh"` (`LR` below). Every subcommand prints JSON.
 
-1. **Load or create the record.** `LR find <mode> <ref>`; when `null`, `LR create <mode> <ref> <branch> [--merge] [--draft] --max-iterations … --max-hours … --idle-stop-after … --interval …` with the configured budgets. `<branch>` is the current branch for `babysit`, the epic ref's slug for `clear`, and `""` for `poll`. Refuse to create a second live loop of the same mode and ref; report the existing id instead.
+1. **Load or create the record.** The record's `<ref>` is: `poll` → the poll label in use (`--label`, else `loops.poll_label`, default `agent-ready`); `babysit` with no argument → `SB.ticket.key`, else `#<SB.pr.number>`, else the current branch name; `babysit <arg>` → that argument; `clear` → the epic ref.
+
+   `LR find <mode> <ref>`; if it returns a live record, use it. Otherwise, unless `--restart` was passed, `LR find --any <mode> <ref>`:
+   - `null` → create (below).
+   - the newest record is stopped with a `stop_reason` beginning `checkpoint:` → create a fresh record (a handoff continuation).
+   - the newest record is stopped for any other reason → print `loop <id> is stopped (<reason>); pass --restart to begin a new loop` and end the iteration without creating or acting.
+
+   `--restart` skips the `find --any` check above and always creates a fresh record.
+
+   **Create:** `LR create <mode> <ref> <branch> [--merge] [--draft] --max-iterations … --max-hours … --idle-stop-after … --interval …` with the configured budgets. `<branch>` is the current branch for `babysit`, the epic ref's slug for `clear`, and `""` for `poll`. Refuse to create a second live loop of the same mode and ref; report the existing id instead.
 2. **Budget check.** `LR check <id>`. On `ok: false`, go to step 8 with the `reason`.
 3. **Collect.** Run `"${CLAUDE_PLUGIN_ROOT}/scripts/session-brief-collect.sh"` for the current branch (`SB` below). Modes `clear` and `poll` also read the tracker in their own step.
 4. **Decide.** The mode's table yields exactly one action, or `wait`, or `stop <reason>`.
-5. **Act.** Perform that one action through the existing skills and commands. Never two actions in one iteration.
+5. **Act.** Perform that one action through the existing skills and commands. An "action" is one mutating work action — a push, a rebase, a merge, or a `/work-issue` dispatch; bookkeeping (leaf comments, `LR append … skip`) doesn't count against the limit. Never two mutating actions in one iteration, except where a mode's table below says otherwise (poll, clear).
 6. **Checkpoint.** Apply the `/session-brief` verdict table (`commands/session-brief.md` Step 3) to `SB.session`. A `fresh session` verdict writes the resume note exactly as `/session-brief` Step 4 does, including the `**Loop:**` re-arm line, then goes to step 8 with reason `checkpoint: fresh session`.
-7. **Record and report.** `LR append <id> <action> "<detail>" [--noop]` — `--noop` for `wait`. Then print one line:
+7. **Record and report.** `LR append <id> <action> "<detail>" [--noop]` — append `wait-ci` **without** `--noop` for the CI-in-progress wait (babysit table row 8; it doesn't count toward `idle_stop_after`), and `wait` **with** `--noop` for the idle wait (row 9) and any other no-op iteration. No other action takes `--noop`. Then print one line:
 
    `loop <id> · <mode> <ref> · iteration <n> · <action or noop> · next: <pacing hint>`
 
-8. **Stop.** `LR stop <id> "<reason>"`; if the printed `cron_job_id` is set, `CronDelete` it. Print the reason. When the reason is NEEDS YOU, print the NEEDS YOU block (author, path:line, excerpt) exactly as `/session-brief` would. A stopped loop is over; `/loop` running this command again sees `ok: false` at step 2 and stops again, cheaply.
+8. **Stop.** `LR stop <id> "<reason>"`; if the printed `cron_job_id` is set, `CronDelete` it. Print the reason. When the reason is NEEDS YOU, print the NEEDS YOU block (author, path:line, excerpt) exactly as `/session-brief` would. A loop stopped with reason `checkpoint: fresh session` is picked back up on the next fire as a fresh record (step 1) — cheap, but not a no-op. A loop stopped for any other reason stays stopped: the next fire's step 1 reports it and takes no action, unless `--restart` is passed.
 
 ## Mode: babysit
 
@@ -75,8 +84,8 @@ Before the table, classify every `SB.review.threads[]` with `awaiting_you == tru
 | an awaiting thread classified `judgement` | **stop: needs-you** — quote author, path:line, excerpt |
 | `pr.reviewDecision == "APPROVED"` and `--merge` | **merge**: `gh pr merge --squash --auto` (falls back to a direct squash merge only where auto-merge is unavailable), then **stop: done** |
 | `pr.reviewDecision == "APPROVED"`, no `--merge` | **stop: ready-to-merge** — the operator's call |
-| `ci.status == "in_progress"` | **wait** (hint: CI) |
-| anything else | **wait** (hint: idle; counts toward `idle_stop_after`) |
+| `ci.status == "in_progress"` | **wait-ci** (hint: CI) — recorded without `--noop`; does not count toward `idle_stop_after` |
+| anything else | **wait** (hint: idle) — recorded with `--noop`; counts toward `idle_stop_after` |
 
 Replies to humans are always code-backed: a pushed commit plus a comment naming it. The loop never argues a review point in prose; that is a NEEDS YOU.
 
@@ -87,9 +96,11 @@ Work source: `/resume-initiative <epic-ref>`'s next-up derivation (`commands/res
 | Observation (first match wins) | Action |
 |---|---|
 | no open leaf | **stop: initiative clear** |
-| the next leaf carries the `needs_design_label`, or its body fails the agent-prompt bail criteria (`skills/feature-request/SKILL.md`) | **skip**: comment on the leaf naming the gap, `LR append … skip`, move to the next open leaf in the same iteration; after three consecutive skips, **stop: three skips** |
+| the next leaf carries the `needs_design_label`, or its body fails the agent-prompt bail criteria (`skills/feature-request/SKILL.md`) | **skip** (bookkeeping, not this iteration's action — see step 5): comment on the leaf naming the gap, `LR append … skip`, move to the next open leaf; three consecutive skips stop: **stop: three skips** |
 | the next leaf already has an open PR | run **one babysit iteration** against it (enter its worktree; table above) instead of starting a new leaf |
 | the next leaf is workable | **start**: `/work-issue <leaf> --start` with `--draft` / `--merge` passed through; `LR add-pr <id> <pr-ref>` when it opens a PR. That PR is this loop's babysit target on later iterations |
+
+Skipping may cascade within one iteration — the skip row moves to the next open leaf without ending the iteration — but at most one **start** may follow a run of skips in the same iteration, once a workable (or already-open-PR) leaf is found; that start (or babysit action) is the iteration's one action.
 
 The checkpoint after each leaf is the reason this mode exists: a long clearing run compacts or hands off instead of degrading.
 
@@ -104,10 +115,10 @@ Work source: `list_open_issues({label: <poll_label>})` through the configured ba
 - another live loop record names it (`LR list`, any record whose `ref` or `prs_opened` matches),
 - it carries `loops.claim_label`, when that key is set.
 
-Per iteration:
+Per iteration (at most one mutating action — see step 5):
 
-1. For each PR in this record's `prs_opened` that is still open (oldest first), run **one babysit iteration** against it, entering its worktree. A babysit stop reason of `done` drops that PR from consideration; `needs-you` stops the whole loop.
-2. If fewer than `max_concurrent` (default 1) of this record's PRs are open, take the **oldest unclaimed** issue, apply `claim_label` via `add_label` when configured, and **dispatch** `/work-issue <ref> --start` with `--draft` when `loops.pr_mode` is `draft` (the default) or `--merge` when passed. `LR add-pr <id> <pr-ref>` once the PR exists.
+1. If this record's `prs_opened` has any still-open PR, babysit only the **oldest** one, entering its worktree (table above). A babysit stop reason of `done` drops that PR from consideration; `needs-you` stops the whole loop.
+2. A new issue may be dispatched in this same iteration only when step 1 found no open PR, or that babysit iteration yielded `wait` or `stop: done` (i.e. it took no mutating action of its own): if fewer than `max_concurrent` (default 1) of this record's PRs are open, take the **oldest unclaimed** issue, apply `claim_label` via `add_label` when configured, and **dispatch** `/work-issue <ref> --start` with `--draft` when `loops.pr_mode` is `draft` (the default) or `--merge` when passed. `LR add-pr <id> <pr-ref>` once the PR exists.
 3. Nothing to do → **wait** (hint: `loops.interval`).
 
 No `remove_label` operation exists in the contract, so a `claim_label` stays on the issue until a human removes it or the issue closes. Two machines polling the same label without a `claim_label` can collide; the local claim signals do not cross machines.
@@ -133,7 +144,7 @@ The last line of every iteration. A self-paced `/loop` follows it; a fixed-inter
 ## Safety rails
 
 - Never merge without `--merge`; never open a ready PR on red (`/work-issue` Step 5 already refuses); never force-push.
-- One action per iteration; a NEEDS YOU always stops the loop over continuing.
+- At most one mutating action per iteration (step 5's definition; poll and clear's controlled exceptions are spelled out in their tables); a NEEDS YOU always stops the loop over continuing.
 - Every tracker write goes through contract ops (`add_label`, comments via `upsert_comment` only where a machine block is involved; plain leaf comments use the backend's documented comment call); every git-host write is one `/work-issue` already documents.
 - Budgets are enforced from the record on disk (`LR check`), before acting.
 - `/tracker-loop stop`, `CronDelete`, and `Esc` on a `/loop` all end a loop; the record says which when it was `stop`.
