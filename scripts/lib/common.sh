@@ -78,13 +78,12 @@ ait_ref_from_branch() {
 
 # Mirrors ait_ref_from_branch's tightened leading-number rule: the strip only
 # fires when the number is immediately followed by `-` or end-of-string, so
-# `release/1.8.0` keeps its leading `1` (the dot-to-dash pass below then
-# turns the untouched version segment into `1-8-0`, not `8-0`).
+# `release/1.8.0` keeps its leading `1` untouched (it slugs as `1.8.0`,
+# hook-identical - dots are never converted here).
 ait_slug_from_branch() {
   local leaf="${1##*/}" out
   out="$(printf '%s' "$leaf" \
     | sed -E 's/[A-Z][A-Z0-9]+-[0-9]+//; s/^[0-9]+(-|$)//; s/(^|-)issue-?[0-9]+//' \
-    | sed -E 's/\./-/g' \
     | sed -E 's/^[-_]+//; s/[-_]+$//' | cut -c1-24)"
   printf '%s' "$out"
 }
