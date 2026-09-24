@@ -1,0 +1,1 @@
+{"observation": {"pr": {"state": "MERGED", "mergeable": "CONFLICTING"}, "ci": {"conclusion": "failure"}}, "expected": "stop:done"}

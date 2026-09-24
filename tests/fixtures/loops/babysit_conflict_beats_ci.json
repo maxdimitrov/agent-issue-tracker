@@ -1,0 +1,1 @@
+{"observation": {"pr": {"state": "OPEN", "mergeable": "CONFLICTING"}, "ci": {"conclusion": "failure"}}, "expected": "rebase"}
