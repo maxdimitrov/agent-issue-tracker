@@ -21,7 +21,7 @@ tmo() { # tmo <seconds> <cmd...> — timeout(1) if available, else run unbounded
 # --- stage 0: shared helpers (fail-open when the plugin tree is incomplete) --
 _ait_lib="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/../scripts/lib/common.sh"
 [ -f "$_ait_lib" ] || exit 0
-# shellcheck source=../scripts/lib/common.sh
+# shellcheck source=scripts/lib/common.sh
 . "$_ait_lib"
 
 # --- stage 1: recursion + dependency guards -----------------------------------
