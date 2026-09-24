@@ -287,3 +287,30 @@ def test_pr_ref_matches_ait_ref_from_branch(repo, tmp_path):
     assert "#1" not in {r["ref"] for r in out["ledger"]}
     alltime = {p_["number"]: p_ for p_ in out["prs"]["all_time_authored"]}
     assert alltime[90]["ref"] is None
+
+
+def test_branch_ref_map_survives_multiline_jq_output(repo, tmp_path):
+    # Regression: BRANCH_REFS is built from a multi-line `jq -r -n ... | .[]`
+    # stream. Under a native Windows jq (the one on PATH on this machine),
+    # that stream arrives \r\n-terminated when piped, and `$(...)` only
+    # strips the trailing newline off the very END of the whole capture --
+    # not the \r glued to every earlier line. Only the LAST branch in
+    # sorted order came out clean; every other branch's map key carried a
+    # stray \r and the lookup for it silently missed, falling back to a
+    # (here, absent) title-only ref. "feat/500-alpha" sorts before
+    # "zzz-last-branch", so it is exactly the case that broke.
+    open_prs = [pr(80, "alpha work", "feat/500-alpha"),
+                pr(81, "unrelated last", "zzz-last-branch")]
+    files = {"GH_OPEN": open_prs, "GH_MERGED": [], "GH_ALL": open_prs,
+             "GH_VIEW": PR_VIEW, "GH_THREADS": THREADS, "GH_RUNS": RUNS}
+    extra = {"GH_CALLS": (tmp_path / "gh-calls").as_posix()}
+    for k, v in files.items():
+        p = tmp_path / f"{k}.json"
+        p.write_text(json.dumps(v))
+        extra[k] = p.as_posix()
+    stub = make_stub(tmp_path / "bin-branchref", "gh", GH_STUB)
+    env = env_with_path(isolated_env(tmp_path, **extra), stub)
+    out = run(repo, env)
+    rows = {r["ref"]: r for r in out["ledger"]}
+    assert "#500" in rows
+    assert rows["#500"]["open_pr"]["number"] == 80

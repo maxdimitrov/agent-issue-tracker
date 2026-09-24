@@ -259,7 +259,13 @@ if [ -n "$TRANSCRIPT" ]; then
       esac
       SEEN="${SEEN}${r}|"
       TICKETS_JSON="$(jq -n --argjson arr "$TICKETS_JSON" --arg r "$r" '$arr + [$r]')"
-    done < <(jq -r '.branches_seen[]?' <<<"$SESSION" 2>/dev/null)
+    # tr strips a trailing \r: a native Windows jq build opens its stdout in
+    # text mode, so this multi-line stream arrives \r\n-terminated and every
+    # branch but the last would otherwise carry a stray \r into $b. Harmless
+    # today only because ait_ref_from_branch's grep -oE extracts just the
+    # matching substring, never the trailing \r -- stripped anyway so $b
+    # itself is never silently wrong for a future caller.
+    done < <(jq -r '.branches_seen[]?' <<<"$SESSION" 2>/dev/null | tr -d '\r')
     SESSION="$(jq --argjson t "$TICKETS_JSON" '. + {tickets_seen: $t}' <<<"$SESSION")"
   fi
 fi
