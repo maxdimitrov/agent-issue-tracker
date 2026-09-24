@@ -1,6 +1,6 @@
 # GitHub Backend
 
-Backend module for [`gh` CLI](https://cli.github.com/) — the dispatch surface for the `github` backend. Implements the ten operations from [`_interface.md`](_interface.md).
+Backend module for [`gh` CLI](https://cli.github.com/) — the dispatch surface for the `github` backend. Implements the eleven operations from [`_interface.md`](_interface.md).
 
 ## Auth
 
@@ -115,6 +115,22 @@ gh api --paginate repos/"$GITHUB_REPO"/issues/"$PARENT_N"/sub_issues \
 **Cross-repo children** (`owner/repo#N`): a child in another repo lives under *its* repo's endpoint — call `gh api repos/<that-owner>/<that-repo>/issues/<N>/sub_issues` for that child's repo, not the configured `github.repo`.
 
 **Nesting (invariant 6):** GitHub sub-issues nest arbitrarily deep, so this call returns the true direct children at every level — there is no native ceiling below persistent structure's reach (contrast Jira). The skill recurses one node at a time via each node's own persistent structure: the machine-block `## Phases` map for evergreen-shape epics, the body `## Children` mirror for legacy-shape epics.
+
+---
+
+### `list_updated_issues`
+
+```bash
+gh issue list \
+  --repo "$GITHUB_REPO" \
+  --state all \
+  --search "updated:>=${SINCE_DATE} involves:@me" \
+  --json number,title,state,updatedAt,url \
+  --limit 50 \
+  --jq '.[] | "#\(.number)\t\(.title)\t\(.state)\t\(.updatedAt)\t\(.url)"'
+```
+
+`SINCE_DATE` is the `since` input truncated to `YYYY-MM-DD` — GitHub's search qualifier is date-granular, so the caller filters the returned `updated` values against the full timestamp. Drop `involves:@me` when `involving_me` is false. Results come back newest-updated first by default.
 
 ---
 
