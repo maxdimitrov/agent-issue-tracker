@@ -55,6 +55,47 @@ case "$*" in
 esac
 '''
 
+# Same as GH_STUB, except the Actions API prints a JSON error body and
+# exits 1 -- ait_gh_out must discard that body (it only keeps stdout on a
+# zero exit), so `ci` degrades to null with an errors[] entry rather than
+# the raw error body being treated as a CI run.
+GH_STUB_CI_FAIL = r'''
+echo "$@" >> "$GH_CALLS"
+case "$*" in
+  *"api user"*)               echo "me" ;;
+  *"pr list"*"--head"*)       if [[ "$*" == *"fix/17-old"* ]]; then echo '[{"number":50,"state":"MERGED","mergedAt":"2026-08-02T00:00:00Z","title":"[#17] landed","url":"https://github.com/acme/widgets/pull/50"}]'; else echo '[]'; fi ;;
+  *"pr list"*"--state merged"*) cat "$GH_MERGED" ;;
+  *"pr list"*"--state all"*)  cat "$GH_ALL" ;;
+  *"pr list"*"review-requested"*) echo '[]' ;;
+  *"pr list"*"mentions"*)     echo '[]' ;;
+  *"pr list"*)                cat "$GH_OPEN" ;;
+  *"pr view"*)                cat "$GH_VIEW" ;;
+  *"graphql"*)                cat "$GH_THREADS" ;;
+  *"actions/runs"*)           echo '{"message":"Forbidden"}'; exit 1 ;;
+  *) exit 1 ;;
+esac
+'''
+
+# Same as GH_STUB, except `gh pr view` prints truncated (invalid) JSON on a
+# successful exit -- simulates a capped call killed mid-write. The collector
+# must validate the shape before `--argjson meta`, not just check emptiness.
+GH_STUB_VIEW_TRUNC = r'''
+echo "$@" >> "$GH_CALLS"
+case "$*" in
+  *"api user"*)               echo "me" ;;
+  *"pr list"*"--head"*)       if [[ "$*" == *"fix/17-old"* ]]; then echo '[{"number":50,"state":"MERGED","mergedAt":"2026-08-02T00:00:00Z","title":"[#17] landed","url":"https://github.com/acme/widgets/pull/50"}]'; else echo '[]'; fi ;;
+  *"pr list"*"--state merged"*) cat "$GH_MERGED" ;;
+  *"pr list"*"--state all"*)  cat "$GH_ALL" ;;
+  *"pr list"*"review-requested"*) echo '[]' ;;
+  *"pr list"*"mentions"*)     echo '[]' ;;
+  *"pr list"*)                cat "$GH_OPEN" ;;
+  *"pr view"*)                echo '{"reviewDecision":"CHANGES_REQ' ;;
+  *"graphql"*)                cat "$GH_THREADS" ;;
+  *"actions/runs"*)           cat "$GH_RUNS" ;;
+  *) exit 1 ;;
+esac
+'''
+
 
 def run(cwd, env, *args):
     r = run_script(SCRIPT, args=args, env=env, cwd=str(cwd))
@@ -200,3 +241,49 @@ def test_orphan_worktrees(repo, tmp_path):
     orphans = {(o["branch"], o["detached"]) for o in out["orphan_worktrees"]}
     assert ("scratch", False) in orphans and (None, True) in orphans
     assert all(o["primary"] is False for o in out["orphan_worktrees"])
+
+
+def test_ci_failure_records_error_and_nulls_ci(repo, tmp_path, gh):
+    _, extra = gh
+    stub = make_stub(tmp_path / "bin-ci-fail", "gh", GH_STUB_CI_FAIL)
+    env = env_with_path(isolated_env(tmp_path, AIT_SINCE="2026-09-24T00:00:00Z", **extra), stub)
+    out = run(repo, env)
+    detail = {d["number"]: d for d in out["pr_detail"]}
+    assert detail[70]["ci"] is None
+    assert any("actions" in e.lower() for e in out["errors"])
+
+
+def test_gh_pr_view_truncated_json_does_not_crash(repo, tmp_path, gh):
+    _, extra = gh
+    stub = make_stub(tmp_path / "bin-view-trunc", "gh", GH_STUB_VIEW_TRUNC)
+    env = env_with_path(isolated_env(tmp_path, AIT_SINCE="2026-09-24T00:00:00Z", **extra), stub)
+    out = run(repo, env)
+    for key in ("generated_at", "window", "viewer", "config", "worktrees", "resume_notes",
+                "loops", "prs", "pr_detail", "ledger", "orphan_worktrees", "errors"):
+        assert key in out
+    assert out["pr_detail"] == []
+    assert any("pr view" in e for e in out["errors"])
+
+
+def test_pr_ref_matches_ait_ref_from_branch(repo, tmp_path):
+    # release/1.8.0's leaf ("1.8.0") is a version segment, not an issue
+    # number, to ait_ref_from_branch (the leading digit run isn't followed
+    # by "-" or end-of-string) -- the PR-side ref computation must agree,
+    # never inventing "#1" from the jq-only path the worktree side doesn't
+    # take.
+    open_prs = [pr(70, "[#604] widget", "feat/604-widget"),
+                pr(90, "release prep", "release/1.8.0")]
+    all_prs = open_prs + [pr(60, "[#6041] big widget", "feat/6041-big", "MERGED")]
+    files = {"GH_OPEN": open_prs, "GH_MERGED": [], "GH_ALL": all_prs,
+             "GH_VIEW": PR_VIEW, "GH_THREADS": THREADS, "GH_RUNS": RUNS}
+    extra = {"GH_CALLS": (tmp_path / "gh-calls").as_posix()}
+    for k, v in files.items():
+        p = tmp_path / f"{k}.json"
+        p.write_text(json.dumps(v))
+        extra[k] = p.as_posix()
+    stub = make_stub(tmp_path / "bin-rel", "gh", GH_STUB)
+    env = env_with_path(isolated_env(tmp_path, **extra), stub)
+    out = run(repo, env)
+    assert "#1" not in {r["ref"] for r in out["ledger"]}
+    alltime = {p_["number"]: p_ for p_ in out["prs"]["all_time_authored"]}
+    assert alltime[90]["ref"] is None
