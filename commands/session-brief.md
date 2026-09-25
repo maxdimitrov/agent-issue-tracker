@@ -6,7 +6,7 @@ description: Catch up on the current session — issue link, branch, PR, CI, rev
 
 Orient the operator in the session they are **currently in** — resumed after a weekend, or long enough that they have lost the thread. Answers five questions in order: what am I working on, what state is it in, what needs me, what did I already resolve, and should I keep going here or start clean.
 
-**This command is read-only.** Never commit, push, comment on a PR, transition an issue, or edit source. The only file written is the resume note, outside every repo. If the operator wants an action taken, they will ask in the next turn.
+**This command is read-only.** Never commit, push, comment on a PR, transition an issue, or edit source. The only file written is the resume note, outside every repo. The one outward action is opening a new editor tab (Step 5), and only after the operator accepts the offer. If the operator wants an action taken, they will ask in the next turn.
 
 ## Step 1 — Collect the facts
 
@@ -126,6 +126,18 @@ Both URLs are required here too — this note is read cold, by a session with no
 Then tell the operator, in one line, that it is at that path and what to do with it: paste it as the first message of a new session.
 
 If `handoff.exists` is true and `handoff.written` is older than this session, mention the previous note is being replaced — it may describe a different stage of the work.
+
+## Step 5 — Offer a new tab (`fresh session` only)
+
+Only when the verdict is **fresh session**. On a VS Code host (`CLAUDE_CODE_ENTRYPOINT` is `claude-vscode`), **offer** to open the fresh session for the operator: "Open a new tab with the resume note?" Offer only. Never open one unasked. On a yes:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/open-session-tab.sh" "Read the resume note at <handoff.resume_path> and continue from it."
+```
+
+The script fires `code --open-url "vscode://anthropic.claude-code/open?prompt=<urlencoded>"`. The prompt is **typed into** the new tab's input box but **not submitted**; the operator presses Enter. VS Code first asks whether to allow the extension to open the URI, so mention that dialog. The prompt points at the note's path instead of carrying its body, which keeps the URI short (the script refuses prompts over 2000 characters) and leaves the file as the single copy.
+
+On any other host (CLI, JetBrains), or when the script prints `"opened":false`, keep the Step 4 behaviour: the note is already printed for copy-paste, so name the `reason` in one clause and stop. The new tab gets no custom title: the URI has no title parameter, and `/rename` cannot share a message with the real prompt.
 
 ## Red flags
 
