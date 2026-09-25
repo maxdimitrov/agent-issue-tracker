@@ -80,6 +80,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sibling ops. Poll loops attach to the ledger rows of the issues their
   `prs_opened` PRs resolve to instead of appearing under the PR numbers.
 
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", run 2026-09-25 against the release
+branch (PR #145) before tagging.
+
+- **1. GitHub backend smoke — PASS.** Filed bug (#138), feature (#139),
+  followup (#140), and an **evergreen** epic (#141) with a phased sub-issue
+  (#142) against this repo. Verified labels (`bug`; `enhancement`;
+  `enhancement`+`followup`; `epic`; `enhancement`), `edit_body` (#142's
+  `## Parent epic` placeholder → `#141` rewrite), native sub-issue linkage
+  #141 → {#142} via the typed-integer `sub_issues` API confirmed by GET, and
+  the machine-block comment via **`upsert_comment` create + replace** (Phase 2
+  added; same comment id 5833345073; earliest-trusted-marker selection,
+  OWNER). All five closed after verification.
+- **2. Jira backend smoke — DEFERRED.** Atlassian connector not configured
+  this session. The Jira surface gained the sprint keys (#112) and
+  `merged_transition` (#115); their live checks are folded into #109's
+  write pass.
+- **3. `/tracker-init` from blank state — PASS (GitHub static slice).**
+  `examples/issue-tracker.yaml.example` parses (PyYAML 6.0.3); `backend`,
+  `areas`, the `github:`/`jira:` blocks, `loops:`, the new top-level
+  `merge_method` and the commented `in_progress_sprint` / `sprint_board_id`
+  / `sprint_field` / `merged_transition` keys shape-checked. Interactive
+  Jira scaffold deferred with smoke 2.
+- **4. `/tracker-doctor` — PASS.** Valid config → Phase 2 live (`gh auth
+  status` → maxdimitrov, keyring, `gho_`; `gh repo view`; new
+  `hasIssuesEnabled` true; new **write probe** `POST /issues` with an empty
+  body → 422 `"title" wasn't supplied`, newest issue unchanged (#142 before
+  and after); `view_issue(#1)` structured); malformed YAML → parse error at
+  4:9, Phase 1 FAIL stops Phases 2–3; new `skill_currency:` validation: a
+  string `doc_globs`, a rule missing `expect`/`message`, and an invalid
+  `pattern` each produce the specified WARN line. New Phase 4 signing check
+  on this machine: `commit.gpgsign` true, `gpg.format` ssh,
+  `gpg.ssh.program` is the `git-sign.sh` wrapper, service-account token
+  file present → PASS path.
+- **5. `/resume-initiative` against both epic shapes — PASS.** Evergreen:
+  live #141 data fed through the executable spec
+  (`tests/test_evergreen_fixtures.py`): the one trusted machine block
+  selected, two phase lines parsed (`Phase 1` → #142, `Phase 2` empty).
+  Legacy and drift fixtures green (`tests/test_drift_fixtures.py`,
+  `tests/test_pr139_replay.py`; 19 passed).
+- **6. Install path — PASS (isolated-config-dir variant).** Bare
+  `CLAUDE_CONFIG_DIR`: `claude plugin marketplace add
+  maxdimitrov/agent-issue-tracker#chore/release-1.10.0` and `claude plugin
+  install agent-issue-tracker` both exit 0; `installed_plugins.json` records
+  version **1.10.0** at the release commit 7c497ea.
+- **7. Plugin loads enabled post-install — PASS.** Same dir: without
+  `superpowers` the plugin reports `failed to load`; after installing it
+  from `claude-plugins-official`, `claude plugin list` shows `enabled` at
+  1.10.0 and `claude plugin details` inventories Skills (18) (6 skills + 12
+  commands) and the SessionStart hook.
+- **8. Session-title hook — PASS.** The hook suite on the release branch,
+  now including #121's fail-open (missing `scripts/lib/common.sh`) and
+  `release/1.8.0` no-ref cases, is green in the full run below and in CI's
+  Python-tests job on PR #145.
+- **9. Briefs — PASS.** `/session-brief` on `chore/release-1.10.0` (open
+  PR #145): PR/CI line rendered (`OPEN` · CI `in_progress` then `success`),
+  the resume note written under the cache dir and reported back by the
+  collector (`handoff.exists: true`). `ticket: null` on a release branch, as
+  specified. `/tracker-brief` run twice: the second run's window started
+  exactly at the first run's committed stamp (`2026-09-25T15:14:32Z`).
+  Collector `errors[]` empty throughout; 29 ledger rows, none actionable.
+- **10. Babysit loop — PASS.** Draft PR #143 with a deliberately failing
+  test, driven with the release branch's `loop-record.sh` and collector.
+  Iteration 1 saw `ci.conclusion == "failure"` (`Python tests` in
+  `failed_jobs`), took **fix-ci** and pushed b535311; iterations 2 and 3
+  reported the idle `wait` (`trailing_noops: 2`, `wait-ci` skipped because
+  CI had already completed green). `/tracker-loop stop` marked the record
+  stopped; the next fire found no live record and `check` returned
+  `stopped: operator stop`; `--restart` created a fresh record. PR closed
+  unmerged, branch deleted.
+
+Full local suite on the release branch: `python -m pytest -q` → **267 passed** (2026-09-25, Windows, Git Bash).
+
 ## [1.9.0] - 2026-09-25
 
 ### Added
