@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Headless commit signing** (#119). `scripts/git-sign.sh` is a
+  `gpg.ssh.program` wrapper: it signs through `op-ssh-sign` as before and,
+  when the 1Password app is locked, falls back to a dedicated agent key
+  read with the Automation service-account token into a private
+  ssh-agent (the private key only ever travels through a pipe). The
+  `/tracker-loop` doc names it as a prerequisite, and `/tracker-doctor`
+  Phase 4 warns when commits are signed by a bare `op-ssh-sign`.
 - **Post-merge finish phase** (#115). `/work-issue <ref> --finish` (no
   writes unless merged) applies `jira.merged_transition` (`--released
   <tag>` then closes), refreshes the parent index, and removes the worktree
@@ -31,7 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `message`, or a `pattern` that does not compile — so config typos
   surface at doctor time instead of as an `/audit-skills` exit 1. A
   valid or absent block adds no output; Phases 2-3 are unaffected.
-
 - **New tab handoff in VS Code** (#129). After a follow-up is filed, and
   on a `/session-brief` **fresh session** verdict, the agent offers to
   open a new Claude Code tab with the next prompt typed in but not
