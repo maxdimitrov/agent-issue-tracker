@@ -56,6 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Loops: lifecycle and wording minors** (#121, partial). `reopen`
+  clears the dead session's `cron_job_id`; a `queued` (or `waiting`,
+  `pending`) CI status waits as `wait-ci`; clear-mode skips no longer burn
+  `max_iterations`; `find --any` breaks `started` ties by id; `create`
+  claims its id atomically and rejects `007`. `/tracker-loop` normalises
+  the `babysit` ref, adds an `idle` pacing row, pins the checkpoint,
+  `/compact` and subagent verdict rules, and lists every flag in its H1.
 - **Session-title hook: test gaps** (#121, partial). Pins the fail-open
   path when `scripts/lib/common.sh` is missing and the `release/1.8.0`
   no-ref case at the hook level.

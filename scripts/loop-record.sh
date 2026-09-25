@@ -9,17 +9,24 @@
 #                  [--max-iterations N] [--max-hours N] [--idle-stop-after N] [--interval <s>]
 #   loop-record.sh find [--any] <mode> <ref>      # live record with that mode+ref, or null;
 #                                                  # --any: newest record regardless of state
+#                                                  # (by started, ties broken by id)
 #   loop-record.sh check <id>                     # {"ok":true,...} or {"ok":false,"reason":...}
+#                                                 # max_iterations counts entries whose
+#                                                 # action is not "skip"
 #   loop-record.sh append <id> <action> <detail> [--noop]
 #   loop-record.sh add-pr <id> <pr-ref>
 #   loop-record.sh set-cron <id> <job-id>
 #   loop-record.sh stop <id> <reason> [--transcript <path>]
 #                                                 # --transcript: stored as stop_transcript
-#   loop-record.sh reopen <id>                    # stopped -> live, counters kept
+#   loop-record.sh reopen <id>                    # stopped -> live, counters kept,
+#                                                 # cron_job_id cleared
 #   loop-record.sh get <id>
 #   loop-record.sh list                           # live records, summarised
 #
 # Exit 0 on success, 1 when the record does not exist, 2 on a usage error.
+#
+# Ids are claimed with a noclobber (set -C) write, which is atomic on one
+# machine's filesystem; two machines sharing one state dir are not supported.
 
 set -uo pipefail
 # shellcheck source=scripts/lib/common.sh
@@ -47,8 +54,9 @@ modify() {
     exit 1
   fi
 }
-# all_records - live records as a JSON array. Parses each file on its own
-# so one corrupt record cannot hide every other live loop from find/list.
+# all_records - every record, any state, as a JSON array; find and list
+# filter to live. Parses each file on its own so one corrupt record cannot
+# hide every other loop from find/list.
 all_records() {
   local f line out
   out=""
@@ -86,13 +94,23 @@ case "$cmd" in
       esac
       shift
     done
-    case "$maxi" in ""|*[!0-9]*|0) usage "--max-iterations must be a positive integer" ;; esac
-    case "$maxh" in ""|*[!0-9]*|0) usage "--max-hours must be a positive integer" ;; esac
-    case "$idle" in ""|*[!0-9]*|0) usage "--idle-stop-after must be a positive integer" ;; esac
+    # 0[0-9]*: a leading zero (007) is not a JSON number; reject it here
+    # rather than let jq --argjson fail after the id is claimed.
+    case "$maxi" in ""|*[!0-9]*|0|0[0-9]*) usage "--max-iterations must be a positive integer" ;; esac
+    case "$maxh" in ""|*[!0-9]*|0|0[0-9]*) usage "--max-hours must be a positive integer" ;; esac
+    case "$idle" in ""|*[!0-9]*|0|0[0-9]*) usage "--idle-stop-after must be a positive integer" ;; esac
     slug="$(printf '%s' "$ref" | tr '/#' '--' | sed 's/^-*//' | tr -cd 'A-Za-z0-9._-')"
     base="$(printf '%s-%s-%s' "$mode" "${slug:-x}" "$(date -u +%Y%m%d%H%M%S)")"
+    # Claim the id atomically: a noclobber write fails when the file exists,
+    # so two creates in the same second can never both take one id.
     id="$base"; n=2
-    while [ -f "$(path_of "$id")" ]; do id="$base-$n"; n=$((n + 1)); done
+    while ! (set -C; : >"$(path_of "$id")") 2>/dev/null; do
+      if [ ! -f "$(path_of "$id")" ] || [ "$n" -gt 1000 ]; then
+        printf '{"error":"cannot write state dir","path":"%s"}\n' "$DIR"
+        exit 1
+      fi
+      id="$base-$n"; n=$((n + 1))
+    done
     p="$(path_of "$id")"
     if jq -n --arg id "$id" --arg mode "$mode" --arg ref "$ref" --arg branch "$branch" \
       --arg now "$(now)" --arg cron "$cron" --arg interval "$interval" \
@@ -106,7 +124,7 @@ case "$cmd" in
         iterations: [], prs_opened: []}' >"$p.tmp"; then
       mv "$p.tmp" "$p"
     else
-      rm -f "$p.tmp"
+      rm -f "$p.tmp" "$p"
       printf '{"error":"create failed","id":"%s"}\n' "$id"
       exit 1
     fi
@@ -118,7 +136,7 @@ case "$cmd" in
     [ $# -ge 2 ] || usage "find [--any] <mode> <ref>"
     if [ "$any" = true ]; then
       all_records | jq -c --arg m "$1" --arg r "$2" \
-        '[.[] | select(.mode == $m and .ref == $r)] | sort_by(.started) | last // null'
+        '[.[] | select(.mode == $m and .ref == $r)] | sort_by(.started, (.id | length), .id) | last // null'
     else
       all_records | jq -c --arg m "$1" --arg r "$2" \
         '[.[] | select(.state == "live" and .mode == $m and .ref == $r)] | first // null'
@@ -129,7 +147,7 @@ case "$cmd" in
     require "$1"
     if ! jq -c --argjson now "$(date -u +%s)" '
       def epoch: sub("\\.[0-9]+Z$"; "Z") | (try fromdateiso8601 catch 0);
-      (.iterations | length) as $n
+      ([.iterations[] | select(.action != "skip")] | length) as $n
       | (($now - (.started | epoch)) / 3600) as $hours
       | ([.iterations | reverse[] | (.noop == true)] | index(false) // $n) as $trailing
       | if .state != "live" then {ok: false, reason: ("stopped: " + (.stop_reason // "unknown"))}
@@ -186,9 +204,11 @@ case "$cmd" in
   reopen)
     # Continue a checkpointed loop in a new session: back to live with the
     # started time, iterations, prs_opened, budget and options untouched.
+    # The old session's cron died with it, so cron_job_id is cleared.
     [ $# -ge 1 ] || usage "reopen <id>"
     require "$1"
-    modify "$1" '.state = "live" | .stop_reason = null | .stop_transcript = null | .stopped = null'
+    modify "$1" '.state = "live" | .stop_reason = null | .stop_transcript = null | .stopped = null
+      | .cron_job_id = null'
     jq -c '{id, state, iterations: (.iterations | length)}' "$(path_of "$1")"
     ;;
   get)
