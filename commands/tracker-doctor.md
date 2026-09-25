@@ -4,7 +4,7 @@ description: Validate `.claude/issue-tracker.yaml`: schema, backend reachability
 
 # /tracker-doctor [--smoke-issue <ref>]
 
-Validate the consumer project's `.claude/issue-tracker.yaml`. Runs four sequential check phases: schema validation (file exists, parses, version and backend present, required fields set per backend, type enum check); backend reachability (proof-of-dispatch via `view_issue` per cross-backend invariant #5 in `backends/_interface.md`); vocabulary sanity (warning-level warnings about missing labels or issue types); session-title hook prerequisites (WARN-only, never FAILs). Always exits 0 (informational discipline, same pattern as `/audit-skills`). Sibling pair: `/tracker-init` writes the config; `/tracker-doctor` validates it.
+Validate the consumer project's `.claude/issue-tracker.yaml`. Runs four sequential check phases: schema validation (file exists, parses, version and backend present, required fields set per backend, type enum check); backend reachability (proof-of-dispatch via `view_issue` per cross-backend invariant #5 in `backends/_interface.md`); vocabulary sanity (warning-level warnings about missing labels or issue types); local prerequisites (WARN-only, never FAILs: the session-title hook and unattended commit signing). Always exits 0 (informational discipline, same pattern as `/audit-skills`). Sibling pair: `/tracker-init` writes the config; `/tracker-doctor` validates it.
 
 ## Invocation modes
 
@@ -221,9 +221,9 @@ Two checks, numbered:
 1. For each value in `jira.issue_types.*` (the five mapped issue type names — `Bug`, `Story`, etc.), check whether the issue type exists in the configured Jira project. MCP call (verified live against the Atlassian Remote MCP): `getJiraProjectIssueTypesMetadata({cloudId, projectIdOrKey})` returns the project's configured issue types (the visible-project list itself comes from `getVisibleJiraProjects`); the agent can `ToolSearch` against `jira project metadata` if the tool name has shifted in the current MCP version. `WARN` with "missing issue type `<name>` in project `<projectKey>`; check your Jira project settings or remap in `.claude/issue-tracker.yaml`" for any missing type.
 2. If `jira.area_field: components`, list the project's configured Components and surface them as a `WARN-info` line so the operator knows what areas they can use. MCP call (verified live against the Atlassian Remote MCP, 2026-07-28): the tool family has **no dedicated project-components tool** — enumerate them via `getJiraIssueTypeMetaWithFields({cloudId, projectIdOrKey, issueTypeId, requiredFieldsOnly: false})`, where `issueTypeId` is any non-subtask issue type id already returned by check 1's `getJiraProjectIssueTypesMetadata` call; the project's components are the `allowedValues[].name` entries on the response field whose `fieldId` is `components`. A project with no Components configured returns `allowedValues: []` — surface that as the same `WARN-info` line ("no Components configured; `area_field: components` has nothing to match"). No `FAIL` — `area_field` defaults to free-form when components don't match.
 
-### Phase 4 — session-title hook prerequisites (WARN-only)
+### Phase 4 — local prerequisites (WARN-only)
 
-The SessionStart session-title hook is cosmetic; nothing here may FAIL.
+Machine-local setup the plugin leans on but never needs: the SessionStart session-title hook (cosmetic) and a commit signer that works unattended. Nothing here may FAIL.
 
 1. `jq` on PATH → `[PASS] jq found`. Missing → `[WARN] session-title hook
    inactive: jq not found` + install hint (`brew install jq` / `apt install jq`).
@@ -231,6 +231,31 @@ The SessionStart session-title hook is cosmetic; nothing here may FAIL.
    creatable/writable → `[PASS]`; else `[WARN]` with the path.
 3. Config sets `session_titles: false` → `[PASS-WITH-NOTE] session titles
    disabled by config`.
+4. Unattended commit signing. Read the effective values in the consumer
+   repo: `git config --get commit.gpgsign`, `git config --get gpg.format`,
+   `git config --get gpg.ssh.program`. No line at all unless
+   `commit.gpgsign` is `true` and `gpg.format` is `ssh` (nothing is signed,
+   or the signer is not SSH). Then:
+   - program path ends in `git-sign.sh` → `[PASS] gpg.ssh.program is the
+     git-sign.sh wrapper`. If, in addition, `OP_SERVICE_ACCOUNT_TOKEN` is
+     unset and `~/.claude-runner/op-token` does not exist → `[WARN]
+     git-sign.sh is wired but no service-account token is available; the
+     fallback can never fire` (point at the `## Setup` block in the
+     script's header).
+   - program empty, or a bare `op-ssh-sign` / `op-ssh-sign.exe` (any path
+     whose basename is that, no wrapper) → `[WARN] unattended commits will
+     fail while the 1Password app is locked; wire scripts/git-sign.sh as
+     gpg.ssh.program`, with the fix in a fenced block. The plugin cache path
+     is versioned, so the fix copies the script to a stable place first:
+
+     ```bash
+     mkdir -p ~/.claude-runner && cp "${CLAUDE_PLUGIN_ROOT}/scripts/git-sign.sh" ~/.claude-runner/git-sign.sh && git config --global gpg.ssh.program "$HOME/.claude-runner/git-sign.sh"
+     ```
+
+   - any other program → no line (the operator chose their own signer).
+
+   Read-only: never runs the signer, `op`, or `ssh-add`; checks the token
+   file's existence only, never its contents.
 
 ### Phase 5 — Summary
 
@@ -317,6 +342,19 @@ Phase 1 — schema validation
 ```
 
 Under each `WARN`, point at the shape: "see the `skill_currency:` block in `examples/issue-tracker.yaml.example`". `/audit-skills` would otherwise exit 1 on the first bad rule with the same message.
+
+Example for the Phase 4 signing check on a machine that signs every commit through the bare 1Password desktop signer:
+
+```
+Phase 4 — local prerequisites
+  [PASS] jq found
+  [PASS] session-title state dir writable
+  [WARN] unattended commits will fail while the 1Password app is locked; wire scripts/git-sign.sh as gpg.ssh.program
+```
+
+```bash
+mkdir -p ~/.claude-runner && cp "${CLAUDE_PLUGIN_ROOT}/scripts/git-sign.sh" ~/.claude-runner/git-sign.sh && git config --global gpg.ssh.program "$HOME/.claude-runner/git-sign.sh"
+```
 
 ## Failure modes
 

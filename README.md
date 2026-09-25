@@ -38,6 +38,8 @@ Twelve slash commands:
 | [`/file-followup`](commands/file-followup.md) | Discoverable entry-point for the `followup-tracking` skill |
 | [`/file-epic`](commands/file-epic.md) | Discoverable entry-point for the `initiative-tracking` skill |
 
+One script is meant for your git config rather than a command: [`scripts/git-sign.sh`](scripts/git-sign.sh), a `gpg.ssh.program` wrapper that signs with the 1Password desktop app as usual and, when the app is locked, falls back to a dedicated agent key read through the 1Password Automation service account, so unattended sessions and `/tracker-loop` can still make signed commits. Setup is in the script's header.
+
 ## Install
 
 ```bash
