@@ -30,6 +30,13 @@ loops:
     ("hotfix/2.0", ""),
     ("main", ""),
     ("PROJ-9", "PROJ-9"),
+    ("feat/ABC-12-then-XYZ-9", "ABC-12"),
+    ("feat/12", "#12"),
+    ("feat/12abc", ""),
+    ("fix/issue12", "#12"),
+    ("fix/do-issue-7-now", "#7"),
+    ("fix/reissue-7", ""),
+    ("abc-12", ""),
 ])
 def test_ref_from_branch(branch, ref):
     r = run_lib(f'ait_ref_from_branch "{branch}"')
@@ -128,3 +135,29 @@ def test_time_helpers_round_trip(tmp_path):
 def test_run_capped_kills_slow_command():
     r = run_lib("ait_run_capped 1 sleep 5; echo rc=$?")
     assert "rc=" in r.stdout and "rc=0" not in r.stdout
+
+
+@pytest.mark.parametrize("raw,encoded", [
+    ("feat/42-widget", "feat%2F42-widget"),
+    ("feat/a b+c#1", "feat%2Fa%20b%2Bc%231"),
+    ("x&per_page=1", "x%26per_page%3D1"),
+    ("", ""),
+])
+def test_uri_encode(raw, encoded):
+    r = run_lib(f"ait_uri_encode '{raw}'")
+    assert r.stdout == encoded and r.returncode == 0
+
+
+@pytest.mark.parametrize("value,kind", [
+    ("[]", "array"), ('{"a":1}', "object"), ('"s"', "string"), ("3", "number"),
+    ("null", "null"), ("true", "boolean"),
+])
+def test_json_type(value, kind):
+    r = run_lib(f"ait_json_type '{value}'")
+    assert r.stdout == kind and r.returncode == 0
+
+
+@pytest.mark.parametrize("value", ["", "{not json", "[1] [2]"])
+def test_json_type_rejects_non_values(value):
+    r = run_lib(f"ait_json_type '{value}'")
+    assert r.stdout == "" and r.returncode == 1

@@ -67,7 +67,8 @@ spill() {
   local name="$1" content="$2" default="${3:-null}" f
   f="$(ait_spill_json "$AIT_TMP" "$name" "$content")"
   if [ -z "$f" ]; then
-    f="$(mktemp "${TMPDIR:-/tmp}/ait-$name-XXXXXX.json" 2>/dev/null)" || f="/dev/null"
+    # X's last: BSD mktemp only randomises a trailing run of X's.
+    f="$(mktemp "${TMPDIR:-/tmp}/ait-$name.XXXXXX" 2>/dev/null)" || f="/dev/null"
     printf '%s' "$default" >"$f" 2>/dev/null
   fi
   printf '%s' "$f"
@@ -124,8 +125,13 @@ if [ "$IS_GIT" = true ]; then
     COMMITS="$(git log --format='%h%x1f%s' "origin/$BASE_RAW..HEAD" 2>/dev/null | head -20 \
       | jq -Rn '[inputs | split("\u001f") | {sha: .[0], subject: .[1]}]')"
   fi
+  # A staged rename/copy prints as `R  old -> new`: report the new path as
+  # `path` (what is on disk now) and the old one as `orig_path`.
   DIRTY_FILES="$(git status --porcelain 2>/dev/null | head -25 \
-    | jq -Rn '[inputs | {status: .[0:2], path: .[3:]}]')"
+    | jq -Rn '[inputs | {status: .[0:2], path: .[3:]}
+        | if (.status | test("[RC]")) and (.path | contains(" -> "))
+          then (.path | split(" -> ")) as $p | . + {path: $p[-1], orig_path: $p[0]}
+          else . end]')"
   DIRTY_COUNT="$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
   LAST_COMMIT="$(git log -1 --format='%h%x1f%s%x1f%cr%x1f%an' 2>/dev/null \
     | jq -Rn 'input? // "" | if . == "" then null else split("\u001f")
@@ -178,7 +184,7 @@ if [ "$IS_GIT" = true ] && [ "$have_gh" = true ] && [ "$DETACHED" = false ]; the
   fi
 
   if [ -n "$NWO" ] && [ -n "$BRANCH_RAW" ]; then
-    RUNS="$(gh_out gh api "repos/$NWO/actions/runs?branch=$BRANCH_RAW&per_page=30")"
+    RUNS="$(gh_out gh api "repos/$NWO/actions/runs?branch=$(ait_uri_encode "$BRANCH_RAW")&per_page=30")"
     [ -n "$RUNS" ] || note_err "gh actions runs failed"
     if [ -n "$RUNS" ]; then
       # Newest run per workflow, then a primary. The single newest run is
@@ -285,9 +291,11 @@ fi
 
 SESSION=null
 if [ -n "$TRANSCRIPT" ]; then
+  # wc -c on a regular file is a size lookup (GNU and BSD wc both fstat
+  # it), so the one jq pass below is the only full read of the transcript.
   BYTES="$(wc -c < "$TRANSCRIPT" | tr -d ' ')"
-  SESSION="$(jq -Rn '[inputs | fromjson?]' "$TRANSCRIPT" 2>/dev/null \
-    | jq --arg src "$SOURCE" --arg path "$TRANSCRIPT" --argjson bytes "${BYTES:-0}" '
+  SESSION="$(jq -Rn --arg src "$SOURCE" --arg path "$TRANSCRIPT" --argjson bytes "${BYTES:-0}" '
+    [inputs | fromjson?] |
     def ts: (.timestamp // empty) | sub("\\.[0-9]+Z$"; "Z") | (try fromdateiso8601 catch empty);
     def txt: if (.message.content | type) == "string" then .message.content
              else ([(.message.content // [])[] | select(type == "object" and .type == "text") | .text] | join(" ")) end;
@@ -308,7 +316,7 @@ if [ -n "$TRANSCRIPT" ]; then
       }
     | . + {span_hours: (if .started and .last_activity
              then (((.last_activity - .started) / 360 | floor) / 10) else null end)}
-  ' 2>/dev/null || echo null)"
+  ' "$TRANSCRIPT" 2>/dev/null || echo null)"
   [ -n "$SESSION" ] || SESSION=null
 
   # tickets_seen mirrors common.sh's ait_ref_from_branch rules exactly,

@@ -496,5 +496,15 @@ departures are recorded here.
   contract op and idempotent across iterations.
 - **Tracker-brief window stamp (5.1).** `--commit-run <generated_at>`
   stamps the collection time, not the write time. Loop refs become ledger
-  keys only when they are issue-shaped; a poll loop contributes the refs in
-  its `prs_opened` instead of its label.
+  keys only when they are issue-shaped; a poll loop attaches to the rows of
+  the issues its `prs_opened` PRs resolve to (looked up by PR number in the
+  all-time PR list), never to its label or to the PR numbers themselves. A stamp whose write fails reports
+  `committed: null` plus an `error`, and the window does not advance.
+- **`pr_detail[].ci` (5.2).** Picked the way `session-brief-collect.sh`
+  picks `ci`: the newest run per workflow, then `CI`, else a
+  test/build/ci-named workflow, skipping skipped and cancelled runs. The
+  single newest run is often a skipped bot workflow.
+- **Temp-file failure (5.2).** A fragment that cannot be spilled to the
+  temp dir is retried in a fresh temp file and named in `errors[]`. When no
+  temp file can be written at all, the collector prints
+  `{fatal, generated_at, errors}` and exits 0, like the jq-missing case.

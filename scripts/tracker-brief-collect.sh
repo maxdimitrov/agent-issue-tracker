@@ -32,19 +32,27 @@ note_err() { ERRORS="$(jq -c --arg e "$1" '. + [$e]' <<<"$ERRORS" 2>/dev/null ||
 iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 is_array() { jq -e 'type == "array"' >/dev/null 2>&1 <<<"$1"; }
 is_object() { jq -e 'type == "object"' >/dev/null 2>&1 <<<"$1"; }
-# ensure_json <value> <fallback> [<label>] - value if it parses as JSON,
-# else fallback; notes an errors[] entry when a non-empty label is given.
-# Last line of defense before the final emit: every fragment gets one pass
-# through this so a single malformed capture can never blank the whole
-# script's stdout.
+# ensure_json <var> <fallback> [<label>] - keeps $<var> when it parses as
+# one JSON value of the same type as <fallback> (array vs object), else
+# sets <var> to <fallback>; notes a typed errors[] entry when a non-empty
+# label is given. Assigns by name (printf -v, bash 3.1+) instead of printing,
+# so it runs in this shell and note_err reaches ERRORS -- a `$(...)` call
+# would record the error in a subshell and lose it. Last line of defense
+# before the final emit: every fragment gets one pass through this so a
+# single malformed capture can never blank the whole script's stdout.
 ensure_json() {
-  local v="$1" fb="$2" label="${3:-}"
-  if [ -n "$v" ] && jq -e . >/dev/null 2>&1 <<<"$v"; then
-    printf '%s' "$v"
-  else
-    [ -n "$label" ] && note_err "invalid JSON for $label -- using fallback"
-    printf '%s' "$fb"
+  local var="$1" fb="$2" label="${3:-}" want got
+  want="$(ait_json_type "$fb")"
+  got="$(ait_json_type "${!var}")" || got=""
+  [ -n "$got" ] && [ "$got" = "$want" ] && return 0
+  if [ -n "$label" ]; then
+    if [ -n "$got" ]; then
+      note_err "wrong JSON type for $label (expected $want, got $got) -- using fallback"
+    else
+      note_err "invalid JSON for $label -- using fallback"
+    fi
   fi
+  printf -v "$var" '%s' "$fb"
 }
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -101,11 +109,19 @@ if [ "${1:-}" = "--commit-run" ]; then
     esac
   fi
   PREV="$(jq -r '.last_run // empty' "$STATE" 2>/dev/null)"
-  jq -n --arg now "$NOW" --arg prev "${PREV:-}" \
-    '{last_run: $now, previous_run: (if $prev == "" then null else $prev end)}' \
-    >"$STATE.tmp" 2>/dev/null && mv "$STATE.tmp" "$STATE" 2>/dev/null
-  jq -n --arg now "$NOW" --arg p "$STATE" --arg w "$WARN" \
-    '{committed: $now, state_file: $p} + (if $w == "" then {} else {warning: $w} end)'
+  # committed is the stamp only when the write landed; otherwise null plus
+  # an error, so a failed stamp is never reported as an advanced window.
+  if jq -n --arg now "$NOW" --arg prev "${PREV:-}" \
+      '{last_run: $now, previous_run: (if $prev == "" then null else $prev end)}' \
+      >"$STATE.tmp" 2>/dev/null && mv -f "$STATE.tmp" "$STATE" 2>/dev/null; then
+    jq -n --arg now "$NOW" --arg p "$STATE" --arg w "$WARN" \
+      '{committed: $now, state_file: $p} + (if $w == "" then {} else {warning: $w} end)'
+  else
+    rm -f "$STATE.tmp" 2>/dev/null
+    jq -n --arg p "$STATE" --arg w "$WARN" \
+      '{committed: null, state_file: $p, error: "could not write the state file -- window not advanced"}
+       + (if $w == "" then {} else {warning: $w} end)'
+  fi
   exit 0
 fi
 
@@ -124,22 +140,52 @@ if [ -z "$AIT_TMP" ]; then
   AIT_TMP="$STATE_DIR/.tmp-$$"
   mkdir -p "$AIT_TMP" 2>/dev/null || AIT_TMP=""
 fi
-[ -n "$AIT_TMP" ] && trap 'rm -rf "$AIT_TMP"' EXIT
+# Fallback spill files live outside AIT_TMP, so they are tracked (one path
+# per line) and removed on exit too.
+SPILL_EXTRA=""
+# shellcheck disable=SC2329  # invoked by the EXIT trap below
+cleanup() {
+  [ -n "$AIT_TMP" ] && rm -rf "$AIT_TMP"
+  local f
+  while IFS= read -r f; do [ -n "$f" ] && rm -f "$f"; done <<EOF
+$SPILL_EXTRA
+EOF
+}
+trap cleanup EXIT
+
+# spill_fatal <name> - neither AIT_TMP nor a fallback temp file can be
+# written, so no --slurpfile flag can be built and the final emit cannot
+# run. Prints the one JSON object the contract promises (a fatal, like the
+# jq-missing case) and exits 0.
+spill_fatal() {
+  note_err "failed to write tmp fragment '$1' (fallback temp file failed too)"
+  jq -n --arg g "$(iso_now)" --argjson e "$ERRORS" \
+    '{fatal: "cannot write temp files -- TMPDIR and the state dir are both unwritable",
+      generated_at: $g, errors: $e}'
+  exit 0
+}
 
 # spill <name> <json> [<default>] - writes <json> for --slurpfile loading
-# (ait_spill_json, common.sh) and prints the file path. On failure (a full
-# disk, or AIT_TMP unavailable), notes an errors[] entry and falls back to
-# a fresh file holding <default> ("[]" unless given), so a --slurpfile flag
-# built from this always has a valid, parseable file behind it.
+# (ait_spill_json, common.sh) and sets SPILL_FILE to the path. It runs in
+# the caller's shell, never inside `$(...)`, so the errors[] entry a failed
+# write notes is not lost in a subshell. On failure (a full disk, or
+# AIT_TMP unavailable) it retries in a fresh temp file, holding <json> or,
+# if that write fails too, <default> ("[]" unless given); when no temp file
+# can be written at all, spill_fatal ends the run.
 spill() {
   local name="$1" content="$2" default="${3:-[]}" f
-  f="$(ait_spill_json "$AIT_TMP" "$name" "$content")"
-  if [ -z "$f" ]; then
-    note_err "failed to write tmp fragment '$name'"
-    f="$(mktemp "${TMPDIR:-/tmp}/ait-$name-XXXXXX.json" 2>/dev/null)" || f="/dev/null"
-    printf '%s' "$default" >"$f" 2>/dev/null
+  SPILL_FILE="$(ait_spill_json "$AIT_TMP" "$name" "$content")"
+  [ -n "$SPILL_FILE" ] && return 0
+  note_err "failed to write tmp fragment '$name'"
+  # X's last: BSD mktemp only randomises a trailing run of X's.
+  f="$(mktemp "${TMPDIR:-/tmp}/ait-$name.XXXXXX" 2>/dev/null)" || f=""
+  [ -n "$f" ] || spill_fatal "$name"
+  SPILL_EXTRA="$SPILL_EXTRA$f
+"
+  if ! printf '%s' "$content" >"$f" 2>/dev/null; then
+    printf '%s' "$default" >"$f" 2>/dev/null || spill_fatal "$name"
   fi
-  printf '%s' "$f"
+  SPILL_FILE="$f"
 }
 
 # add_slurp <name> <json> [<default>] - spills <json> and appends
@@ -147,7 +193,10 @@ spill() {
 # safe on bash 3.2 -- unlike associative arrays). --slurpfile always wraps
 # a file's parsed content in an array, so the filter reads the value back
 # as $<name>[0].
-add_slurp() { JQ_ARGS+=(--slurpfile "$1" "$(spill "$1" "$2" "${3:-[]}")"); }
+add_slurp() {
+  spill "$1" "$2" "${3:-[]}"
+  JQ_ARGS+=(--slurpfile "$1" "$SPILL_FILE")
+}
 
 # ------------------------------------------------------------------ window
 NOW_EPOCH="$(date -u +%s)"
@@ -296,13 +345,19 @@ if [ "$GH_OK" = true ]; then
   branches="$(jq -r -n "${JQ_ARGS[@]}" \
     '[$a[0][], $b[0][], $c[0][], $d[0][], $e[0][]] | map(.headRefName // empty) | map(select(. != "")) | unique | .[]' 2>/dev/null \
     | tr -d '\r')"
+  # The pairs are collected as `branch<TAB>ref` lines and turned into the
+  # map by ONE jq call: a jq per branch cost seconds per hundred branches
+  # on Windows. A git ref name cannot contain a tab or a newline.
+  pairs=""
   while IFS= read -r br; do
     [ -n "$br" ] || continue
     r="$(ait_ref_from_branch "$br")" || continue
     [ -n "$r" ] || continue
-    BRANCH_REFS="$(jq -c --arg b "$br" --arg r "$r" '. + {($b): $r}' <<<"$BRANCH_REFS" 2>/dev/null)"
-    [ -n "$BRANCH_REFS" ] || BRANCH_REFS='{}'
+    pairs="$pairs$br"$'\t'"$r"$'\n'
   done <<<"$branches"
+  BRANCH_REFS="$(printf '%s' "$pairs" \
+    | jq -c -Rn '[inputs | select(. != "") | split("\t") | {(.[0]): .[1]}] | add // {}' 2>/dev/null)"
+  [ -n "$BRANCH_REFS" ] || BRANCH_REFS='{}'
 
   REF_JQ='
     def title_ref:
@@ -329,11 +384,12 @@ fi
 # comes from the Actions API, which actions:read covers.
 DEEP='[]'
 if [ "$GH_OK" = true ]; then
-  # Process substitution is avoided here: under a non-interactive MSYS bash
-  # (as pytest launches it on Windows) /dev/fd is not wired up, so `<(...)`
-  # silently fails and every target would be lost. Pass both arrays in as
-  # jq variables instead, off argv via --slurpfile for the same argv-limit
-  # reason as everywhere else in this file. MAX_PR_DEEP is a plain --argjson
+  # jq is never handed a `<(...)` path as a file argument: a native Windows
+  # jq cannot open the MSYS /dev/fd path it expands to, so every target
+  # would be lost. (The `done < <(...)` loop redirections in this file are
+  # fine -- bash itself reads those.) Both arrays go in as jq variables
+  # instead, off argv via --slurpfile for the same argv-limit reason as
+  # everywhere else in this file. MAX_PR_DEEP is a plain --argjson
   # number, not spliced into the filter text, since it may come straight
   # from an env var.
   JQ_ARGS=()
@@ -379,11 +435,26 @@ if [ "$GH_OK" = true ]; then
     head="$(jq -r '.headRefName // empty' <<<"$meta")"
     ci_status=null
     if [ -n "$head" ]; then
-      runs="$(ait_gh_out "$CAP" gh api "repos/$NWO/actions/runs?branch=$head&per_page=1")"
+      runs="$(ait_gh_out "$CAP" gh api "repos/$NWO/actions/runs?branch=$(ait_uri_encode "$head")&per_page=30")"
       if is_object "$runs"; then
-        ci_status="$(jq -c '(.workflow_runs[0] // {})
-          | {status: (.status // null), conclusion: (.conclusion // null), name: (.name // null),
-             run_url: (.html_url // null), started: (.run_started_at // null)}' <<<"$runs" 2>/dev/null || echo null)"
+        # Same selection as session-brief-collect.sh: newest run per
+        # workflow, then a primary that is not skipped/cancelled -- the
+        # single newest run is often a skipped bot workflow.
+        ci_status="$(jq -c '
+          [ (.workflow_runs // [])[] | {
+              status: (.status // null), conclusion: (.conclusion // null), name: (.name // null),
+              run_url: (.html_url // null), started: (.run_started_at // null),
+              when: (.created_at // .run_started_at // "")
+            } ]
+          | group_by(.name) | map(sort_by(.when) | last) | sort_by(.when) | reverse
+          | . as $runs
+          | ($runs | map(select(.conclusion != "skipped" and .conclusion != "cancelled"))) as $real
+          | (($real | map(select(.name == "CI")) | first)
+             // ($real | map(select((.name // "") | test("test|build|ci"; "i"))) | first)
+             // ($real | first) // ($runs | first)) as $primary
+          | if $primary == null
+            then {status: null, conclusion: null, name: null, run_url: null, started: null}
+            else $primary | del(.when) end' <<<"$runs" 2>/dev/null || echo null)"
       else
         note_err "actions API failed for $NWO ($head)"
       fi
@@ -424,7 +495,10 @@ if [ "$GH_OK" = true ]; then
   # The join separator is \037 (not a real tab): the same IFS-whitespace
   # collapse hazard fixed for the worktree parser above applies here too --
   # an empty pref (no ref on the PR) sits in the middle of the record.
-  done < <(jq -r '.[] | [(.number | tostring), .url, .title, (.ref // "")] | join("\u001f")' <<<"$TARGETS" 2>/dev/null | tr -d '\r')
+  # Line breaks (and the separator itself) inside a title become a space:
+  # left in, they would split one PR's record across two lines.
+  done < <(jq -r '.[] | [(.number | tostring), .url, ((.title // "") | gsub("[\r\n\u001f]+"; " ")), (.ref // "")]
+    | join("\u001f")' <<<"$TARGETS" 2>/dev/null | tr -d '\r')
 fi
 
 # ------------------------------------------------------------ resume notes
@@ -485,15 +559,20 @@ LEDGER="$(jq -n "${JQ_ARGS[@]}" \
     else null end;
   # A loop ref is a ledger key only when it is shaped like an issue ref: a
   # poll record ref is a label (e.g. agent-ready), which view_issue cannot
-  # read. A poll loop contributes the refs it opened PRs for instead.
+  # read. A poll loop attaches to the rows of the issues its prs_opened PRs
+  # resolve to (prs_opened holds PR refs like "#71", not issue refs): the
+  # PR number is looked up in the all-time PR list and its .ref used. A PR
+  # with no ref, or not in the list, contributes no key.
   def issue_ref: type == "string" and (test("^#[0-9]+$") or test("^[A-Z][A-Z0-9]+-[0-9]+$"));
-  def loop_keys: (.ref | select(issue_ref)),
-                 (if .mode == "poll" then ((.prs_opened // [])[] | select(issue_ref)) else empty end);
+  def pr_issue_ref($prs): ltrimstr("#") as $n
+    | ([$prs[] | select((.number | tostring) == $n) | .ref // empty] | first // empty);
+  def loop_keys($prs): (.ref | select(issue_ref)),
+                 (if .mode == "poll" then ((.prs_opened // [])[] | strings | pr_issue_ref($prs) | select(issue_ref)) else empty end);
   ($wt[0]) as $wt | ($rn[0]) as $rn | ($lp[0]) as $lp | ($at[0]) as $at | ($dp[0]) as $dp
-  | ([ ($wt[] | .ref), ($rn[] | .ref), ($lp[] | loop_keys), ($at[] | .ref) ] | map(select(. != null)) | unique) as $keys
+  | ([ ($wt[] | .ref), ($rn[] | .ref), ($lp[] | loop_keys($at)), ($at[] | .ref) ] | map(select(. != null)) | unique) as $keys
   | [ $keys[] as $k
       | ([$at[] | select(.ref == $k)]) as $prs
-      | ([$lp[] | select(any(loop_keys; . == $k))]) as $loops
+      | ([$lp[] | select(any(loop_keys($at); . == $k))]) as $loops
       | { ref: $k, ticket_url: url($k),
           worktree:    ([$wt[] | select(.ref == $k)] | first // null),
           resume_note: ([$rn[] | select(.ref == $k)] | first // null),
@@ -515,18 +594,18 @@ ORPHANS="$(jq -c '[.[] | select(.primary == false and (.detached == true or .ref
 # it can reach the final emit, so one malformed capture that slipped past
 # its own guard above degrades to [] with an errors[] entry instead of
 # making the whole `jq -n --argjson` call below fail and print nothing.
-WORKTREES="$(ensure_json "$WORKTREES" '[]' worktrees)"
-RESUME="$(ensure_json "$RESUME" '[]' resume_notes)"
-LOOPS="$(ensure_json "$LOOPS" '[]' loops)"
-AUTHORED="$(ensure_json "$AUTHORED" '[]' prs.authored_open)"
-REVREQ="$(ensure_json "$REVREQ" '[]' prs.review_requested)"
-MENTIONS="$(ensure_json "$MENTIONS" '[]' prs.mentions)"
-MERGED="$(ensure_json "$MERGED" '[]' prs.merged_in_window)"
-ALLTIME="$(ensure_json "$ALLTIME" '[]' prs.all_time_authored)"
-DEEP="$(ensure_json "$DEEP" '[]' pr_detail)"
-LEDGER="$(ensure_json "$LEDGER" '[]' ledger)"
-ORPHANS="$(ensure_json "$ORPHANS" '[]' orphan_worktrees)"
-ERRORS="$(ensure_json "$ERRORS" '[]' "")"
+ensure_json WORKTREES '[]' worktrees
+ensure_json RESUME '[]' resume_notes
+ensure_json LOOPS '[]' loops
+ensure_json AUTHORED '[]' prs.authored_open
+ensure_json REVREQ '[]' prs.review_requested
+ensure_json MENTIONS '[]' prs.mentions
+ensure_json MERGED '[]' prs.merged_in_window
+ensure_json ALLTIME '[]' prs.all_time_authored
+ensure_json DEEP '[]' pr_detail
+ensure_json LEDGER '[]' ledger
+ensure_json ORPHANS '[]' orphan_worktrees
+ensure_json ERRORS '[]' ""
 
 # Every list/object fragment below goes through --slurpfile, never argv:
 # this jq -n call is exactly the one the finding traced the crash to
