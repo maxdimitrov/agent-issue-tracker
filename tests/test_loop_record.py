@@ -1,5 +1,6 @@
 """Subprocess tests for scripts/loop-record.sh."""
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,24 @@ def test_two_creates_in_one_second_get_distinct_ids(repo, tmp_path):
     a = rec(repo, env, "create", "poll", "agent-ready", "")
     b = rec(repo, env, "create", "poll", "agent-ready", "")
     assert a["id"] != b["id"]
+
+
+def test_create_claims_suffix_when_base_id_is_taken(repo, tmp_path):
+    """The noclobber claim never reuses an existing file: with the base id
+    for the next few seconds already on disk, create takes the -2 suffix."""
+    env = isolated_env(tmp_path)
+    loops_dir = Path(rec(repo, env, "create", "clear", "#1", "main")["path"]).parent
+    now = datetime.now(timezone.utc)
+    taken = set()
+    for s in range(0, 6):
+        stamp = (now + timedelta(seconds=s)).strftime("%Y%m%d%H%M%S")
+        base = f"babysit-42-{stamp}"
+        (loops_dir / f"{base}.json").write_text('{"placeholder": true}')
+        taken.add(base)
+    made = rec(repo, env, "create", "babysit", "#42", "feat/42-x")
+    assert made["id"].endswith("-2") and made["id"][:-2] in taken
+    for base in taken:
+        assert json.loads((loops_dir / f"{base}.json").read_text()) == {"placeholder": True}
 
 
 def test_append_and_check_ok(repo, tmp_path):
@@ -81,6 +100,37 @@ def test_check_max_hours(repo, tmp_path):
     assert rec(repo, env, "check", lid) == {"ok": False, "reason": "budget: max_hours"}
 
 
+def test_check_max_hours_spans_a_reopen(repo, tmp_path):
+    """Correct as designed: reopen never resets `started`, so the gap
+    between the checkpointing session and the reopening one counts."""
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "babysit", "#42", "feat/42-x", "--max-hours", "2")["id"]
+    p = Path(rec(repo, env, "get", lid)["path"])
+    started = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    data = json.loads(p.read_text())
+    data["started"] = started
+    p.write_text(json.dumps(data))
+    rec(repo, env, "stop", lid, "checkpoint: fresh session", "--transcript", "t/one.jsonl")
+    rec(repo, env, "reopen", lid)
+    assert rec(repo, env, "get", lid)["started"] == started
+    assert rec(repo, env, "check", lid) == {"ok": False, "reason": "budget: max_hours"}
+
+
+def test_check_iteration_budget_ignores_skips(repo, tmp_path):
+    """Clear-mode skips are bookkeeping: a cascade of them must not burn
+    max_iterations."""
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "clear", "#9", "main", "--max-iterations", "2")["id"]
+    for _ in range(3):
+        rec(repo, env, "append", lid, "skip", "needs-design")
+    rec(repo, env, "append", lid, "start", "#12")
+    chk = rec(repo, env, "check", lid)
+    assert chk["ok"] is True and chk["iterations"] == 1
+    rec(repo, env, "append", lid, "skip", "vague body")
+    rec(repo, env, "append", lid, "start", "#13")
+    assert rec(repo, env, "check", lid) == {"ok": False, "reason": "budget: max_iterations"}
+
+
 def test_stop_set_cron_add_pr_list(repo, tmp_path):
     env = isolated_env(tmp_path)
     lid = rec(repo, env, "create", "clear", "#9", "main")["id"]
@@ -105,6 +155,29 @@ def test_find_any_after_stop(repo, tmp_path):
     assert found["id"] == lid
     assert found["state"] == "stopped"
     assert found["stop_reason"] == "checkpoint: fresh session"
+
+
+def test_find_any_breaks_started_ties_by_id(repo, tmp_path):
+    """Two records sharing one `started` second: the later id (the create
+    suffix) is the newest, whatever the glob order."""
+    env = isolated_env(tmp_path)
+    ids = []
+    for _ in range(3):
+        lid = rec(repo, env, "create", "babysit", "#42", "feat/42-x")["id"]
+        rec(repo, env, "stop", lid, "s")
+        ids.append(lid)
+    loops_dir = Path(rec(repo, env, "get", ids[0])["path"]).parent
+    base = "babysit-42-20260101000000"
+    renamed = [base, f"{base}-2", f"{base}-10"]
+    for lid, new in zip(ids, renamed):
+        data = json.loads((loops_dir / f"{lid}.json").read_text())
+        data["id"] = new
+        data["started"] = "2026-01-01T00:00:00Z"
+        (loops_dir / f"{lid}.json").unlink()
+        (loops_dir / f"{new}.json").write_text(json.dumps(data))
+    assert rec(repo, env, "find", "--any", "babysit", "#42")["id"] == f"{base}-10"
+    (loops_dir / f"{base}-10.json").unlink()
+    assert rec(repo, env, "find", "--any", "babysit", "#42")["id"] == f"{base}-2"
 
 
 def test_find_any_with_no_record_is_null(repo, tmp_path):
@@ -153,10 +226,11 @@ def test_corrupt_record_rc1_no_tmp_left_behind(repo, tmp_path):
         assert not tmp.exists()
 
 
-def test_create_bad_numeric_flag_rc2_leaves_no_file(repo, tmp_path):
+@pytest.mark.parametrize("value", ["abc", "007"])
+def test_create_bad_numeric_flag_rc2_leaves_no_file(repo, tmp_path, value):
     env = isolated_env(tmp_path)
     r = run_script(
-        SCRIPT, args=("create", "babysit", "#1", "feat/1", "--max-iterations", "abc"),
+        SCRIPT, args=("create", "babysit", "#1", "feat/1", "--max-iterations", value),
         env=env, cwd=str(repo),
     )
     assert r.returncode == 2
@@ -219,6 +293,18 @@ def test_reopen_keeps_counters(repo, tmp_path):
     assert chk["ok"] is True and chk["iterations"] == 2
     rec(repo, env, "append", lid, "fix-ci", "y")
     assert rec(repo, env, "check", lid) == {"ok": False, "reason": "budget: max_iterations"}
+
+
+def test_reopen_clears_cron_job_id(repo, tmp_path):
+    """The checkpointing session's cron died with it; a reopened record must
+    not point a later stop's CronDelete at that dead job."""
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "babysit", "#42", "feat/42-x", "--cron-id", "job77")["id"]
+    rec(repo, env, "stop", lid, "checkpoint: fresh session", "--transcript", "t/one.jsonl")
+    assert rec(repo, env, "get", lid)["cron_job_id"] == "job77"
+    rec(repo, env, "reopen", lid)
+    assert rec(repo, env, "get", lid)["cron_job_id"] is None
+    assert rec(repo, env, "set-cron", lid, "job88")["cron_job_id"] == "job88"
 
 
 def test_reopen_unknown_corrupt_and_usage(repo, tmp_path):

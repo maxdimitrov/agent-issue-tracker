@@ -30,7 +30,7 @@ def decide_babysit(obs, merge=False):
         return "stop:needs-you"
     if pr.get("reviewDecision") == "APPROVED":
         return "merge" if merge else "stop:ready-to-merge"
-    if ci.get("status") == "in_progress":
+    if ci.get("status") in ("queued", "in_progress", "waiting", "pending"):
         return "wait:ci"
     return "wait:idle"
 

@@ -309,11 +309,12 @@ on the issue until a human removes it or the issue closes. Documented.
 
 ### 6.6 Loop record
 
-`loops/<loop-id>.json`, `loop-id` = `<mode>-<ref-sanitised>-<yyyymmddHHMM>`:
+`loops/<loop-id>.json`, `loop-id` = `<mode>-<ref-sanitised>-<yyyymmddHHMMSS>`
+(a `-2`, `-3`, ... suffix when that id is already taken):
 
 ```json
 {
-  "id": "babysit-42-202609240915",
+  "id": "babysit-42-20260924091500",
   "mode": "babysit",
   "ref": "#42",
   "branch": "feat/42-widget",
@@ -465,7 +466,19 @@ departures are recorded here.
   returns the record to `live` with `started`, `iterations`, `prs_opened`,
   `budget` and `options` kept, so the budgets keep counting. A fire from the
   same session reports the loop as checkpointed and does nothing;
-  `--restart` always begins a fresh record.
+  `--restart` always begins a fresh record. `reopen` clears `cron_job_id`
+  (the checkpointing session's cron ended with it) and never resets
+  `started`, so `max_hours` spans the gap between the two sessions.
+- **Loop record bookkeeping (6.2, 6.6).** `loop-record.sh check` counts
+  toward `max_iterations` only `iterations[]` entries whose action is not
+  `skip`, so a cascade of clear-mode skips does not burn the budget.
+  `find --any` orders by `started`, then by id, so records created in one
+  second resolve to the later suffix. `create` claims its id with a
+  noclobber write (atomic on one machine; a state dir shared across
+  machines is unsupported) and rejects leading-zero numeric flags.
+- **Babysit CI wait (6.3).** The `wait-ci` row matches a `ci.status` of
+  `queued`, `in_progress`, `waiting` or `pending`, so a queued run is not
+  counted as idle.
 - **Flags on driver-armed loops (6.8).** The drivers append `--draft` /
   `--merge` to the cron prompt, and `/tracker-loop` falls back to the
   record's `options` when neither flag is on its command line. In poll, an

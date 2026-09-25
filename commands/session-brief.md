@@ -61,7 +61,7 @@ ALREADY RESOLVED
 VERDICT    <keep going | /compact | fresh session> — <reason>
 ```
 
-**LOOP** appears only when `loop` is non-null: a live `/tracker-loop` record for this branch. `cron armed` when `loop.cron_job_id` is set.
+**LOOP** appears only when `loop` is non-null: a live `/tracker-loop` record for this branch. `cron armed` when `loop.cron_job_id` is set. The collector matches records by branch, so `loop` is in practice a babysit loop; a clear or poll loop's checkpoint writes its own `**Loop:**` line from its record (`commands/tracker-loop.md` step 6).
 
 **LAST TASK** is the one section that is yours, not the script's. State what was actually in flight, cross-checked against `git.last_commit` and `git.dirty_files`. If `session.compaction_markers > 0` and you no longer hold the detail, say so plainly — "session was compacted; reconstructing from git state and last prompt" — and fall back to `session.last_prompt` plus the dirty files. Never fabricate continuity you don't have.
 
