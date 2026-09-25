@@ -1,6 +1,7 @@
 """Subprocess tests for hooks/session-title.sh (SessionStart hook)."""
 import json
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -141,6 +142,28 @@ def test_broken_jq_fails_open(project, hook_env, tmp_path):
     assert r.returncode == 0 and r.stdout == ""
 
 
+def test_missing_common_lib_fails_open(project, hook_env, tmp_path):
+    # The hook sources scripts/lib/common.sh via a path relative to its own
+    # location ("$(dirname "$0")/../scripts/lib/common.sh"). Run a copy of
+    # the hook from a tree that has no sibling scripts/lib/common.sh (an
+    # incomplete plugin install) and confirm it fails open: exit 0, no title
+    # JSON on stdout, and no state file written.
+    isolated_hooks = tmp_path / "isolated" / "hooks"
+    isolated_hooks.mkdir(parents=True)
+    isolated_hook = isolated_hooks / "session-title.sh"
+    shutil.copy(HOOK, isolated_hook)
+    # deliberately: no isolated/scripts/lib/common.sh
+    isolated_hook_result = subprocess.run(
+        [bash_path(), str(isolated_hook)],
+        input=json.dumps(payload_for(project, session_id="nolib1")),
+        text=True, encoding="utf-8", capture_output=True, env=hook_env,
+        timeout=30,
+    )
+    assert isolated_hook_result.returncode == 0
+    assert isolated_hook_result.stdout == ""
+    assert not (state_dir_of(hook_env) / "nolib1").exists()
+
+
 def test_preexisting_manual_title_gets_pinned(project, hook_env):
     r = run_hook(
         payload_for(project, session_id="pin1", session_title="my special session"),
@@ -170,7 +193,7 @@ def test_default_title_with_regex_metachar_dirname(tmp_path):
     (proj / ".claude").mkdir()
     (proj / ".claude" / "issue-tracker.yaml").write_text(CONFIG_GITHUB)
     env = dict(os.environ)
-    env["XDG_CACHE_HOME"] = str(tmp_path / "cache")
+    env["XDG_CACHE_HOME"] = (tmp_path / "cache").as_posix()
     env["AIT_TITLE_NO_AI"] = "1"
     r = run_hook(payload_for(proj, session_id="meta1", session_title="proj+abc-3f"), env)
     assert r.returncode == 0
@@ -206,6 +229,14 @@ def test_no_ref_anywhere_emits_nothing(project, hook_env):
 def test_version_segment_is_not_a_ref(project, hook_env):
     # "v2" must not become "#2"
     git(project, "switch", "-c", "feat/v2-cleanup")
+    t = title_of(run_hook(payload_for(project), hook_env))
+    assert t is None
+
+
+def test_release_branch_version_is_not_a_ref(project, hook_env):
+    # "release/1.8.0" must not become "#1" at the hook level either -- unit
+    # coverage lives in tests/test_common_lib.py::test_ref_from_branch.
+    git(project, "switch", "-c", "release/1.8.0")
     t = title_of(run_hook(payload_for(project), hook_env))
     assert t is None
 
