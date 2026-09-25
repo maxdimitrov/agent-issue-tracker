@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`/tracker-doctor` validates the optional `skill_currency:` block**
+  (#76). Phase 1 now emits WARN-only lines when the block is present but
+  malformed — not a mapping, `doc_globs` not a list of strings, a
+  `paired_rules` entry missing one of `watch` / `pattern` / `expect` /
+  `message`, or a `pattern` that does not compile — so config typos
+  surface at doctor time instead of as an `/audit-skills` exit 1. A
+  valid or absent block adds no output; Phases 2-3 are unaffected.
+
 - **New tab handoff in VS Code** (#129). After a follow-up is filed, and
   on a `/session-brief` **fresh session** verdict, the agent offers to
   open a new Claude Code tab with the next prompt typed in but not

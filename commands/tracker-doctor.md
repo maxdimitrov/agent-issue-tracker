@@ -30,7 +30,8 @@ Read `.claude/issue-tracker.yaml` from the consumer's CWD. Apply these checks in
 | Jira-only: `jira.issue_types` covers all five plugin types | mapping has keys `bug`, `feature`, `epic`, `sub`, `followup` | "missing issue_types mapping for: `<list>`" |
 | `loops.*` well-formed (only when `loops:` is present) | `interval` matches `^[0-9]+[smhd]$`; `max_iterations`, `max_hours`, `idle_stop_after`, `max_concurrent` are positive integers; `pr_mode` is `draft` or `ready`; no unknown keys | "invalid loops config: `<key>`: `<value>` (expected `<rule>`)" |
 
-Five WARN-only items (bullet list):
+WARN-only items (bullet list):
+
 - `areas:` empty or missing — optional, but warn so skills know to fall back to free-form.
 - `subsystems:` empty or missing — optional, but worth surfacing.
 - Jira-only: `jira.parent_link_style: epic_link` but `epic_link_field` not set — defaults to `customfield_10014`; warn but use the default.
@@ -47,6 +48,14 @@ Five WARN-only items (bullet list):
   ```
 
 - `loops:` absent — fine; `/tracker-loop` uses its built-in defaults (`examples/issue-tracker.yaml.example` documents them). Surfaced only so an operator who expected a custom `poll_label` notices it is not set.
+- `skill_currency:` malformed (only when the block is present; absent is fine and prints nothing). The block is optional and `/audit-skills` never blocks a PR, so every problem here is a `WARN`, never a `FAIL` — but without these rows a typo stays silent until `/audit-skills` exits 1 with a parse error. Check the shape `examples/issue-tracker.yaml.example` documents and emit one `WARN` line per problem, naming it:
+  - `skill_currency:` present but not a mapping — "`skill_currency` must be a mapping with `doc_globs` / `paired_rules`".
+  - `doc_globs:` present but not a list of strings — "`skill_currency.doc_globs` must be a list of glob strings".
+  - a `paired_rules:` entry (by index) missing any of `watch`, `pattern`, `expect`, `message` — "`skill_currency.paired_rules[<i>]` missing keys: `<list>`" (the same four keys `scripts/audit_skills.py`'s `parse_rule` requires).
+  - a `paired_rules:` entry whose `pattern` is not a valid regular expression — "`skill_currency.paired_rules[<i>].pattern` is not a valid regex: `<error>`". Test it the way the detector does (`python -c "import re, sys; re.compile(sys.argv[1])" '<pattern>'`), or reason about it when no Python is on PATH.
+  - a `paired_rules:` entry that is not a mapping, or `paired_rules:` itself not a list — same `WARN` shape, naming the offending index.
+
+  A valid block, or no block, adds no output. `skill_currency` problems never stop Phases 2-3: they are informational, exactly like the `/audit-skills` run they pre-empt.
 
 If any check `FAIL`s in Phase 1, **stop here**. Do NOT run Phase 2 or Phase 3. The config is structurally broken; reachability probes against it would just compound the noise. The summary line still prints with the Phase 1 counts.
 
@@ -177,6 +186,22 @@ Phase 3 — vocabulary sanity
 ```bash
 gh label create "dashboard" --repo "maxdimitrov/example-project" --description "Area: dashboard" --color BFD4F2
 ```
+
+Example for a malformed `skill_currency:` block in Phase 1 (WARN-only; Phases 2-3 still run):
+
+```
+Phase 1 — schema validation
+  [PASS] file exists
+  [PASS] YAML parses
+  [PASS] schema_version: 1
+  [PASS] backend: github
+  [PASS] github.repo: maxdimitrov/example-project
+  [WARN] skill_currency.doc_globs must be a list of glob strings (got a string)
+  [WARN] skill_currency.paired_rules[0] missing keys: expect, message
+  [WARN] skill_currency.paired_rules[1].pattern is not a valid regex: missing ), unterminated subpattern at position 12
+```
+
+Under each `WARN`, point at the shape: "see the `skill_currency:` block in `examples/issue-tracker.yaml.example`". `/audit-skills` would otherwise exit 1 on the first bad rule with the same message.
 
 ## Failure modes
 

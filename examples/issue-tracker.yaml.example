@@ -146,7 +146,10 @@ jira:
 # --- Optional: /audit-skills configuration -----------------------------------
 # Consumed by the /audit-skills slash command (the skill-currency
 # enforcement helper). Both keys optional; omit the whole block to use
-# the built-in defaults.
+# the built-in defaults. /tracker-doctor Phase 1 WARNs (never FAILs) when
+# the block is present but malformed: doc_globs not a list of strings, a
+# paired_rules entry missing one of watch / pattern / expect / message, or
+# a pattern that is not a valid regex.
 #
 # skill_currency:
 #   doc_globs:        # REPLACES the dual-layout defaults when set
