@@ -684,7 +684,10 @@ backend-specific capabilities"), set by a driver when work starts
   board item Status to `In Progress` (see `backends/github.md`).
 - **Jira** — `jira.in_progress_transition` configured → fire that
   workflow transition (see `backends/jira.md` "In-progress
-  transition (optional)").
+  transition (optional)"). With `jira.in_progress_sprint: active`
+  also set, right after firing the transition also add the issue
+  to the project's single active sprint (see `backends/jira.md`
+  "In-progress sprint (optional)"); GitHub n/a.
 - **Neither configured** — the fallback signal is the parent
   epic's `## Current branch` section, set via `upsert_comment` on
   the machine-block comment (evergreen parents) or the Status
