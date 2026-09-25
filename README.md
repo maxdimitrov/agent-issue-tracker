@@ -193,7 +193,6 @@ The current release is the top entry in [CHANGELOG.md](CHANGELOG.md); every ship
 
 - **Post-merge finish phase** for `/work-issue` — merged-vs-released transitions, index refresh, merge method, worktree cleanup (#115).
 - **Doctor write probe** — `/tracker-doctor` proves the GitHub token can *write* issues, for the consumer repo and for upstream contributions (#113).
-- **Active-sprint assignment** alongside `jira.in_progress_transition` (#112).
 - **Session-boundary nudges** via hook `systemMessage` (#114, needs a design pass).
 - **Config resolution** — env-var overrides and a global `~/.claude/issue-tracker.yaml` fallback (#7, needs a design pass).
 

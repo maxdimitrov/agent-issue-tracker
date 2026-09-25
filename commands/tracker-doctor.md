@@ -47,6 +47,31 @@ WARN-only items (bullet list):
     in_progress_transition: "In Progress"   # must match a transition name in your workflow
   ```
 
+- Jira-only, INFO-level: `jira.in_progress_sprint` not set — reported as an
+  `[INFO]` line, not `[WARN]` and not `[PASS]`; it counts toward neither in
+  the summary. Active-sprint assignment is opt-in on top of the transition
+  above, so leaving it unset is an ordinary, unremarkable default — worth one
+  line so the operator knows the affordance exists, but not worth a warning:
+
+  ```
+  [INFO] jira.in_progress_sprint unset — issues stay out of the active sprint when
+         work starts. Set it to opt in:
+  ```
+
+  ```yaml
+  jira:
+    in_progress_sprint: active
+    # sprint_board_id: 123            # optional; disambiguates multiple active sprints
+    # sprint_field: customfield_10020 # optional; defaults to customfield_10020
+  ```
+
+  When `jira.in_progress_sprint` IS set, validate its shape (still Phase 1,
+  still WARN-level — never FAIL):
+  - `in_progress_sprint` must be the literal string `active` (the only
+    supported value today) — WARN otherwise.
+  - `sprint_board_id`, if set, must be a positive integer — WARN otherwise.
+  - `sprint_field`, if set, must match `^customfield_\d+$` — WARN otherwise.
+
 - `loops:` absent — fine; `/tracker-loop` uses its built-in defaults (`examples/issue-tracker.yaml.example` documents them). Surfaced only so an operator who expected a custom `poll_label` notices it is not set.
 - `skill_currency:` malformed (only when the block is present; absent is fine and prints nothing). The block is optional and `/audit-skills` never blocks a PR, so every problem here is a `WARN`, never a `FAIL` — but without these rows a typo stays silent until `/audit-skills` exits 1 with a parse error. Check the shape `examples/issue-tracker.yaml.example` documents and emit one `WARN` line per problem, naming it:
   - `skill_currency:` present but not a mapping — "`skill_currency` must be a mapping with `doc_globs` / `paired_rules`".
@@ -61,7 +86,7 @@ If any check `FAIL`s in Phase 1, **stop here**. Do NOT run Phase 2 or Phase 3. T
 
 ### Phase 2 — Backend reachability
 
-Branch on `backend:` value from the schema. Phase 2 always finishes with `view_issue` (per cross-backend invariant #5 in `backends/_interface.md`) as the final reachability proof — different backends have different setup-prerequisite checks before that. The GitHub branch adds a fourth, WARN-only probe when `github.project` is configured (Projects board reachability).
+Branch on `backend:` value from the schema. Phase 2 always finishes with `view_issue` (per cross-backend invariant #5 in `backends/_interface.md`) as the final reachability proof — different backends have different setup-prerequisite checks before that. The GitHub branch adds a fourth, WARN-only probe when `github.project` is configured (Projects board reachability); the Jira branch likewise adds a fourth, WARN-only probe when `jira.in_progress_sprint` is configured (sprint-field and active-sprint sanity).
 
 #### GitHub branch
 
@@ -91,7 +116,7 @@ Three sequential probes numbered 1/2/3.
 
 #### Jira branch
 
-Three sequential probes numbered 1/2/3.
+Three sequential probes numbered 1/2/3, plus a fourth when configured.
 
 1. **Atlassian MCP availability** — confirm the agent's tool surface includes the Atlassian Remote MCP family (`createJiraIssue`, `getJiraIssue`, `searchJiraIssuesUsingJql`, `getAccessibleAtlassianResources`). `FAIL` with "enable the Atlassian connector at claude.ai → Settings → Connectors → Atlassian" otherwise. The agent uses `ToolSearch` against keywords like `jira atlassian` if uncertain.
 2. **`cloud_id` round-trip** — invoke `getAccessibleAtlassianResources`; confirm the configured `jira.cloud_id` appears in the returned site list and matches the configured `jira.site`. `FAIL` with the list of accessible cloud_ids otherwise.
@@ -99,6 +124,11 @@ Three sequential probes numbered 1/2/3.
    - `PASS` if the call returns a structured response.
    - `PASS-WITH-NOTE` if the call returns 404 — the project is reachable, but the probe issue doesn't exist (project may have started from a higher seed, or `<PROJECT>-1` is restricted). The dispatch path is proven.
    - `FAIL` only on 401 / 403 (auth wrong, or `cloud_id` doesn't match `site`) or connection error.
+
+4. **Active-sprint assignment sanity (only if `jira.in_progress_sprint` is set; skip otherwise).**
+   Two live checks, both `WARN`-only (never `FAIL` — the affordance is optional):
+   - `getJiraIssue({cloudId, issueIdOrKey: <smoke-ref-or-PROJECT-1>, expand: "names"})` — confirm `jira.sprint_field` (default `customfield_10020`) maps to a field named `Sprint` in the returned `names` map. `WARN` naming the field it actually maps to (or "not present") otherwise.
+   - `searchJiraIssuesUsingJql({cloudId, jql: "project = <jira.project> AND sprint in openSprints()", fields: [<sprint_field>]})` — collect distinct sprint objects with `state == "active"`, filtered by `boardId == jira.sprint_board_id` when that key is set. `WARN` naming the count found unless exactly one qualifies.
 
 If any check `FAIL`s in Phase 2, **continue to Phase 3** — vocabulary sanity is independent of reachability (the labels-list probe in Phase 3's GitHub branch hits `gh label list` which has its own auth path). But document: Phase 3 results may be empty or 401 if reachability is broken. Phase 2 `FAIL` is the actionable finding; Phase 3 is informational in that case.
 
@@ -148,7 +178,7 @@ Always exit 0. The final line aggregates counts:
 Summary: <F> FAIL · <W> WARN · <P> PASS
 ```
 
-`<F>`, `<W>`, `<P>` are the integer counts of `FAIL` / `WARN` / `PASS` lines across Phases 1-4. `PASS-WITH-NOTE` counts as `PASS` for the summary but renders inline as `[PASS] ... (note: <reason>)`.
+`<F>`, `<W>`, `<P>` are the integer counts of `FAIL` / `WARN` / `PASS` lines across Phases 1-4. `PASS-WITH-NOTE` counts as `PASS` for the summary but renders inline as `[PASS] ... (note: <reason>)`. `[INFO]` lines are not counted.
 
 ## Output format
 
@@ -216,7 +246,7 @@ Under each `WARN`, point at the shape: "see the `skill_currency:` block in `exam
 - **Always exits 0.** Informational discipline. Mirrors `/audit-skills`. The operator decides whether `WARN` matters; the validator never gates.
 - **Read-only.** No `create_issue`, no `edit_body`, no `add_label`, no `close_issue`. No modifications to `.claude/issue-tracker.yaml`. Cross-cuts every check.
 - **Canonical reachability probe is `view_issue`.** Cross-backend invariant #5 from `backends/_interface.md`. Every backend's Phase 2 final step dispatches through that contract operation, not the backend's raw CLI / MCP.
-- **PASS / WARN / FAIL / PASS-WITH-NOTE is fixed.** `FAIL` = dispatch path is broken; `WARN` = dispatch works but vocabulary is incomplete; `PASS` = green; `PASS-WITH-NOTE` = dispatch works but the probe artifact is absent (404).
+- **PASS / WARN / FAIL / PASS-WITH-NOTE is fixed.** `FAIL` = dispatch path is broken; `WARN` = dispatch works but vocabulary is incomplete; `PASS` = green; `PASS-WITH-NOTE` = dispatch works but the probe artifact is absent (404). The only other line shape is `[INFO]`: a render-only note about an unset opt-in key (today: `jira.in_progress_sprint`) that is neither a check result nor counted in the summary.
 - **Markdown-only file.** Slash commands are markdown. No embedded shell scripts beyond what `backends/<backend>.md` already documents as probe commands.
 - **Phase 1 short-circuits Phases 2-3; Phase 2 does NOT short-circuit Phase 3.** A broken schema makes downstream probes meaningless. A broken reachability still leaves vocabulary findings actionable.
 
