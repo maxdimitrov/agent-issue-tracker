@@ -86,20 +86,49 @@ If any check `FAIL`s in Phase 1, **stop here**. Do NOT run Phase 2 or Phase 3. T
 
 ### Phase 2 — Backend reachability
 
-Branch on `backend:` value from the schema. Phase 2 always finishes with `view_issue` (per cross-backend invariant #5 in `backends/_interface.md`) as the final reachability proof — different backends have different setup-prerequisite checks before that. The GitHub branch adds a fourth, WARN-only probe when `github.project` is configured (Projects board reachability); the Jira branch likewise adds a fourth, WARN-only probe when `jira.in_progress_sprint` is configured (sprint-field and active-sprint sanity).
+Branch on `backend:` value from the schema. Phase 2 always runs `view_issue` (per cross-backend invariant #5 in `backends/_interface.md`) as the canonical reachability proof — different backends have different setup-prerequisite checks before it and conditional WARN-only probes after it. The GitHub branch adds two unconditional probes before `view_issue` (issues-enabled, write probe) plus a conditional, WARN-only probe when `github.project` is configured (Projects board reachability); the Jira branch adds a conditional, WARN-only probe when `jira.in_progress_sprint` is configured (sprint-field and active-sprint sanity). After the backend-specific branch, both backends run the upstream-contribution check (WARN-only, below) against the plugin's own repo.
 
 #### GitHub branch
 
-Three sequential probes numbered 1/2/3.
+Five sequential probes numbered 1-5, plus a sixth, conditional, WARN-only Projects-board probe when `github.project` is set.
 
-1. `gh auth status` — `PASS` if exits 0; `FAIL` with "run `gh auth login` and retry" otherwise.
+1. `gh auth status` — `PASS` if exits 0; `FAIL` with "run `gh auth login` and retry" otherwise. Report the credential source and token type from this call's own output: the line naming `GH_TOKEN`/`GITHUB_TOKEN` (env) or `keyring`, and the token's non-secret prefix — `github_pat_` (fine-grained), `ghp_` (classic), `gho_` (OAuth). Never print more of the token than the prefix.
 2. `gh repo view <github.repo>` — `PASS` if exits 0; `FAIL` with the literal `gh` error (typically "Could not resolve to a Repository") + suggestion to fix `github.repo` in the YAML.
-3. **Canonical reachability:** invoke `view_issue({ref: "#<smoke-ref-or-1>"})` against the configured backend (which dispatches to `gh issue view <N> --repo <github.repo> --json body,labels,state,title`). `<smoke-ref>` is the `--smoke-issue` flag value if passed (accept either `#7` or `7` — strip a leading `#` before composing the ref); otherwise default to `1`.
+3. **Issues enabled:** `gh repo view <github.repo> --json hasIssuesEnabled --jq .hasIssuesEnabled`. `FAIL` with "issues are disabled on `<repo>` (common on forks) — enable them in Settings → Features, or point `github.repo` at the upstream repo" if `false`.
+4. **Write probe:** confirm the token can *create* issues, not just read them — on a public repo, probes 1-3 all pass for a read-only token, so `create_issue` failing is otherwise discovered only at filing time. Non-destructive: POST an issue with an empty body. `title` is required, so nothing is ever created, and GitHub checks the token's permission before it validates the request body:
+
+   ```bash
+   gh api -X POST "repos/<github.repo>/issues" --input - <<< '{}'
+   ```
+
+   | HTTP status | Observed message | Meaning | Result |
+   |---|---|---|---|
+   | 422 | `Invalid request. "title" wasn't supplied.` | token may create issues; nothing created | `PASS` |
+   | 403 | `Resource not accessible by personal access token` | token can read but not write issues here | `FAIL` |
+   | 401 | `Bad credentials` | token invalid, expired, or revoked | `FAIL` |
+
+   Remediation on `FAIL`, tailored to the token type named in step 1:
+   - `github_pat_` (fine-grained) on 403: whoever owns the token (the
+     operator, or the org for an org-owned token) must grant it "Issues:
+     Read and write" on this repo, or re-auth with a classic/OAuth token via
+     `gh auth login`.
+   - `ghp_` (classic) or `gho_` (OAuth) on 403: the token itself lacks the
+     `repo` scope — `gh auth refresh -s repo` or `gh auth login` again.
+   - Any type on 401: the token is invalid, expired, or revoked — `gh auth
+     login` for a fresh one.
+
+   **Expiry.** Re-run the same probe with `-i` (`gh api -i -X POST ...`) to
+   read response headers. If `github-authentication-token-expiration` is
+   present, print the date; `WARN` when it is under 14 days away or already
+   past. Absent means the token does not expire (observed for the OAuth
+   `gho_` token this was verified against).
+
+5. **Canonical reachability:** invoke `view_issue({ref: "#<smoke-ref-or-1>"})` against the configured backend (which dispatches to `gh issue view <N> --repo <github.repo> --json body,labels,state,title`). `<smoke-ref>` is the `--smoke-issue` flag value if passed (accept either `#7` or `7` — strip a leading `#` before composing the ref); otherwise default to `1`.
    - `PASS` if the call returns a structured response (issue exists).
    - `PASS-WITH-NOTE` if the call returns 404 — the repo is reachable, but the issue doesn't exist (greenfield repo). The dispatch path is proven.
    - `FAIL` only on 401 / 403 (auth wrong despite Step 1 passing — token scope mismatch) or connection error.
 
-4. **GitHub Projects board (only if `github.project` is set; skip otherwise).**
+6. **GitHub Projects board (only if `github.project` is set; skip otherwise).**
    Parse `<owner>` + `<N>` from the configured `github.project` URL, then run
    `gh project view <N> --owner <owner>`.
    - `PASS` if it returns the project (board reachable + scope present).
@@ -129,6 +158,19 @@ Three sequential probes numbered 1/2/3, plus a fourth when configured.
    Two live checks, both `WARN`-only (never `FAIL` — the affordance is optional):
    - `getJiraIssue({cloudId, issueIdOrKey: <smoke-ref-or-PROJECT-1>, expand: "names"})` — confirm `jira.sprint_field` (default `customfield_10020`) maps to a field named `Sprint` in the returned `names` map. `WARN` naming the field it actually maps to (or "not present") otherwise.
    - `searchJiraIssuesUsingJql({cloudId, jql: "project = <jira.project> AND sprint in openSprints()", fields: [<sprint_field>]})` — collect distinct sprint objects with `state == "active"`, filtered by `boardId == jira.sprint_board_id` when that key is set. `WARN` naming the count found unless exactly one qualifies.
+
+#### Upstream contribution check (both backends, WARN-only)
+
+Runs after the backend-specific branch above, **for both backends** — `tracker-contribute` always uses `gh` to file upstream, regardless of `backend:`. Reuses the same non-destructive write probe as the GitHub branch's step 4, aimed instead at the repository named in the plugin's own `.claude-plugin/plugin.json` `repository` field (parse `<owner>/<repo>` from that URL; today `maxdimitrov/agent-issue-tracker`). Honour `GH_TOKEN` / `GITHUB_TOKEN` when set — same precedence `gh` itself uses — so this checks the token an operator will actually file with, not just the keyring default. Document to the operator: run `/tracker-doctor` with the same environment you plan to file with.
+
+```bash
+gh api -X POST "repos/maxdimitrov/agent-issue-tracker/issues" --input - <<< '{}'
+```
+
+- `422` — `PASS`.
+- `403` with a fine-grained token (`github_pat_`) — `WARN`, quoting the limitation: GitHub does not support fine-grained PATs contributing to public repos where the token owner is not a member, and each fine-grained token is scoped to a single resource owner. Remediation: `gh auth login` (OAuth), or set `GH_TOKEN` to a classic/OAuth token for this one call.
+- `401` — `WARN`: "token expired or revoked; rotate it."
+- `gh` missing or unauthenticated — `WARN`, never `FAIL`: contributing upstream is optional.
 
 If any check `FAIL`s in Phase 2, **continue to Phase 3** — vocabulary sanity is independent of reachability (the labels-list probe in Phase 3's GitHub branch hits `gh label list` which has its own auth path). But document: Phase 3 results may be empty or 401 if reachability is broken. Phase 2 `FAIL` is the actionable finding; Phase 3 is informational in that case.
 
@@ -196,14 +238,37 @@ Phase 1 — schema validation
   [WARN] areas: unset (skills will use free-form area)
 
 Phase 2 — backend reachability
-  [PASS] gh auth status
+  [PASS] gh auth status (keyring; ghp_ classic PAT)
   [PASS] gh repo view maxdimitrov/example-project
+  [PASS] hasIssuesEnabled: true
+  [PASS] write probe: 422 — token may create issues
+  [PASS] token expiry: 2027-03-01 (154 days out)
   [PASS] view_issue(#1) — issue exists
+
+Upstream contribution check
+  [PASS] write probe (maxdimitrov/agent-issue-tracker): 422 — token may create issues
 
 Phase 3 — vocabulary sanity
   (no areas configured; skipping)
 
-Summary: 0 FAIL · 1 WARN · 8 PASS
+Summary: 0 FAIL · 1 WARN · 12 PASS
+```
+
+Example for a write-probe `FAIL` (403 on the consumer repo — a fine-grained token that can read but not write issues here):
+
+```
+Phase 2 — backend reachability
+  [PASS] gh auth status (keyring; github_pat_ fine-grained PAT)
+  [PASS] gh repo view maxdimitrov/example-project
+  [PASS] hasIssuesEnabled: true
+  [FAIL] write probe: 403 — Resource not accessible by personal access token
+```
+
+```bash
+# Fine-grained PAT lacks "Issues: Read and write" on this repo.
+# Grant it in the token's settings (org admin for an org-owned token),
+# or re-auth with a classic/OAuth token:
+gh auth login
 ```
 
 For `FAIL` / `WARN` lines, render the literal next-step command in a fenced block under the line. Example for a missing-label `WARN` in Phase 3a:
@@ -239,12 +304,16 @@ Under each `WARN`, point at the shape: "see the `skill_currency:` block in `exam
 - **Phase 1 FAIL (any).** Do not run Phase 2 or 3 — the YAML is structurally broken; further probes would compound noise. Summary line still prints with Phase 1 counts.
 - **Backend probe timeout / network error.** Render as `FAIL` with the literal command the operator should retry by hand. Exit 0 (informational).
 - **Atlassian MCP not in tool surface (Jira).** Phase 2 step 1 = `FAIL` with the connector setup link. Phase 2 steps 2/3 + Phase 3 skip with a note ("Atlassian MCP unavailable; skipping").
+- **Write probe FAIL (403 / 401 on the consumer repo).** 403 = token can read but not write issues here — a fine-grained PAT needs "Issues: Read and write" on this repo granted by the token's owner (the org, for an org-owned token), or re-auth (`gh auth login`) with a classic/OAuth token; a classic/OAuth token needs `gh auth refresh -s repo`. 401 = token invalid, expired, or revoked — `gh auth login` for a fresh one. Doctor still continues past it (Phase 2 `FAIL` doesn't short-circuit Phase 3).
+- **Upstream contribution check WARN (403 on the plugin repo with a fine-grained token).** GitHub does not support fine-grained PATs contributing to public repos where the token owner is not a member. Remediation: `gh auth login` (OAuth), or set `GH_TOKEN` to a classic/OAuth token for that one call. Never `FAIL`s — contributing upstream is optional.
 - **Operator interrupts mid-validation.** No side effects — the command is read-only. The harness's interrupt handling closes the session; no partial state on disk or in the tracker.
 
 ## Invariants
 
 - **Always exits 0.** Informational discipline. Mirrors `/audit-skills`. The operator decides whether `WARN` matters; the validator never gates.
-- **Read-only.** No `create_issue`, no `edit_body`, no `add_label`, no `close_issue`. No modifications to `.claude/issue-tracker.yaml`. Cross-cuts every check.
+- **Read-only, with one narrow, verified exception.** No `create_issue`, no `edit_body`, no `add_label`, no `close_issue`. No modifications to `.claude/issue-tracker.yaml`. The GitHub write probe (Phase 2 GitHub branch step 4, reused by the upstream contribution check) is the one write-*shaped* call, and it can never mutate anything: it POSTs an issue body with `title` omitted, `title` is a required field, and GitHub checks the token's permission before it validates the request body — so the best case the probe can produce is a 422 rejection, never a created issue.
+- **Never use `viewerPermission` or `permissions.*` as evidence of write access.** Both reflect the authenticated *account's* role on the repo, not what the *token* was granted — a fine-grained PAT scoped to read-only can sit on an account with `viewerPermission: WRITE` and still fail every `create_issue`. Only the write probe's actual HTTP status is evidence.
+- **Never print or log a token.** The non-secret prefix (`github_pat_`, `ghp_`, `gho_`) is the only token-derived output, ever.
 - **Canonical reachability probe is `view_issue`.** Cross-backend invariant #5 from `backends/_interface.md`. Every backend's Phase 2 final step dispatches through that contract operation, not the backend's raw CLI / MCP.
 - **PASS / WARN / FAIL / PASS-WITH-NOTE is fixed.** `FAIL` = dispatch path is broken; `WARN` = dispatch works but vocabulary is incomplete; `PASS` = green; `PASS-WITH-NOTE` = dispatch works but the probe artifact is absent (404). The only other line shape is `[INFO]`: a render-only note about an unset opt-in key (today: `jira.in_progress_sprint`) that is neither a check result nor counted in the summary.
 - **Markdown-only file.** Slash commands are markdown. No embedded shell scripts beyond what `backends/<backend>.md` already documents as probe commands.
