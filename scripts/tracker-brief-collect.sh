@@ -143,7 +143,7 @@ fi
 # Fallback spill files live outside AIT_TMP, so they are tracked (one path
 # per line) and removed on exit too.
 SPILL_EXTRA=""
-# shellcheck disable=SC2329  # invoked by the EXIT trap below
+# shellcheck disable=SC2317,SC2329  # invoked by the EXIT trap below
 cleanup() {
   [ -n "$AIT_TMP" ] && rm -rf "$AIT_TMP"
   local f
