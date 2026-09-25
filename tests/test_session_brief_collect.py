@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from shell_helpers import (SCRIPTS, env_with_path, git, init_repo, isolated_env,
-                           make_stub, run_script)
+from shell_helpers import (SCRIPTS, env_with_path, env_without_command, git, init_repo,
+                           isolated_env, make_stub, run_script)
 
 SCRIPT = SCRIPTS / "session-brief-collect.sh"
 CONFIG = "schema_version: 1\nbackend: github\ngithub:\n  repo: acme/widgets\n"
@@ -348,3 +348,99 @@ def test_corrupt_sibling_loop_record_is_skipped(repo, tmp_path):
     }))
     out = run(repo, env)
     assert out["loop"]["id"] == "babysit-42-1"
+
+
+def test_session_from_session_id_env(repo, tmp_path):
+    env = isolated_env(tmp_path, CLAUDE_CODE_SESSION_ID="abc-123")
+    projects = Path(env["CLAUDE_CONFIG_DIR"]) / "projects"
+    # The cwd does not match, so only the session-id lookup can find it.
+    t = transcript(projects / "p-x" / "abc-123.jsonl", cwd=str(tmp_path / "elsewhere"), user_turns=2)
+    out = run(repo, env)
+    assert out["session"]["transcript_source"] == "session-id"
+    assert out["session"]["transcript"].endswith("abc-123.jsonl")
+    assert out["session"]["turns_user"] == 2
+    assert t.is_file()
+
+
+def test_discovery_ignores_transcripts_older_than_30_minutes(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    projects = Path(env["CLAUDE_CONFIG_DIR"]) / "projects"
+    old = transcript(projects / "p-a" / "old.jsonl", cwd=str(repo), user_turns=2)
+    then = time.time() - 3600
+    os.utime(old, (then, then))
+    assert run(repo, env)["session"] is None
+
+
+def test_base_probed_when_origin_head_unset(repo, tmp_path):
+    bare = tmp_path / "origin.git"
+    __import__("subprocess").run(["git", "init", "-q", "--bare", str(bare)], check=True)
+    git(repo, "remote", "add", "origin", bare.as_posix())
+    # origin/main = init (2 behind HEAD), origin/master = "add a" (1 behind):
+    # the candidate this branch diverged from last wins.
+    git(repo, "push", "-q", "origin", "main", "HEAD:refs/heads/master")
+    (repo / "b.txt").write_text("b")
+    git(repo, "add", "b.txt")
+    git(repo, "commit", "-q", "-m", "add b")
+    git(repo, "fetch", "-q", "origin")
+    # Newer git records origin/HEAD on fetch; drop it so the probe runs.
+    git(repo, "remote", "set-head", "origin", "--delete")
+    assert not (repo / ".git" / "refs" / "remotes" / "origin" / "HEAD").exists()
+    out = run(repo, isolated_env(tmp_path))
+    assert out["git"]["base"] == "master"
+    assert out["git"]["ahead"] == 1 and out["git"]["behind"] == 0
+    assert [c["subject"] for c in out["git"]["commits"]] == ["add b"]
+
+
+def test_detached_head(repo, tmp_path, gh):
+    stub, extra = gh
+    git(repo, "checkout", "-q", "--detach")
+    out = run(repo, env_with_path(isolated_env(tmp_path, **extra), stub))
+    assert out["git"]["detached"] is True
+    assert out["git"]["branch"] and "/" not in out["git"]["branch"]
+    assert out["ticket"]["key"] is None
+    assert out["pr"] is None and out["errors"] == []
+
+
+def test_gh_missing_from_path(repo, tmp_path):
+    env = env_without_command(isolated_env(tmp_path), tmp_path, "gh")
+    out = run(repo, env)
+    assert out["repo"]["gh_available"] is False and out["repo"]["gh_ok"] is False
+    assert out["pr"] is None and out["ci"] is None and out["review"] is None
+    assert out["errors"] == ["gh unavailable -- PR data skipped"]
+    assert out["ticket"]["key"] == "#42"
+
+
+def test_jq_missing_from_path(repo, tmp_path):
+    env = env_without_command(isolated_env(tmp_path), tmp_path, "jq")
+    out = run(repo, env)
+    assert out["error"] == "jq not found on PATH"
+    assert out["errors"] == ["jq not found on PATH"] and out["session"] is None
+
+
+GH_LOG_STUB = r'''
+echo "$@" >> "$GH_CALLS"
+case "$*" in
+  *"repo view"*)   echo "acme/widgets" ;;
+  *"pr view"*)     echo 'no pull requests found' >&2; exit 1 ;;
+  *"actions/runs"*) echo '{"workflow_runs":[]}' ;;
+  *"api user"*)    echo "me" ;;
+  *) exit 1 ;;
+esac
+'''
+
+
+def test_actions_branch_query_is_url_encoded(repo, tmp_path):
+    git(repo, "switch", "-q", "-c", "feat/a+b#1")
+    calls = tmp_path / "gh-calls"
+    stub = make_stub(tmp_path / "bin", "gh", GH_LOG_STUB)
+    out = run(repo, env_with_path(isolated_env(tmp_path, GH_CALLS=calls.as_posix()), stub))
+    assert out["errors"] == []
+    runs = [ln for ln in calls.read_text().splitlines() if "actions/runs" in ln]
+    assert runs and "branch=feat%2Fa%2Bb%231&per_page=30" in runs[0]
+
+
+def test_staged_rename_reports_new_path(repo, tmp_path):
+    git(repo, "mv", "a.txt", "renamed.txt")
+    out = run(repo, isolated_env(tmp_path))
+    files = out["git"]["dirty_files"]
+    assert files == [{"status": "R ", "path": "renamed.txt", "orig_path": "a.txt"}]

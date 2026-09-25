@@ -13,6 +13,23 @@ ait_hash() { if command -v shasum >/dev/null 2>&1; then shasum -a 256; else sha2
 
 ait_json_str() { jq -Rn --arg v "${1-}" '$v'; }
 
+# ait_uri_encode <s> - percent-encodes <s> for a URL query value (jq @uri:
+# everything but A-Z a-z 0-9 -_.~ is escaped, so `/`, `+`, `#`, `&` and
+# spaces in a branch name cannot break the query). -j prints no trailing
+# newline, so a native Windows jq cannot leave a stray CR in the capture.
+ait_uri_encode() { jq -jn --arg s "${1-}" '$s | @uri'; }
+
+# ait_json_type <json> - prints the JSON type of <json> (array, object,
+# string, number, boolean, null); prints nothing and returns 1 when <json>
+# is empty or does not parse as exactly one JSON value.
+ait_json_type() {
+  local t
+  [ -n "${1-}" ] || return 1
+  t="$(jq -jse 'if length == 1 then .[0] | type else error("not one value") end' <<<"$1" 2>/dev/null)" || return 1
+  [ -n "$t" ] || return 1
+  printf '%s' "$t"
+}
+
 # ait_run_capped <secs> <cmd...> - timeout(1) / gtimeout, else a watchdog.
 # The watchdog's stdout goes to /dev/null on purpose: holding the caller's
 # command-substitution pipe open would block every call for the full cap.
@@ -95,19 +112,20 @@ ait_epoch_from_iso() {
 # The leading-number rule only fires when the number is immediately followed
 # by `-` or end-of-string, so a version segment like `1.8.0` (leading digit
 # run followed by `.`) is never mistaken for an issue number.
+#
+# Pure bash (`[[ =~ ]]`, POSIX ERE, leftmost-longest like the grep -oE it
+# replaced): no subprocess per call, which matters when a collector maps
+# a hundred PR branches. The patterns live in variables so bash 3.2 and 4+
+# parse them the same way; LC_ALL=C keeps [A-Z] ASCII-only.
 ait_ref_from_branch() {
-  local leaf="${1##*/}" ref="" num=""
-  ref="$(printf '%s' "$leaf" | grep -oE '[A-Z][A-Z0-9]+-[0-9]+' | head -1)" || true
-  if [ -z "$ref" ]; then
-    num="$(printf '%s' "$leaf" | grep -oE '^[0-9]+(-|$)' | head -1)" || true
-    num="${num%-}"
-    if [ -z "$num" ]; then
-      num="$(printf '%s' "$leaf" | grep -oE '(^|-)issue-?[0-9]+' | grep -oE '[0-9]+' | head -1)" || true
-    fi
-    [ -n "$num" ] && ref="#$num"
-  fi
-  [ -n "$ref" ] || return 1
-  printf '%s' "$ref"
+  local leaf="${1##*/}" re LC_ALL=C
+  re='[A-Z][A-Z0-9]+-[0-9]+'
+  if [[ $leaf =~ $re ]]; then printf '%s' "${BASH_REMATCH[0]}"; return 0; fi
+  re='^([0-9]+)(-|$)'
+  if [[ $leaf =~ $re ]]; then printf '#%s' "${BASH_REMATCH[1]}"; return 0; fi
+  re='(^|-)issue-?([0-9]+)'
+  if [[ $leaf =~ $re ]]; then printf '#%s' "${BASH_REMATCH[2]}"; return 0; fi
+  return 1
 }
 
 # Mirrors ait_ref_from_branch's tightened leading-number rule: the strip only

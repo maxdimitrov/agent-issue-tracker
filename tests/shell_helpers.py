@@ -101,3 +101,48 @@ def init_repo(path, branch="main"):
     )
     git(path, "commit", "--allow-empty", "-m", "init")
     return path
+
+
+def env_without_command(env, tmp_path, name):
+    """`env` with every PATH dir that holds `name` (or `name`.exe) hidden.
+
+    On Windows the tools this plugin shells out to (gh, jq) each live in a
+    directory of their own, so that directory is simply dropped. Elsewhere
+    they usually share /usr/bin with bash, git and coreutils, so that
+    directory is replaced by a symlink farm of everything in it except
+    `name`.
+
+    HOME points at an empty directory too: Git for Windows' bash launcher
+    prepends $HOME/bin to PATH on its own, which would bring back a tool
+    installed there.
+    """
+    env = dict(env)
+    home = Path(tmp_path) / f"home-without-{name}"
+    home.mkdir(parents=True, exist_ok=True)
+    env["HOME"] = str(home)
+    kept = []
+    farm_n = 0
+    for d in env.get("PATH", "").split(os.pathsep):
+        if not d:
+            continue
+        hits = [os.path.join(d, n) for n in (name, name + ".exe")]
+        if not any(os.path.exists(h) for h in hits):
+            kept.append(d)
+            continue
+        if sys.platform == "win32":
+            continue
+        farm = Path(tmp_path) / f"path-without-{name}-{farm_n}"
+        farm_n += 1
+        farm.mkdir(parents=True, exist_ok=True)
+        for entry in os.listdir(d):
+            if entry in (name, name + ".exe"):
+                continue
+            link = farm / entry
+            if not link.exists():
+                try:
+                    link.symlink_to(os.path.join(d, entry))
+                except OSError:
+                    pass
+        kept.append(str(farm))
+    env["PATH"] = os.pathsep.join(kept)
+    return env
