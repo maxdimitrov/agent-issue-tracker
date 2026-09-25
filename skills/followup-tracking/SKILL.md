@@ -186,6 +186,34 @@ body, modify the Parent block in memory, write back the whole body.
 The contract documents this as a destructive whole-body replace; the
 skill is responsible for the read-modify-write cycle.
 
+## After filing: offer a new tab
+
+Once `create_issue` returns the new ref, the handoff should not end at
+"filed #N". Tell the operator the next prompt,
+`/agent-issue-tracker:work-issue <ref>`, and on a VS Code host
+**offer** to open it in a new Claude Code tab: "Open a new tab to work
+<ref> now?" Offer only. Never open a tab unasked, because it acts on the
+operator's editor.
+
+- **VS Code host** (`CLAUDE_CODE_ENTRYPOINT` is `claude-vscode`): on a
+  yes, run
+  `"${CLAUDE_PLUGIN_ROOT}/scripts/open-session-tab.sh" "/agent-issue-tracker:work-issue <ref>"`.
+  The script fires
+  `code --open-url "vscode://anthropic.claude-code/open?prompt=<urlencoded>"`.
+  The prompt is **typed into** the new tab's input box but **not
+  submitted**; the operator presses Enter. VS Code first asks whether
+  to allow the extension to open the URI, and that dialog is easy to
+  miss, so mention it.
+- **Anything else** (CLI, JetBrains, `code` not on PATH, or the script
+  printed `"opened":false` with a `reason`): print the prompt for
+  copy-paste. That is the whole fallback; the script's JSON already
+  names the reason.
+
+The new tab gets no custom title. The URI has no title parameter, and
+`/rename` cannot be stacked with a real prompt in one message. The ref
+in the prompt identifies the work, and `/work-issue`'s branch names it
+once the run starts.
+
 ## Labels
 
 Every follow-up gets:
