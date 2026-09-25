@@ -81,12 +81,12 @@ Before the table, classify every `SB.review.threads[]` with `awaiting_you == tru
 
 | Observation (first match wins) | Action |
 |---|---|
-| `pr.state` is `MERGED` or `CLOSED` | **stop: done** |
+| `pr.state` is `MERGED` or `CLOSED` | **stop: done** — when `pr.state == MERGED` and the record's ref is an issue ref (or `SB.ticket.key` resolves one), the stop action is `/work-issue <ref> --finish`; a failure there is a WARN in the stop line, never a reason to keep looping |
 | `pr.mergeable == "CONFLICTING"` | **rebase** onto `git.base`, resolve, push |
 | `ci.conclusion == "failure"` | **fix-ci**: `superpowers:systematic-debugging` on `ci.failed_jobs`, `superpowers:test-driven-development` for the fix, push |
 | an awaiting thread classified `code` | **address-review**: make the change, push, reply on the thread naming the commit SHA, resolve the thread |
 | an awaiting thread classified `judgement` | **stop: needs-you** — quote author, path:line, excerpt |
-| `pr.reviewDecision == "APPROVED"` and the effective `--merge` | **merge**: `gh pr merge --squash --auto` (falls back to a direct squash merge only where auto-merge is unavailable), then **stop: done** |
+| `pr.reviewDecision == "APPROVED"` and the effective `--merge` | **merge**: `gh pr merge --<merge_method> --match-head-commit <pr.headRefOid> --auto` (`merge_method` from `.claude/issue-tracker.yaml`, default `squash`; falls back to a direct merge with the same method and pin only where auto-merge is unavailable; never `--delete-branch`). A direct merge lands immediately: run `/work-issue <ref> --finish` and **stop: done**. An armed auto-merge lands when the checks pass: record the action and keep iterating (`wait-ci` while checks run), so the first row observes `pr.state == MERGED` and runs `--finish` at its stop |
 | `pr.reviewDecision == "APPROVED"`, no effective `--merge` | **stop: ready-to-merge** — the operator's call |
 | `ci.status == "in_progress"` | **wait-ci** (hint: CI) — recorded without `--noop`; does not count toward `idle_stop_after` |
 | anything else | **wait** (hint: idle) — recorded with `--noop`; counts toward `idle_stop_after` |
@@ -151,6 +151,7 @@ The last line of every iteration. A self-paced `/loop` follows it; a fixed-inter
 ## Safety rails
 
 - Never merge without `--merge`; never open a ready PR on red (`/work-issue` Step 5 already refuses); never force-push.
+- Never delete a remote branch; GitHub's `deleteBranchOnMerge` setting owns that.
 - At most one mutating action per iteration (step 5's definition; poll and clear's controlled exceptions are spelled out in their tables); a NEEDS YOU always stops the loop over continuing.
 - Every tracker write is a contract op (`backends/_interface.md`): `add_label` for the claim label, `upsert_comment` for the skip comment (marker `<!-- tracker-loop:skip -->`). Every git-host write is one `/work-issue` already documents.
 - Budgets are enforced from the record on disk (`LR check`), before acting.
