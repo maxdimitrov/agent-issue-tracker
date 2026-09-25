@@ -192,7 +192,6 @@ A GitLab backend is filed as [#4](https://github.com/maxdimitrov/agent-issue-tra
 The current release is the top entry in [CHANGELOG.md](CHANGELOG.md); every shipped capability is recorded there with its issue and PR numbers. Open work, in priority order, lives in [the issues list](https://github.com/maxdimitrov/agent-issue-tracker/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement):
 
 - **Post-merge finish phase** for `/work-issue` — merged-vs-released transitions, index refresh, merge method, worktree cleanup (#115).
-- **Doctor write probe** — `/tracker-doctor` proves the GitHub token can *write* issues, for the consumer repo and for upstream contributions (#113).
 - **Session-boundary nudges** via hook `systemMessage` (#114, needs a design pass).
 - **Config resolution** — env-var overrides and a global `~/.claude/issue-tracker.yaml` fallback (#7, needs a design pass).
 
