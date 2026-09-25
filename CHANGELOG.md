@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **New tab handoff in VS Code** (#129). After a follow-up is filed, and
+  on a `/session-brief` **fresh session** verdict, the agent offers to
+  open a new Claude Code tab with the next prompt typed in but not
+  submitted. The new `scripts/open-session-tab.sh` fires the extension's
+  `vscode://anthropic.claude-code/open?prompt=…` URI through
+  `code --open-url`. It always exits 0 with JSON, and on a non-VS Code
+  host it reports `opened:false` with a reason, so the prompt is printed
+  for copy-paste as before.
+
 ## [1.9.0] - 2026-09-25
 
 ### Added
