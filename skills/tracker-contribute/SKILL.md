@@ -40,8 +40,14 @@ to the plugin's repo:
   consumer project is configured for Jira. Do not file plugin problems into
   the consumer's tracker; they will never reach the maintainer.
 
-If `gh auth status` fails, tell the user to run `gh auth login` once — there
-is no plugin-managed credential.
+Run `/tracker-doctor` first — its upstream-contribution check (Phase 2)
+probes this exact repo with a non-destructive write call and tells you
+whether filing will work, and why not, before you draft anything. If doctor
+wasn't run: a `403` on that probe usually means a fine-grained PAT (GitHub
+does not support fine-grained tokens contributing to public repos where the
+token owner is not a member); a `401` means the token is expired or revoked.
+Either way, there is no plugin-managed credential — `gh auth login` (OAuth)
+or a `GH_TOKEN`/`GITHUB_TOKEN` override for this one call are the fixes.
 
 ## When to use
 

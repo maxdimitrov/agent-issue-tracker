@@ -219,7 +219,11 @@ The consumer's `.claude/issue-tracker.yaml`'s `github.default_pr_close_syntax` f
 
 1. `gh auth status` — must succeed (consumer is authed).
 2. `gh repo view "$GITHUB_REPO"` — must succeed (repo exists, consumer has access).
-3. For each label in `areas:`, `gh label list --repo "$GITHUB_REPO" --search "$LABEL"` — warning if missing, prints `gh label create` next-step.
+3. `gh repo view "$GITHUB_REPO" --json hasIssuesEnabled` — must be `true` (fails on forks with issues disabled).
+4. **Write probe:** `gh api -X POST "repos/$GITHUB_REPO/issues" --input - <<< '{}'` — non-destructive, since `title` is required and GitHub checks write permission before validating the body. `422` ("title" wasn't supplied) means the token may create issues; `403` means it can read but not write; `401` means the token is invalid, expired, or revoked. Proves the token can actually satisfy `create_issue`, not just the read-only probes above.
+5. For each label in `areas:`, `gh label list --repo "$GITHUB_REPO" --search "$LABEL"` — warning if missing, prints `gh label create` next-step.
+
+The upstream-contribution check in `/tracker-doctor` (run for both backends, since `tracker-contribute` always uses `gh`) reuses the same write probe from step 4, aimed at the repo in the plugin's own `.claude-plugin/plugin.json` `repository` field instead of `$GITHUB_REPO`.
 
 ## GitHub Projects v2 board (optional)
 

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`/tracker-doctor` write probe** (#113). Phase 2's GitHub branch adds an
+  `hasIssuesEnabled` check and a non-destructive write probe (empty-body
+  `POST /issues`) so doctor proves the token can *create* issues, not just
+  read them — on a public repo the old read-only probes all pass for a
+  token that can't write. Reports the credential source, token type, and
+  expiry when GitHub returns one. A new WARN-only upstream-contribution
+  check runs the same probe against the plugin's own repo for both
+  backends, surfacing the fine-grained-PAT public-repo limitation before a
+  `tracker-contribute` filing fails.
 - **`/tracker-doctor` validates the optional `skill_currency:` block**
   (#76). Phase 1 now emits WARN-only lines when the block is present but
   malformed — not a mapping, `doc_globs` not a list of strings, a
