@@ -14,7 +14,8 @@ Any text after the command (`/file-followup harden the retry path deferred from 
 2. The skill does the rest, unchanged:
    - gathers the body in the agent-prompt shape, with the follow-up-specific blocks first (Parent PR/branch — **required**, What's already done, What's been tried or ruled out, Related issues, Why deferred), followed by the standard agent-prompt tail for the follow-up's underlying shape — a follow-up is itself bug-shaped (Symptom + Repro + Impact) or feature-shaped (What's missing + Sketch) — plus Goal, Locus, Skills to load, Constraints, Acceptance, Verify;
    - applies the bail criteria, including the origination-specific one — a follow-up with no resolvable parent is just a plain bug or feature, so route it to `/file-bug` or `/file-feature` instead;
-   - resolves the backend from `.claude/issue-tracker.yaml` and dispatches `create_issue` (with the `followup` label plus its underlying type/area labels) through `backends/<backend>.md`.
+   - resolves the backend from `.claude/issue-tracker.yaml` and dispatches `create_issue` (with the `followup` label plus its underlying type/area labels) through `backends/<backend>.md`;
+   - after filing, offers to open a new Claude Code tab with `/agent-issue-tracker:work-issue <ref>` typed in (skill section "After filing: offer a new tab"). This happens only on a VS Code host and only if the operator says yes. It runs `scripts/open-session-tab.sh`, which fires `code --open-url "vscode://anthropic.claude-code/open?prompt=<urlencoded>"`. The prompt is typed in, **not submitted**: the operator presses Enter. On any other host, or when the script reports `"opened":false`, the prompt is printed for copy-paste.
 
 ## Relationship to siblings
 
