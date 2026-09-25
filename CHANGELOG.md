@@ -66,6 +66,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Session-title hook: test gaps** (#121, partial). Pins the fail-open
   path when `scripts/lib/common.sh` is missing and the `release/1.8.0`
   no-ref case at the hook level.
+- **Loops and briefs: collector edge cases** (#121, partial). Both
+  collectors URL-encode the branch in the Actions `?branch=` query, and
+  `/tracker-brief`'s per-PR CI now skips skipped/cancelled runs the way
+  `/session-brief` does. `/session-brief` reports a staged rename's new path
+  (with `orig_path`). `tracker-brief-collect.sh` now records temp-file and
+  wrong-type fragment failures in `errors[]`, fails cleanly when no temp
+  file can be written, keeps a PR whose title has a line break, and no
+  longer reports `--commit-run` as committed when the write failed.
+  `ait_ref_from_branch` is pure bash, and the branch-ref map is built in
+  one pass (the 100-branch test went from 36 s to 8 s). `backends/github.md`
+  `list_updated_issues` leaves the `#` to the translation layer like its
+  sibling ops. Poll loops attach to the ledger rows of the issues their
+  `prs_opened` PRs resolve to instead of appearing under the PR numbers.
 
 ## [1.9.0] - 2026-09-25
 

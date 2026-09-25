@@ -127,10 +127,10 @@ gh issue list \
   --search "updated:>=${SINCE_DATE} involves:@me" \
   --json number,title,state,updatedAt,url \
   --limit 50 \
-  --jq '.[] | "#\(.number)\t\(.title)\t\(.state)\t\(.updatedAt)\t\(.url)"'
+  --jq '.[] | "\(.number)\t\(.title)\t\(.state)\t\(.updatedAt)\t\(.url)"'
 ```
 
-`SINCE_DATE` is the `since` input truncated to `YYYY-MM-DD` — GitHub's search qualifier is date-granular, so the caller filters the returned `updated` values against the full timestamp. Drop `involves:@me` when `involving_me` is false. Results come back newest-updated first by default.
+`SINCE_DATE` is the `since` input truncated to `YYYY-MM-DD` — GitHub's search qualifier is date-granular, so the caller filters the returned `updated` values against the full timestamp. Drop `involves:@me` when `involving_me` is false. Results come back newest-updated first by default. The skill translates each row to `{ref: #number, title, status: state, updated: updatedAt, url}`; as with `list_open_issues` and `list_child_issues`, the `#` is added there, not in `--jq`.
 
 ---
 

@@ -247,12 +247,16 @@ def test_poll_loop_label_is_not_a_ledger_key(repo, tmp_path, gh):
     (state / "loops" / "poll-agent-ready-1.json").write_text(json.dumps({
         "id": "poll-agent-ready-1", "mode": "poll", "ref": "agent-ready", "branch": None,
         "state": "live", "stop_reason": None, "started": "2026-09-24T01:00:00Z",
-        "prs_opened": ["#71"], "iterations": []}))
+        "prs_opened": ["#70", "#71"], "iterations": []}))
     out = run(repo, env)
     rows = {r["ref"]: r for r in out["ledger"]}
     assert "agent-ready" not in rows
-    assert rows["#71"]["loops"][0]["id"] == "poll-agent-ready-1"
-    assert rows["#71"]["actionable"] is True
+    # prs_opened holds PR refs: #70 resolves to its issue #604 and the loop
+    # attaches there; #71 has no issue ref, so neither "#71" nor "#70" is a
+    # ledger key (they are PR numbers, not issues).
+    assert "#71" not in rows and "#70" not in rows
+    assert rows["#604"]["loops"][0]["id"] == "poll-agent-ready-1"
+    assert rows["#604"]["actionable"] is True
     assert [lp["id"] for lp in out["loops"]] == ["poll-agent-ready-1"]
 
 
@@ -387,3 +391,103 @@ def test_large_fragments_do_not_overflow_argv(repo, tmp_path):
                 "loops", "prs", "pr_detail", "ledger", "orphan_worktrees", "errors"):
         assert key in out
     assert len(out["prs"]["all_time_authored"]) == 100
+
+
+def gh_files(tmp_path, **overrides):
+    files = {"GH_OPEN": PRS["open"], "GH_MERGED": PRS["merged"], "GH_ALL": PRS["all"],
+             "GH_VIEW": PR_VIEW, "GH_THREADS": THREADS, "GH_RUNS": RUNS}
+    files.update(overrides)
+    extra = {"GH_CALLS": (tmp_path / "gh-calls").as_posix()}
+    for k, v in files.items():
+        p = tmp_path / f"{k}.json"
+        p.write_text(json.dumps(v))
+        extra[k] = p.as_posix()
+    return extra
+
+
+def test_actions_branch_query_is_url_encoded(repo, tmp_path):
+    extra = gh_files(tmp_path, GH_VIEW={**PR_VIEW, "headRefName": "feat/a b+c#1"})
+    stub = make_stub(tmp_path / "bin-enc", "gh", GH_STUB)
+    env = env_with_path(isolated_env(tmp_path, AIT_SINCE="2026-09-24T00:00:00Z", **extra), stub)
+    out = run(repo, env)
+    assert not [e for e in out["errors"] if "actions" in e.lower()]
+    runs = [ln for ln in Path(extra["GH_CALLS"]).read_text().splitlines() if "actions/runs" in ln]
+    assert runs and all("branch=feat%2Fa%20b%2Bc%231&" in ln for ln in runs)
+
+
+def test_ci_skips_newer_skipped_run_for_primary_workflow(repo, tmp_path):
+    runs = {"workflow_runs": [
+        {"status": "completed", "conclusion": "skipped", "name": "Claude Code",
+         "html_url": "https://x/runs/9", "created_at": "2026-09-24T08:10:00Z",
+         "run_started_at": "2026-09-24T08:10:00Z"},
+        {"status": "completed", "conclusion": "cancelled", "name": "CI",
+         "html_url": "https://x/runs/8", "created_at": "2026-09-24T07:00:00Z",
+         "run_started_at": "2026-09-24T07:00:00Z"},
+        {"status": "completed", "conclusion": "failure", "name": "CI",
+         "html_url": "https://x/runs/7", "created_at": "2026-09-24T08:00:00Z",
+         "run_started_at": "2026-09-24T08:00:00Z"},
+    ]}
+    extra = gh_files(tmp_path, GH_RUNS=runs)
+    stub = make_stub(tmp_path / "bin-ci", "gh", GH_STUB)
+    env = env_with_path(isolated_env(tmp_path, AIT_SINCE="2026-09-24T00:00:00Z", **extra), stub)
+    out = run(repo, env)
+    ci = {d["number"]: d for d in out["pr_detail"]}[70]["ci"]
+    assert ci["name"] == "CI" and ci["conclusion"] == "failure"
+    assert ci["run_url"] == "https://x/runs/7" and ci["started"] == "2026-09-24T08:00:00Z"
+
+
+def test_newline_in_pr_title_keeps_detail_record_intact(repo, tmp_path):
+    extra = gh_files(tmp_path, GH_OPEN=[pr(70, "first line\nsecond line", "feat/604-widget")])
+    stub = make_stub(tmp_path / "bin-nl", "gh", GH_STUB)
+    env = env_with_path(isolated_env(tmp_path, AIT_SINCE="2026-09-24T00:00:00Z", **extra), stub)
+    out = run(repo, env)
+    assert [d["number"] for d in out["pr_detail"]] == [70]
+    d = out["pr_detail"][0]
+    assert d["title"] == "first line second line" and d["ref"] == "#604"
+    assert not [e for e in out["errors"] if "pr_detail" in e or "pr view" in e]
+
+
+# Sourced through BASH_ENV, so the function shadows mktemp inside the
+# collector itself (a PATH stub would lose to the /usr/bin that Git for
+# Windows' bash launcher puts first).
+MKTEMP_BROKEN_DIR_ENV = r'''
+mktemp() {
+  if [ "${1:-}" = "-d" ]; then echo "$FAKE_TMP"; return 0; fi
+  command mktemp "$@"
+}
+'''
+
+
+def test_spill_failure_is_recorded_in_errors(repo, tmp_path, gh):
+    # mktemp -d "succeeds" with a directory that does not exist, so every
+    # primary spill write fails and the per-fragment fallback file is used.
+    # The failure must reach errors[] (it used to be noted inside a $(...)
+    # subshell and vanish) and the data must survive via the fallback.
+    stub, extra = gh
+    bash_env = tmp_path / "mktemp-broken-dir.sh"
+    bash_env.write_text(MKTEMP_BROKEN_DIR_ENV)
+    env = isolated_env(tmp_path, FAKE_TMP=(tmp_path / "no-such-dir").as_posix(),
+                       BASH_ENV=bash_env.as_posix(), **extra)
+    env = env_with_path(env, stub)
+    out = run(repo, env)
+    assert "failed to write tmp fragment 'e'" in out["errors"]
+    assert len(out["prs"]["all_time_authored"]) == 4
+
+
+def test_unwritable_temp_and_state_fails_cleanly(repo, tmp_path):
+    blocker = tmp_path / "state-is-a-file"
+    blocker.write_text("x")
+    env = isolated_env(tmp_path, TMPDIR=(tmp_path / "no-such-tmp").as_posix(),
+                       AIT_STATE_DIR=blocker.as_posix())
+    out = run(repo, env)
+    assert "temp" in out["fatal"]
+    assert "generated_at" in out and isinstance(out["errors"], list)
+
+
+def test_commit_run_reports_failed_write(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    state = Path(run(repo, env)["config"]["state_dir"])
+    (state / "tracker-brief.json.tmp").mkdir()  # the temp write cannot land
+    out = run(repo, env, "--commit-run", "2026-09-24T06:00:00Z")
+    assert out["committed"] is None and "error" in out
+    assert not (state / "tracker-brief.json").exists()
