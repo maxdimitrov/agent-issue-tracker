@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Post-merge finish phase** (#115). `/work-issue <ref> --finish` (no
+  writes unless merged) applies `jira.merged_transition` (`--released
+  <tag>` then closes), refreshes the parent index, and removes the worktree
+  and local branch behind provenance gates. `merge_method` (default
+  `squash`) drives `--merge`, now head-pinned; the babysit loop honours it
+  and runs `--finish` on `stop: done`.
 - **`/tracker-doctor` write probe** (#113). Phase 2's GitHub branch adds an
   `hasIssuesEnabled` check and a non-destructive write probe (empty-body
   `POST /issues`) so doctor proves the token can *create* issues, not just

@@ -213,6 +213,14 @@ GitHub auto-closes referenced issues when the merging PR's body or title contain
 
 The consumer's `.claude/issue-tracker.yaml`'s `github.default_pr_close_syntax` field is rendered into PR description templates as the recommended phrasing.
 
+## Post-merge (optional)
+
+What `/work-issue <ref> --finish` (Step 8) does on GitHub after a PR merges. Not a contract operation.
+
+- **No merged status.** The `Fixes` / `Closes` / `Resolves` keyword above already closed `<ref>` and every other issue the PR body names; nothing is transitioned.
+- **Board.** With `github.project` set, each closed issue's board item Status is set to `Done` ("GitHub Projects v2 board (optional)" below) — best-effort, WARN on failure.
+- **Remote branch.** `gh repo view "$GITHUB_REPO" --json deleteBranchOnMerge --jq .deleteBranchOnMerge` tells whether GitHub already removed the PR's branch on merge. The plugin **never deletes a remote branch itself**: when the setting is off, the repo keeps merged branches by policy. For the same reason `/work-issue --merge` and the `/tracker-loop babysit` merge row pass `--match-head-commit <sha>` and never `--delete-branch`.
+
 ## Setup verification
 
 `/tracker-doctor` runs (in order):
