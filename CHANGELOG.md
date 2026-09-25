@@ -48,6 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transition itself; `/tracker-doctor` validates the new keys and reports
   an unset `in_progress_sprint` as `[INFO]`.
 
+### Fixed
+
+- **Session-title hook: test gaps** (#121, partial). Pins the fail-open
+  path when `scripts/lib/common.sh` is missing and the `release/1.8.0`
+  no-ref case at the hook level.
+
 ## [1.9.0] - 2026-09-25
 
 ### Added
