@@ -291,6 +291,7 @@ The skill prose (`feature-request`, `bug-tracking`) renders `jira.close_on_merge
 2. **`cloud_id` round-trip** — invoke `getAccessibleAtlassianResources`; confirm the configured `jira.cloud_id` appears in the returned site list and matches the configured `jira.site`. If not, `/tracker-doctor` reports the accessible cloud_ids and the operator picks the right one.
 3. **`getJiraIssue({cloudId, issueIdOrKey: "<jira.project>-1"})`** — the canonical reachability probe per cross-backend invariant #5. PASS if returns; PASS-WITH-NOTE on 404 (project reachable but `<PROJECT>-1` doesn't exist); FAIL on 401 / 403 (auth wrong, or `cloud_id` doesn't match `site`).
 4. **Vocabulary sanity (WARN-level):** `getJiraProjectIssueTypesMetadata({cloudId, projectIdOrKey})` returns the project's configured issue types (the visible-project list itself comes from `getVisibleJiraProjects`). WARN if any value in `jira.issue_types.*` (the consumer's mappings for the five plugin type keys — `bug`, `feature`, `epic`, `sub`, `followup` — to their Jira issue type names, e.g. `Bug`, `Story`, `Epic`, `Sub-task`, `Task`) is missing from the project's issue type list. No FAIL — vocabulary mismatches are operator setup tasks surfaced informationally; the plugin still works without them (the next `create_issue` will fail noisily at the MCP layer, with a more actionable error message than the plugin could compose preemptively).
+5. **Sprint-field sanity (WARN-level, conditional):** only when `jira.in_progress_sprint` is set. `getJiraIssue({cloudId, issueIdOrKey: <probe ref>, expand: "names"})` should map `jira.sprint_field` to a field named `Sprint`. WARN if it maps to a different name or isn't present. Also checks live that exactly one active sprint currently qualifies (the same JQL as "In-progress sprint (optional)" step 2, filtered by `jira.sprint_board_id` when set) — WARN otherwise, naming the count found.
 
 ## In-progress transition (optional)
 
@@ -321,6 +322,70 @@ transitionJiraIssue({cloudId, issueIdOrKey: <ref>, transition: {id: <id>}})
 - If `getTransitionsForJiraIssue` does not offer the named transition (already in
   that state, or the workflow lacks it), WARN and skip — do not hunt for an
   alternative transition.
+
+## In-progress sprint (optional)
+
+**Optional, Jira-only. Not a contract operation** — see [`_interface.md`](_interface.md)
+"Optional backend-specific capabilities". When the consumer's
+`.claude/issue-tracker.yaml` sets `jira.in_progress_sprint: active`, a driver
+that starts work on an issue (`/work-issue` Step 3; `/resume-initiative --start`
+Mode 3) also adds the issue to the project's active sprint, right after firing
+the in-progress transition above. Two more config keys shape the affordance:
+`jira.sprint_board_id` (optional — picks the board when several have an active
+sprint) and `jira.sprint_field` (the Sprint custom field; defaults to
+`customfield_10020`). `sprint_field` is deliberately a single scalar key today
+so a future `jira.custom_fields` map (#5) can generalise it later without a
+second, competing key.
+
+```
+# 1. Already in an active sprint? Skip -- never move an issue between sprints.
+issue = getJiraIssue({cloudId, issueIdOrKey: <ref>, fields: [<sprint_field>]})
+# if issue.fields[<sprint_field>] holds a sprint object with state == "active": skip
+
+# 2. Collect the project's active sprint(s), optionally filtered by board.
+results = searchJiraIssuesUsingJql({
+  cloudId,
+  jql: "project = <jira.project> AND sprint in openSprints()",
+  fields: [<sprint_field>]
+})
+# distinct sprint objects across results where state == "active"
+# [AND boardId == jira.sprint_board_id, when that key is set]
+
+# 3. Exactly one qualifying sprint -> assign. Zero or several -> WARN and skip.
+editJiraIssue({cloudId, issueIdOrKey: <ref>, fields: {<sprint_field>: <sprintId (int)>}})
+
+# 4. editJiraIssue's response omits the sprint field -- confirm with JQL:
+searchJiraIssuesUsingJql({cloudId, jql: "key = <ref> AND sprint = <sprintId>"})
+```
+
+Live-verified facts (built alongside a consumer-side version of this
+affordance): sprint objects returned in the field carry `id`, `name`, `state`,
+`boardId`, `startDate`, `endDate`; `editJiraIssue` with `{customfield_10020:
+<int id>}` adds the issue to that sprint; a sprint can still read
+`state: "active"` after its `endDate` has passed, so branch on `state`, never
+on the dates.
+
+- **Default: unset → no-op.** Same opt-in posture as `in_progress_transition`.
+- **Already in an active sprint** → skip silently (not a WARN) — this is the
+  expected steady state on a re-run, not a problem.
+- **Step 2 finds zero qualifying sprints** → WARN and skip. Known edge: this
+  also fires when the project's active sprint genuinely has no issues in it
+  yet (nothing for the JQL `sprint in openSprints()` to match), since Jira has
+  no direct "list active sprints for a project" call. Never guess.
+- **Step 2 finds several qualifying sprints** (multiple boards each with an
+  active sprint, and `sprint_board_id` unset or ambiguous) → WARN and skip.
+  Set `jira.sprint_board_id` to disambiguate.
+- **`editJiraIssue` fails** (permission error, invalid field id, MCP error) →
+  WARN and skip.
+- **The confirmation JQL in step 4 returns nothing** → WARN; the edit may not
+  have taken effect (or search-index lag — see `list_child_issues`'s
+  eventual-consistency note). Do not retry automatically.
+- **`sprint_field` doesn't resolve to a field named `Sprint`** → WARN; see
+  `/tracker-doctor`'s live probe in "Setup verification" below, which is the
+  intended place to catch a misconfigured field id before this affordance
+  ever runs.
+- **Best-effort, like the transition affordance.** Any failure above is a
+  WARN, never a block — the driver's run continues unaffected.
 
 ## GitHub Projects v2 board (optional) -- n/a for Jira
 

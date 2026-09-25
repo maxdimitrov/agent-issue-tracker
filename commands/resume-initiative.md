@@ -311,7 +311,10 @@ probe → print nothing.
    "In-progress status (optional affordances)": GitHub with `github.project` set →
    board item Status `In Progress` (`backends/github.md`); Jira with
    `jira.in_progress_transition` set → fire that workflow transition
-   (`backends/jira.md`); neither configured → no board/Jira write. Also sync this
+   (`backends/jira.md`), and with `jira.in_progress_sprint: active` also set →
+   right after the transition, also add the issue to the project's single
+   active sprint (`backends/jira.md` "In-progress sprint (optional)"); neither
+   configured → no board/Jira write. Also sync this
    epic's `## Current branch` signal to the new branch per that section's
    start-side write rules (machine-block comment via `upsert_comment` for
    evergreen parents; the Status block's `Current branch` + `Last updated` lines

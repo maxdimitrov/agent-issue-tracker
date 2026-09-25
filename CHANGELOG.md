@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `code --open-url`. It always exits 0 with JSON, and on a non-VS Code
   host it reports `opened:false` with a reason, so the prompt is printed
   for copy-paste as before.
+- **Jira active-sprint assignment on start** (#112). Optional
+  `jira.in_progress_sprint: active`, alongside `jira.sprint_board_id` and
+  `jira.sprint_field`, adds an issue to the project's single active sprint
+  right after `/work-issue` Step 3 / `/resume-initiative --start` Mode 3
+  fire the in-progress transition. Best-effort and opt-in like the
+  transition itself; `/tracker-doctor` validates the new keys and reports
+  an unset `in_progress_sprint` as `[INFO]`.
 
 ## [1.9.0] - 2026-09-25
 

@@ -206,6 +206,13 @@ branch` section (legacy epics: the body Status block line); a parentless issue
 with nothing configured gets no marker — a documented no-op. Every such write is
 best-effort — WARN, never block.
 
+The third is **active-sprint assignment** — `jira.in_progress_sprint: active`
+adds the issue to the project's single active sprint alongside the in-progress
+transition above (see `backends/jira.md` "In-progress sprint (optional)"). It
+is Jira-only; n/a on GitHub, which has no sprint concept outside a Projects
+board's own fields. Like the other two affordances, it adds no contract
+operation — the eleven ops stay eleven.
+
 ---
 
 ## Adding a new backend

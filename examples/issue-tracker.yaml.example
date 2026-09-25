@@ -138,6 +138,22 @@ jira:
   # a failure WARNs and never blocks the run.
   # in_progress_transition: "In Progress"
 
+  # Optional. Adds the issue to the project's active sprint right after the
+  # in-progress transition above fires (/work-issue Step 3). Only supported
+  # value is "active". Unset (default) = never touch sprints. Best-effort: a
+  # failure WARNs and never blocks the run; never moves an issue between
+  # sprints, and never guesses between several qualifying sprints.
+  # in_progress_sprint: active
+
+  # Optional. Disambiguates which board's active sprint to use when more than
+  # one board has an active sprint. Unset (default) = any board's active
+  # sprint qualifies, so long as exactly one does.
+  # sprint_board_id: 123
+
+  # Optional. The Sprint custom field id. Defaults to customfield_10020 (the
+  # conventional id on most Jira Cloud sites) when unset.
+  # sprint_field: customfield_10020
+
   # Optional. Advisory text rendered into PR descriptions, telling reviewers
   # how your Jira-PR integration triggers auto-close. Plugin does not enforce
   # auto-close — this is purely advisory text.

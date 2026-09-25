@@ -115,9 +115,11 @@ eventual PR. With no `.claude/issue-tracker.yaml`, skip the whole block (fail-op
    `skills/initiative-tracking/SKILL.md` "In-progress status (optional affordances)":
    GitHub with `github.project` set → board item Status `In Progress`
    (`backends/github.md`); Jira with `jira.in_progress_transition` set → fire that
-   workflow transition (`backends/jira.md`). Neither configured → no-op; the
-   `Current branch` signal set in step 2 is the fallback — but only when step 2
-   actually ran.
+   workflow transition (`backends/jira.md`), and with `jira.in_progress_sprint:
+   active` also set → right after the transition, also add the issue to the
+   project's single active sprint (`backends/jira.md` "In-progress sprint
+   (optional)"). Neither configured → no-op; the `Current branch` signal set in
+   step 2 is the fallback — but only when step 2 actually ran.
 
    **When step 2 was skipped too, there is no fallback — say so.** A parentless
    issue (no `## Parent epic` block) with no configured affordance emits *zero*
@@ -191,6 +193,6 @@ Only when `--loop` was passed and Step 6 opened a PR:
 - **A worktree for this issue already exists** → enter it (`.claude/worktrees/<branch-with-slash-replaced-by-plus>`) instead of creating a duplicate; report its path and continue.
 - **The issue body is too vague to drive a run** (no locus, fuzzy acceptance, an unresolved open design question) → report that the body is unfileable-as-an-agent-prompt and stop. The fix is to enrich the issue (or file a `needs-design` issue first), not to invent scope. `/work-issue` escalating rigor for a *non-trivial-but-well-specified* issue is different from a *vague* one — the former gets the full pipeline, the latter gets reported back.
 - **Cross-repo `owner/repo#N` ref** → the worktree is created in the consumer's current working directory regardless; only the `view_issue` body fetch hits the child's repo via the backend. The backend module documents how it handles cross-repo refs.
-- **Start-side initiative sync fails** (parent epic unfetchable; legacy parent — Status block missing; evergreen parent — machine-block comment read/write rejected; board write or transition rejected) → WARN and continue; status writes never block the run. Legacy parents catch up on the close side via `initiative-tracking`'s legacy Maintenance ritual (formerly tracked as follow-up #87). For evergreen parents, #87 is superseded: there is no close-side body edit left to catch up with — child membership, status, and counts are all derived at read time.
+- **Start-side initiative sync fails** (parent epic unfetchable; legacy parent — Status block missing; evergreen parent — machine-block comment read/write rejected; board write, transition, or sprint write rejected) → WARN and continue; status writes never block the run. Legacy parents catch up on the close side via `initiative-tracking`'s legacy Maintenance ritual (formerly tracked as follow-up #87). For evergreen parents, #87 is superseded: there is no close-side body edit left to catch up with — child membership, status, and counts are all derived at read time.
 - **Start-side sync succeeds but emits no in-progress signal** (parentless issue AND no configured affordance) → one WARN from Step 3 naming both halves, then continue. Not a failure — every individual step did what it documents — but it is the only path on which a completed run leaves the tracker indistinguishable from untouched, so it must not be silent. Fix is config (`/tracker-doctor` Phase 1 flags an unset `jira.in_progress_transition`) or filing the issue under an epic.
 - **`--loop` but `CronCreate` is unavailable** (cron disabled by `CLAUDE_CODE_DISABLE_CRON`, or not in the tool surface) → stop the record with reason `no cron`, print the `/loop …` line for the operator to run by hand, and continue; the PR is already open.
