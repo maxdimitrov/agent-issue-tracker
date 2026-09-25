@@ -35,6 +35,9 @@ translate it to CLI flags:
   where `<json>` is the rule object compacted to a single-line JSON
   string with keys `watch`, `pattern`, `expect`, `message`.
 
+A malformed block makes the detector exit 1 with the parse error;
+`/tracker-doctor` Phase 1 WARNs about the same problems ahead of time.
+
 No config file or no block → pass no flags; the built-in dual-layout
 defaults apply (consumer layout: `CLAUDE.md`, `AGENTS.md`,
 `.claude/skills/*/SKILL.md`, `.claude/agents/*.md`,
