@@ -647,6 +647,14 @@ the ritual runs once more, on the grandparent. Adopting the epic
 (`/resume-initiative --adopt`) removes this ritual entirely by
 converting it to the evergreen shape above.
 
+**The driver is `/work-issue <ref> --finish`.** Run after a child's
+PR merges, it performs the one-hop ritual above on a legacy parent
+(one `edit_body`), and on an evergreen parent appends the dated
+`## Decision log` entry `- **YYYY-MM-DD** — <ref> merged in <PR url>`
+and clears a `## Current branch` naming the merged branch (one
+`upsert_comment`). It is idempotent and best-effort — see
+`commands/work-issue.md` Step 8.
+
 **How to edit the epic body safely.** Whole-body edits are
 destructive — the configured backend's `edit_body` operation
 replaces the entire description in one call (cross-backend

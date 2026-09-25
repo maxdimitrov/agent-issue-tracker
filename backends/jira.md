@@ -387,6 +387,43 @@ on the dates.
 - **Best-effort, like the transition affordance.** Any failure above is a
   WARN, never a block — the driver's run continues unaffected.
 
+## Merged transition (optional)
+
+**Optional, Jira-only. Not a contract operation** — see [`_interface.md`](_interface.md)
+"Optional backend-specific capabilities". When the consumer's
+`.claude/issue-tracker.yaml` sets `jira.merged_transition` (for example
+`Ready for Release`), `/work-issue <ref> --finish` (Step 8) moves a ticket whose
+PR has merged to that *merged, not yet released* status — for `<ref>` itself
+and for every other ref the PR body names in a `Fixes|Closes|Resolves <ref>`
+line. Unset (the default) → today's behaviour: no transition on merge.
+
+```
+# Resolve the workflow-scoped transition id at runtime (same rule as close_issue --
+# ids differ per workflow; never hardcode a numeric id)
+transitions = getTransitionsForJiraIssue({cloudId, issueIdOrKey: <ref>})
+id = <the transition whose name matches jira.merged_transition>
+
+transitionJiraIssue({cloudId, issueIdOrKey: <ref>, transition: {id: <id>}})
+```
+
+- **Merged is not done.** When `merged_transition` is set, `done_transition` is
+  **never** applied on merge; it stays the release / close step, reached only
+  through `close_issue`.
+- **`--finish --released <tag>`** — only when `merged_transition` is set. The
+  driver checks `git merge-base --is-ancestor <merge sha> <tag>`; if true it
+  calls the contract's `close_issue` with `reason: completed` and a comment
+  naming the tag (which applies `done_transition`, above); if false it WARNs and
+  applies nothing. One ref per invocation — sweeping every ticket a tag
+  released is out of scope.
+- **Evidence comment on the other fixed tickets.** For each ref other than
+  `<ref>` that the PR body names, the driver also leaves
+  `Merged in <PR url> (<merge sha>)` via `upsert_comment` with marker
+  `<!-- work-issue:finish -->` — idempotent by marker, so a re-run replaces it.
+- **Best-effort.** The named transition absent from the issue's current
+  workflow state (already there, or the workflow lacks it), a permission error,
+  or an MCP error → WARN and skip that ticket; the rest of `--finish` runs. Do
+  not hunt for an alternative transition.
+
 ## GitHub Projects v2 board (optional) -- n/a for Jira
 
 Projects-board population is a GitHub-specific affordance (see

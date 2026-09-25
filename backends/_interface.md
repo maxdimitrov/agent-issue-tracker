@@ -213,6 +213,14 @@ is Jira-only; n/a on GitHub, which has no sprint concept outside a Projects
 board's own fields. Like the other two affordances, it adds no contract
 operation — the eleven ops stay eleven.
 
+The fourth is **merged-status transition** — `jira.merged_transition` moves a
+ticket whose PR has merged to a *merged, not yet released* status when
+`/work-issue <ref> --finish` runs, leaving `done_transition` for the release /
+close step (see `backends/jira.md` "Merged transition (optional)"). It is
+Jira-only; GitHub's equivalent is the PR close keyword plus the board `Done`
+sync (`backends/github.md` "Post-merge (optional)"). It adds no contract
+operation — the eleven ops stay eleven.
+
 ---
 
 ## Adding a new backend

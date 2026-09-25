@@ -72,6 +72,26 @@ WARN-only items (bullet list):
   - `sprint_board_id`, if set, must be a positive integer — WARN otherwise.
   - `sprint_field`, if set, must match `^customfield_\d+$` — WARN otherwise.
 
+- Jira-only, INFO-level: `jira.merged_transition` not set — the same
+  render-only `[INFO]` shape as `in_progress_sprint` above. Moving a ticket to
+  a merged-not-released status on `/work-issue --finish` is opt-in
+  (`backends/jira.md` "Merged transition (optional)"):
+
+  ```
+  [INFO] jira.merged_transition unset — /work-issue --finish leaves the ticket's
+         status alone after a merge. Set it to opt in:
+  ```
+
+  ```yaml
+  jira:
+    merged_transition: "Ready for Release"   # must match a transition name in your workflow
+  ```
+
+- `merge_method` set to anything but `merge`, `squash` or `rebase` — WARN
+  "`merge_method: <value>` is not one of `merge` / `squash` / `rebase`";
+  `/work-issue --merge` and `/tracker-loop babysit` would pass it straight to
+  `gh pr merge`. Unset is fine (default `squash`) and prints nothing.
+
 - `loops:` absent — fine; `/tracker-loop` uses its built-in defaults (`examples/issue-tracker.yaml.example` documents them). Surfaced only so an operator who expected a custom `poll_label` notices it is not set.
 - `skill_currency:` malformed (only when the block is present; absent is fine and prints nothing). The block is optional and `/audit-skills` never blocks a PR, so every problem here is a `WARN`, never a `FAIL` — but without these rows a typo stays silent until `/audit-skills` exits 1 with a parse error. Check the shape `examples/issue-tracker.yaml.example` documents and emit one `WARN` line per problem, naming it:
   - `skill_currency:` present but not a mapping — "`skill_currency` must be a mapping with `doc_globs` / `paired_rules`".
@@ -315,7 +335,7 @@ Under each `WARN`, point at the shape: "see the `skill_currency:` block in `exam
 - **Never use `viewerPermission` or `permissions.*` as evidence of write access.** Both reflect the authenticated *account's* role on the repo, not what the *token* was granted — a fine-grained PAT scoped to read-only can sit on an account with `viewerPermission: WRITE` and still fail every `create_issue`. Only the write probe's actual HTTP status is evidence.
 - **Never print or log a token.** The non-secret prefix (`github_pat_`, `ghp_`, `gho_`) is the only token-derived output, ever.
 - **Canonical reachability probe is `view_issue`.** Cross-backend invariant #5 from `backends/_interface.md`. Every backend's Phase 2 final step dispatches through that contract operation, not the backend's raw CLI / MCP.
-- **PASS / WARN / FAIL / PASS-WITH-NOTE is fixed.** `FAIL` = dispatch path is broken; `WARN` = dispatch works but vocabulary is incomplete; `PASS` = green; `PASS-WITH-NOTE` = dispatch works but the probe artifact is absent (404). The only other line shape is `[INFO]`: a render-only note about an unset opt-in key (today: `jira.in_progress_sprint`) that is neither a check result nor counted in the summary.
+- **PASS / WARN / FAIL / PASS-WITH-NOTE is fixed.** `FAIL` = dispatch path is broken; `WARN` = dispatch works but vocabulary is incomplete; `PASS` = green; `PASS-WITH-NOTE` = dispatch works but the probe artifact is absent (404). The only other line shape is `[INFO]`: a render-only note about an unset opt-in key (today: `jira.in_progress_sprint` and `jira.merged_transition`) that is neither a check result nor counted in the summary.
 - **Markdown-only file.** Slash commands are markdown. No embedded shell scripts beyond what `backends/<backend>.md` already documents as probe commands.
 - **Phase 1 short-circuits Phases 2-3; Phase 2 does NOT short-circuit Phase 3.** A broken schema makes downstream probes meaningless. A broken reachability still leaves vocabulary findings actionable.
 

@@ -59,6 +59,12 @@ triage:
 # Default: true.
 session_titles: true
 
+# Optional. How /work-issue --merge and /tracker-loop babysit --merge merge a
+# PR: merge | squash | rebase. Default: squash. On GitHub, squashing via the
+# CLI also changes the account's preselected method for the next manual merge
+# in the web UI -- set `merge` if your repo uses merge commits.
+merge_method: squash
+
 # Optional. Budgets and defaults for /tracker-loop and the --loop flag on
 # /work-issue and /resume-initiative. Every key optional; defaults shown.
 loops:
@@ -153,6 +159,14 @@ jira:
   # Optional. The Sprint custom field id. Defaults to customfield_10020 (the
   # conventional id on most Jira Cloud sites) when unset.
   # sprint_field: customfield_10020
+
+  # Optional. The transition name /work-issue <ref> --finish fires once the
+  # ticket's PR has merged -- a "merged, not yet released" status. When set,
+  # done_transition is never applied on merge; it stays the release step,
+  # applied by `/work-issue <ref> --finish --released <tag>` once the merge
+  # commit is in that tag. Resolved by name per issue, like the transitions
+  # above. Unset (default) = no transition on merge. Best-effort.
+  # merged_transition: "Ready for Release"
 
   # Optional. Advisory text rendered into PR descriptions, telling reviewers
   # how your Jira-PR integration triggers auto-close. Plugin does not enforce
