@@ -148,6 +148,10 @@ The last line of every iteration. A self-paced `/loop` follows it; a fixed-inter
 - `status`: `LR list`, printed one line per live loop (`id · mode ref · iteration n · last action · cron armed|none`), followed by the last three stopped records with their reasons (`ls <state-dir>/loops`, `LR get`).
 - `stop [<id>]`: with an id, `LR stop <id> "operator stop"` and `CronDelete` its `cron_job_id` if set. Without an id and exactly one live loop, stop that one; with several, list them and ask which.
 
+## Prerequisites
+
+An unattended loop commits while nobody is at the keyboard, so on a machine that signs commits it needs a signer that never prompts. A 1Password desktop signer (`op-ssh-sign`) fails while the app is locked, and the iteration ends with its work staged and uncommitted. The documented answer is [`scripts/git-sign.sh`](../scripts/git-sign.sh) as `gpg.ssh.program`: it tries `op-ssh-sign` first and falls back to a dedicated agent key read through the 1Password Automation service account (setup in the script's header). `/tracker-doctor` Phase 4 warns when it is missing. Never bypass signing to get a loop past a commit.
+
 ## Safety rails
 
 - Never merge without `--merge`; never open a ready PR on red (`/work-issue` Step 5 already refuses); never force-push.

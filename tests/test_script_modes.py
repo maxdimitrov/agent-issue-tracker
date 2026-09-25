@@ -9,6 +9,7 @@ from shell_helpers import REPO_ROOT
 
 EXECUTABLE = (
     "hooks/session-title.sh",
+    "scripts/git-sign.sh",
     "scripts/loop-record.sh",
     "scripts/session-brief-collect.sh",
     "scripts/tracker-brief-collect.sh",
