@@ -17,11 +17,11 @@ Validate the consumer project's `.claude/issue-tracker.yaml`. Runs four sequenti
 
 ### Phase 1 — Schema validation
 
-Read `.claude/issue-tracker.yaml` from the consumer's CWD. Apply these checks in order; each is its own line in the output:
+Resolve the config the way every reader does: the nearest `.claude/issue-tracker.yaml` walking up from the CWD (`ait_config_path` in `scripts/lib/common.sh`; README "Where the config is found"). Print the resolved path as the phase's first line, `[INFO] config: <path>`, so an operator in a worktree can see which file was used. Apply these checks in order; each is its own line in the output:
 
 | Check | PASS condition | FAIL output |
 |---|---|---|
-| File exists | the file is present at `.claude/issue-tracker.yaml` | "no config found; run `/tracker-init`" |
+| File exists | the walk-up lookup resolves a `.claude/issue-tracker.yaml` | "no config found in the CWD or any ancestor below `$HOME`; run `/tracker-init`" |
 | YAML parses | the file loads as a valid YAML document | "YAML parse error: `<line>:<col>: <message>`" |
 | `schema_version: 1` | top-level key present with value `1` | "missing or wrong schema_version (only `1` is supported in v1)" |
 | `backend:` present | top-level key present with value `github` or `jira` | "missing or unrecognized backend (must be `github` or `jira`)" |
@@ -379,4 +379,4 @@ mkdir -p ~/.claude-runner && cp "${CLAUDE_PLUGIN_ROOT}/scripts/git-sign.sh" ~/.c
 
 ## Conventions assumed
 
-The schema reference is `examples/issue-tracker.yaml.example`. The consumer-project's `.claude/issue-tracker.yaml` lives at the repo root. The sibling `/tracker-init` is the writer of the file `/tracker-doctor` validates; the two share schema invariants. The configured backend is dispatched via `backends/<backend>.md`; raw CLI / MCP calls appear only in the per-backend setup-verification probes documented there.
+The schema reference is `examples/issue-tracker.yaml.example`. The consumer-project's `.claude/issue-tracker.yaml` usually lives at the repo root, or at a workspace root above several repos; it is resolved by walking up from the CWD (README "Where the config is found"). The sibling `/tracker-init` is the writer of the file `/tracker-doctor` validates; the two share schema invariants. The configured backend is dispatched via `backends/<backend>.md`; raw CLI / MCP calls appear only in the per-backend setup-verification probes documented there.

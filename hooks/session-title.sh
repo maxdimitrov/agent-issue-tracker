@@ -46,13 +46,7 @@ case "$src" in startup | resume) : ;; *) exit 0 ;; esac
 
 # --- stage 3: config gate ------------------------------------------------------
 toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)" || toplevel=""
-config=""
-if [ -f "$cwd/.claude/issue-tracker.yaml" ]; then
-  config="$cwd/.claude/issue-tracker.yaml"
-elif [ -n "$toplevel" ] && [ -f "$toplevel/.claude/issue-tracker.yaml" ]; then
-  config="$toplevel/.claude/issue-tracker.yaml"
-fi
-[ -n "$config" ] || exit 0
+config="$(ait_config_path "$cwd")" || exit 0
 grep -Eq '^session_titles:[[:space:]]*false[[:space:]]*$' "$config" && exit 0
 
 # --- stage 4: manual-rename gate ------------------------------------------------

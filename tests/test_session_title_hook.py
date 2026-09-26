@@ -214,6 +214,24 @@ def test_github_ref_from_leading_number_branch(project, hook_env):
     assert t == "#42 board-support"
 
 
+def test_workspace_config_found_from_linked_worktree(tmp_path, hook_env):
+    """A non-git workspace root holds the config; the session sits in a linked
+    worktree of a repo below it. The hook resolves it like ait_config_path."""
+    ws = tmp_path / "ws"
+    (ws / ".claude").mkdir(parents=True)
+    (ws / ".claude" / "issue-tracker.yaml").write_text(CONFIG_GITHUB)
+    repo = ws / "repos" / "app"
+    repo.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True,
+                   capture_output=True, stdin=subprocess.DEVNULL)
+    git(repo, "commit", "--allow-empty", "-m", "init")
+    wt = ws / "repos" / "app-worktrees" / "T-42"
+    git(repo, "worktree", "add", "-q", str(wt), "-b", "feat/42-board-support")
+    env = dict(hook_env, HOME=tmp_path.as_posix())
+    t = title_of(run_hook(payload_for(wt), env))
+    assert t == "#42 board-support"
+
+
 def test_issue_prefix_branch(project, hook_env):
     git(project, "switch", "-c", "issue-88")
     t = title_of(run_hook(payload_for(project), hook_env))

@@ -176,18 +176,45 @@ ait_state_dir() {
   printf '%s' "$dir"
 }
 
+# ait_config_path [<dir>] - the nearest .claude/issue-tracker.yaml: <dir>, then
+# each ancestor up to its git toplevel, then (from a linked worktree) the main
+# checkout root, then the ancestors above the toplevel. The walk above the
+# toplevel stops below $HOME: a $HOME/.claude/issue-tracker.yaml is never picked
+# up by it (a global fallback is #7's call, not this lookup's).
 ait_config_path() {
-  local d="${1:-.}" top
-  if [ -f "$d/.claude/issue-tracker.yaml" ]; then
-    printf '%s' "$d/.claude/issue-tracker.yaml"
+  local d="${1:-.}" f=".claude/issue-tracker.yaml" p top main home inrepo next
+  if [ -f "$d/$f" ]; then
+    printf '%s' "$d/$f"
     return 0
   fi
+  p="$(ait_norm_path "$d")"
   top="$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)" || top=""
-  if [ -n "$top" ] && [ -f "$top/.claude/issue-tracker.yaml" ]; then
-    printf '%s' "$top/.claude/issue-tracker.yaml"
-    return 0
+  main=""
+  if [ -n "$top" ]; then
+    top="$(ait_norm_path "$top")"
+    main="$(ait_main_repo "$d")" || main=""
+    [ "$main" = "$top" ] && main=""
   fi
-  return 1
+  home=""
+  [ -n "${HOME:-}" ] && home="$(ait_norm_path "$HOME")"
+  inrepo="${top:+1}"
+  while :; do
+    [ -z "$inrepo" ] && [ -n "$home" ] && [ "$p" = "$home" ] && return 1
+    if [ -f "$p/$f" ]; then
+      printf '%s' "$p/$f"
+      return 0
+    fi
+    if [ -n "$inrepo" ] && [ "$p" = "$top" ]; then
+      inrepo=""
+      if [ -n "$main" ] && [ -f "$main/$f" ]; then
+        printf '%s' "$main/$f"
+        return 0
+      fi
+    fi
+    next="${p%/*}"
+    [ "$next" = "$p" ] && return 1
+    p="$next"
+  done
 }
 
 # ait_config_get <key> [<config>] - `backend`, `github.repo`, `loops.interval`.

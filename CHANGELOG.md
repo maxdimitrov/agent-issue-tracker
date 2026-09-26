@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Config lookup walks up** (#146). `ait_config_path` used to check only
+  the current directory and its git toplevel, so a repo or linked worktree
+  under a non-git workspace root that held `.claude/issue-tracker.yaml`
+  silently saw no config. It now also checks each parent up to the
+  toplevel, the main checkout root (from a linked worktree), and the
+  directories above the toplevel, nearest first, stopping below `$HOME`.
+  The session-title hook calls the same helper instead of its inline copy.
+  The prose readers (`/work-issue`, `/resume-initiative`, `/tracker-init`,
+  `/tracker-doctor` and the issue-shape skills) state the rule, and
+  `/tracker-doctor` Phase 1 prints the path it resolved.
+
 ## [1.10.0] - 2026-09-25
 
 ### Added
