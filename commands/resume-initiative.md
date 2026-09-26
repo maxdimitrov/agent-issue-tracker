@@ -4,7 +4,7 @@ description: Show open epic initiatives and the next-up child issue; optionally 
 
 # /resume-initiative [epic-ref] [--start] [--adopt] [--loop]
 
-Pick up where multi-week initiative work was left off. Invokes the configured backend's `list_open_issues({label: 'epic'})` operation to list open initiatives with their progress, and points at the next-up child issue. Optionally enters the worktree for the next child or creates one if absent. The configured backend is determined by `.claude/issue-tracker.yaml` in the consumer project.
+Pick up where multi-week initiative work was left off. Invokes the configured backend's `list_open_issues({label: 'epic'})` operation to list open initiatives with their progress, and points at the next-up child issue. Optionally enters the worktree for the next child or creates one if absent. The configured backend is determined by the nearest `.claude/issue-tracker.yaml`, found by walking up from the current directory (README "Where the config is found").
 
 This command is generic — it works for any initiative tracked via the `initiative-tracking` skill, not just the engine/operator split.
 

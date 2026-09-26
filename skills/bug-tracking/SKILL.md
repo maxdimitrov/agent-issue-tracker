@@ -22,7 +22,8 @@ description: >-
 # Bug Tracking — Issues as Agent Prompts
 
 The canonical tracker is the one configured in the consumer project's
-`.claude/issue-tracker.yaml`. The plugin's `backends/_interface.md`
+`.claude/issue-tracker.yaml`: the nearest one walking up from the current
+directory, so a worktree or a repo under a workspace root finds it too. The plugin's `backends/_interface.md`
 documents the ten operations every backend implements;
 `backends/<backend>.md` (e.g. `backends/github.md`) documents the literal
 CLI / MCP invocation for each operation.

@@ -87,6 +87,16 @@ Every consuming project commits one `.claude/issue-tracker.yaml`. It declares th
 
 `.claude/issue-tracker.yaml` is the only configuration surface. No env-var overrides in v1; no global `~/.claude/issue-tracker.yaml`. Both are filed as v2 follow-on issues.
 
+### Where the config is found
+
+Every script, hook and command resolves the file the same way (`ait_config_path` in `scripts/lib/common.sh`). It uses the nearest `.claude/issue-tracker.yaml`, checking in this order:
+
+1. the current directory, then each parent up to the git toplevel;
+2. from a linked worktree, the main checkout's root;
+3. the directories above the toplevel, nearest first.
+
+The walk above the toplevel stops below `$HOME`, so `~/.claude/issue-tracker.yaml` is never picked up. As a result, a workspace directory that is not itself a git repo can hold one config for every repo and worktree beneath it, and a repo's own config still wins over the workspace's. `/tracker-doctor` prints the path it resolved.
+
 ## Session titles
 
 In a configured project, a `SessionStart` hook titles each Claude Code

@@ -17,7 +17,7 @@ Write a valid `.claude/issue-tracker.yaml` to the consumer project's root. This 
 
 ### Phase 1 — Pre-flight: existing-config guard
 
-1. Check whether `.claude/issue-tracker.yaml` exists in the consumer's CWD.
+1. Check whether `.claude/issue-tracker.yaml` exists in the consumer's CWD. (Only the CWD: `/tracker-init` writes there. A config found higher up by the walk-up lookup in README "Where the config is found" does not block a new one here; the nearer file wins for this directory.)
 2. If the file does not exist → continue to Phase 2.
 3. If the file exists and `--force` was NOT passed → report the file's path, suggest running `/tracker-doctor` (to validate the existing config) or re-invoking `/tracker-init --force` (to overwrite). Stop. Do not prompt further.
 4. If the file exists and `--force` was passed → note that an overwrite is happening; surface this in the final summary (Phase 8); continue to Phase 2.
@@ -196,7 +196,7 @@ Grant the token scope once with `gh auth refresh -s project,read:project`, then
 
 ## Conventions assumed
 
-- The `.claude/issue-tracker.yaml` file lives at the consumer's repo root and is committed to version control.
+- The `.claude/issue-tracker.yaml` file is written to the CWD, normally the consumer's repo root, and committed to version control. Readers find it from any subdirectory or worktree below it, including when it sits in a non-git workspace root above several repos (README "Where the config is found").
 - The schema is defined in [`examples/issue-tracker.yaml.example`](../examples/issue-tracker.yaml.example) (v1 only).
 - After init, `/tracker-doctor` is the validation entrypoint — it runs `gh auth status` + `gh repo view` (GitHub) or Atlassian MCP site discovery (Jira) and warns about missing labels or issue types.
 - For Jira, the Atlassian Remote MCP is the sole auth mechanism; no API tokens are stored in the plugin or the config file.

@@ -108,6 +108,69 @@ def test_config_path_found_from_subdir(tmp_path):
     assert run_lib("ait_config_path", cwd=str(tmp_path)).returncode == 1
 
 
+def _home_env(home):
+    """os.environ with HOME pinned, so the ancestor walk stops at `home`."""
+    env = dict(os.environ)
+    env["HOME"] = Path(home).as_posix()
+    return env
+
+
+def _write_config(root, text=CONFIG):
+    (root / ".claude").mkdir(parents=True, exist_ok=True)
+    (root / ".claude" / "issue-tracker.yaml").write_text(text)
+
+
+def _config_path_from(cwd, env):
+    r = run_lib("ait_config_path", env=env, cwd=str(cwd))
+    return r.returncode, r.stdout.replace("\\", "/").lower()
+
+
+def test_config_path_walks_up_from_nested_repo(tmp_path):
+    ws = tmp_path / "ws"
+    _write_config(ws)
+    repo = init_repo(ws / "repos" / "app")
+    rc, out = _config_path_from(repo, _home_env(tmp_path))
+    assert rc == 0 and out.endswith("ws/.claude/issue-tracker.yaml")
+
+
+def test_config_path_walks_up_from_linked_worktree(tmp_path):
+    ws = tmp_path / "ws"
+    _write_config(ws)
+    repo = init_repo(ws / "repos" / "app")
+    wt = ws / "repos" / "app-worktrees" / "T-1"
+    git(repo, "worktree", "add", "-q", str(wt), "-b", "t-1")
+    rc, out = _config_path_from(wt, _home_env(tmp_path))
+    assert rc == 0 and out.endswith("ws/.claude/issue-tracker.yaml")
+
+
+def test_config_path_finds_main_checkout_config_from_linked_worktree(tmp_path):
+    repo = init_repo(tmp_path / "app")
+    _write_config(repo)  # never committed, so the worktree has no copy
+    wt = tmp_path / "app-worktrees" / "T-1"
+    git(repo, "worktree", "add", "-q", str(wt), "-b", "t-1")
+    rc, out = _config_path_from(wt, _home_env(tmp_path))
+    assert rc == 0 and out.endswith("/app/.claude/issue-tracker.yaml")
+
+
+def test_config_path_nearest_wins(tmp_path):
+    ws = tmp_path / "ws"
+    _write_config(ws)
+    repo = init_repo(ws / "repos" / "app")
+    _write_config(repo)
+    sub = repo / "src"
+    sub.mkdir()
+    rc, out = _config_path_from(sub, _home_env(tmp_path))
+    assert rc == 0 and out.endswith("repos/app/.claude/issue-tracker.yaml")
+
+
+def test_config_path_walk_skips_home(tmp_path):
+    home = tmp_path / "home"
+    _write_config(home)
+    repo = init_repo(home / "code" / "app")
+    rc, out = _config_path_from(repo, _home_env(home))
+    assert rc == 1 and out == ""
+
+
 def test_issue_url_github_and_jira(tmp_path):
     cfg = tmp_path / "c.yaml"
     cfg.write_text(CONFIG)
