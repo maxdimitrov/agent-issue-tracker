@@ -370,20 +370,25 @@ ait_config_provenance() {
 # A flat reader for the plugin's own schema: a top-level `key: value`, or a
 # two-space-indented `sub: value` under `section:`. Quoted values keep
 # everything inside the quotes; unquoted values lose a trailing ` # comment`.
-# Not a YAML parser, and not meant to be one.
+# Not a YAML parser, and not meant to be one. Without <config> it reads the
+# effective config for $PWD (ait_config_resolve); with one, that file only.
 ait_config_get() {
-  local key="$1" cfg="${2:-}" section="" sub="" val=""
-  [ -n "$cfg" ] || cfg="$(ait_config_path "$PWD")" || return 1
+  local key="$1" cfg="${2:-}" section="" sub="" val="" text
+  if [ -n "$cfg" ]; then
+    text="$(cat "$cfg" 2>/dev/null)" || return 1
+  else
+    text="$(ait_config_resolve "$PWD")" || return 1
+  fi
   case "$key" in
     *.*)
       section="${key%%.*}"
       sub="${key#*.}"
-      val="$(awk -v s="$section" -v k="$sub" '
+      val="$(printf '%s\n' "$text" | awk -v s="$section" -v k="$sub" '
         /^[A-Za-z_]+:/ { insec = ($0 ~ "^" s ":"); next }
-        insec && $0 ~ "^  " k ":" { sub("^  " k ":[ \t]*", ""); print; exit }' "$cfg")"
+        insec && $0 ~ "^  " k ":" { sub("^  " k ":[ \t]*", ""); print; exit }')"
       ;;
     *)
-      val="$(awk -v k="$key" '$0 ~ "^" k ":" { sub("^" k ":[ \t]*", ""); print; exit }' "$cfg")"
+      val="$(printf '%s\n' "$text" | awk -v k="$key" '$0 ~ "^" k ":" { sub("^" k ":[ \t]*", ""); print; exit }')"
       ;;
   esac
   val="$(printf '%s' "$val" | sed -E 's/^"([^"]*)".*$/\1/; t; s/^'"'"'([^'"'"']*)'"'"'.*$/\1/; t; s/[[:space:]]+#.*$//; s/[[:space:]]+$//')"
@@ -391,10 +396,10 @@ ait_config_get() {
   printf '%s' "$val"
 }
 
-# ait_issue_url <ref> [<config>] - tracker URL for a ref, or nothing.
+# ait_issue_url <ref> [<config>] - tracker URL for a ref, or nothing. Without
+# <config>, the effective config for $PWD.
 ait_issue_url() {
   local ref="$1" cfg="${2:-}" backend repo site
-  [ -n "$cfg" ] || cfg="$(ait_config_path "$PWD")" || return 1
   backend="$(ait_config_get backend "$cfg")" || return 1
   case "$backend" in
     github)

@@ -129,7 +129,6 @@ def test_cwd_at_home_uses_the_file_once(layout):
     ("TRACKER_JIRA_SITE_OVERRIDE", "jira.site", "staging.atlassian.net"),
     ("TRACKER_JIRA_PROJECT_OVERRIDE", "jira.project", "SBX"),
 ])
-@pytest.mark.xfail(strict=True, reason="path-free ait_config_get lands in Task 2")
 def test_each_override(layout, var, key, value):
     home, repo = layout
     _write(repo, PROJECT)
@@ -137,7 +136,6 @@ def test_each_override(layout, var, key, value):
     assert r.returncode == 0 and r.stdout == value
 
 
-@pytest.mark.xfail(strict=True, reason="path-free ait_config_get lands in Task 2")
 def test_override_keeps_siblings(layout):
     home, repo = layout
     _write(repo, PROJECT + '  default_pr_close_syntax: "Fixes #N"\n')
@@ -154,7 +152,6 @@ def test_override_creates_missing_section(layout):
     assert out.endswith("jira:\n  site: x.atlassian.net\n")
 
 
-@pytest.mark.xfail(strict=True, reason="path-free ait_config_get lands in Task 2")
 def test_override_appends_to_section_followed_by_comment(layout):
     home, repo = layout
     _write(repo, "schema_version: 1\njira:\n  site: a.example\n\n# later\nloops:\n  interval: 5m\n")
@@ -164,7 +161,6 @@ def test_override_appends_to_section_followed_by_comment(layout):
     assert get(repo, env, "loops.interval").stdout == "5m"
 
 
-@pytest.mark.xfail(strict=True, reason="path-free ait_config_get lands in Task 2")
 def test_override_value_with_hash_round_trips(layout):
     home, repo = layout
     _write(repo, PROJECT)

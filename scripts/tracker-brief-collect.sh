@@ -89,9 +89,9 @@ STATE="$STATE_DIR/tracker-brief.json"
 CONFIG="$(ait_config_path "$PWD")" || CONFIG=""
 BACKEND=""; GH_REPO=""; JIRA_SITE=""
 if [ -n "$CONFIG" ]; then
-  BACKEND="$(ait_config_get backend "$CONFIG")" || BACKEND=""
-  GH_REPO="$(ait_config_get github.repo "$CONFIG")" || GH_REPO=""
-  JIRA_SITE="$(ait_config_get jira.site "$CONFIG")" || JIRA_SITE=""
+  BACKEND="$(ait_config_get backend)" || BACKEND=""
+  GH_REPO="$(ait_config_get github.repo)" || GH_REPO=""
+  JIRA_SITE="$(ait_config_get jira.site)" || JIRA_SITE=""
 fi
 
 # ------------------------------------------------------------ --commit-run

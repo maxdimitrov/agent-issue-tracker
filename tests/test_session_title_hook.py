@@ -47,6 +47,8 @@ def hook_env(tmp_path):
     env["XDG_CACHE_HOME"] = (tmp_path / "cache").as_posix()
     env["AIT_TITLE_NO_AI"] = "1"
     env.pop("AIT_TITLE_GUARD", None)
+    env["HOME"] = (tmp_path / "home").as_posix()
+    (tmp_path / "home").mkdir(parents=True, exist_ok=True)
     return env
 
 
@@ -646,6 +648,24 @@ GH_STUB_MACHINE_BLOCK_CRLF = """case "$*" in
   *"issue view 9"*state*)  printf '%s' 'OPEN' ;;
   *) exit 1 ;;
 esac"""
+
+
+def test_global_session_titles_false_disables(project, hook_env, tmp_path):
+    home = Path(hook_env["HOME"])
+    (home / ".claude").mkdir(parents=True, exist_ok=True)
+    (home / ".claude" / "issue-tracker.yaml").write_text("schema_version: 1\nsession_titles: false\n")
+    r = run_hook(payload_for(project), hook_env)
+    assert r.returncode == 0
+    assert title_of(r) is None
+
+
+def test_jira_project_override_narrows_ref_shape(project, hook_env):
+    (project / ".claude" / "issue-tracker.yaml").write_text(
+        "schema_version: 1\nbackend: github\ngithub:\n  repo: acme/widgets\n")
+    git(project, "checkout", "-q", "-b", "feat/SBX-12-thing")
+    env = dict(hook_env, TRACKER_BACKEND_OVERRIDE="jira", TRACKER_JIRA_PROJECT_OVERRIDE="SBX")
+    r = run_hook(payload_for(project), env)
+    assert "SBX-12" in (title_of(r) or "")
 
 
 def test_machine_block_branch_match_tolerates_crlf(project, hook_env, tmp_path):

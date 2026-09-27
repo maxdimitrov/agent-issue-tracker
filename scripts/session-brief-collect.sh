@@ -40,7 +40,7 @@ command -v gh >/dev/null 2>&1 && have_gh=true
 CWD="$(ait_norm_path "$PWD")"
 CONFIG="$(ait_config_path "$PWD")" || CONFIG=""
 BACKEND=""
-[ -n "$CONFIG" ] && { BACKEND="$(ait_config_get backend "$CONFIG")" || BACKEND=""; }
+[ -n "$CONFIG" ] && { BACKEND="$(ait_config_get backend)" || BACKEND=""; }
 STATE_DIR="$(ait_state_dir "$PWD")"
 
 # ------------------------------------------------------- tmp dir for spills
@@ -146,7 +146,7 @@ fi
 if [ -n "$TICKET_KEY" ]; then
   TICKET="$(ait_json_str "$TICKET_KEY")"
   if [ -n "$CONFIG" ]; then
-    url="$(ait_issue_url "$TICKET_KEY" "$CONFIG")" || url=""
+    url="$(ait_issue_url "$TICKET_KEY")" || url=""
     [ -n "$url" ] && TICKET_URL="$(ait_json_str "$url")"
   fi
 fi

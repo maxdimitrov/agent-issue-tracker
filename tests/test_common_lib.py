@@ -224,3 +224,25 @@ def test_json_type(value, kind):
 def test_json_type_rejects_non_values(value):
     r = run_lib(f"ait_json_type '{value}'")
     assert r.stdout == "" and r.returncode == 1
+
+
+def test_config_get_pathless_reads_merged_view(tmp_path):
+    home = tmp_path / "home"
+    repo = init_repo(home / "code" / "app")
+    _write_config(repo, "schema_version: 1\nbackend: github\n")
+    _write_config(home, "schema_version: 1\nloops:\n  interval: 7m\n")
+    env = _home_env(home)
+    assert run_lib("ait_config_get loops.interval", env=env, cwd=str(repo)).stdout == "7m"
+    raw = (repo / ".claude" / "issue-tracker.yaml").as_posix()
+    r = run_lib(f'ait_config_get loops.interval "{raw}"', env=env, cwd=str(repo))
+    assert r.returncode == 1 and r.stdout == ""   # explicit path = that file only
+
+
+def test_issue_url_pathless_honours_override(tmp_path):
+    home = tmp_path / "home"
+    repo = init_repo(home / "code" / "app")
+    _write_config(repo, CONFIG)
+    env = _home_env(home)
+    env["TRACKER_GITHUB_REPO_OVERRIDE"] = "sandbox/repo"
+    r = run_lib('ait_issue_url "#5"', env=env, cwd=str(repo))
+    assert r.stdout == "https://github.com/sandbox/repo/issues/5"
