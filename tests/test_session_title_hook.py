@@ -197,6 +197,9 @@ def test_default_title_with_regex_metachar_dirname(tmp_path):
     env = dict(os.environ)
     env["XDG_CACHE_HOME"] = (tmp_path / "cache").as_posix()
     env["AIT_TITLE_NO_AI"] = "1"
+    # Pinned like hook_env: a real ~/.claude/issue-tracker.yaml must not leak in.
+    env["HOME"] = (tmp_path / "home").as_posix()
+    (tmp_path / "home").mkdir(parents=True, exist_ok=True)
     r = run_hook(payload_for(proj, session_id="meta1", session_title="proj+abc-3f"), env)
     assert r.returncode == 0
     assert not (Path(env["XDG_CACHE_HOME"]) / "agent-issue-tracker" / "session-titles" / "meta1.pinned").exists()
