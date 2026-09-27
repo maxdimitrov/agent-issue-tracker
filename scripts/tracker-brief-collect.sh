@@ -89,9 +89,11 @@ STATE="$STATE_DIR/tracker-brief.json"
 CONFIG="$(ait_config_path "$PWD")" || CONFIG=""
 BACKEND=""; GH_REPO=""; JIRA_SITE=""
 if [ -n "$CONFIG" ]; then
-  BACKEND="$(ait_config_get backend)" || BACKEND=""
-  GH_REPO="$(ait_config_get github.repo)" || GH_REPO=""
-  JIRA_SITE="$(ait_config_get jira.site)" || JIRA_SITE=""
+  # One resolve for all three reads: each costs ~0.7s on Git Bash.
+  EFF="$(ait_config_resolve "$PWD")" || EFF=""
+  BACKEND="$(printf '%s\n' "$EFF" | _ait_config_pick backend)" || BACKEND=""
+  GH_REPO="$(printf '%s\n' "$EFF" | _ait_config_pick github.repo)" || GH_REPO=""
+  JIRA_SITE="$(printf '%s\n' "$EFF" | _ait_config_pick jira.site)" || JIRA_SITE=""
 fi
 
 # ------------------------------------------------------------ --commit-run

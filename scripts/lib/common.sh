@@ -372,23 +372,32 @@ ait_config_provenance() {
 # everything inside the quotes; unquoted values lose a trailing ` # comment`.
 # Not a YAML parser, and not meant to be one. Without <config> it reads the
 # effective config for $PWD (ait_config_resolve); with one, that file only.
+# A caller reading several keys resolves once and pipes the text to
+# _ait_config_pick instead: each resolve costs ~0.7s on Git Bash.
 ait_config_get() {
-  local key="$1" cfg="${2:-}" section="" sub="" val="" text
+  local key="$1" cfg="${2:-}" text
   if [ -n "$cfg" ]; then
     text="$(cat "$cfg" 2>/dev/null)" || return 1
   else
     text="$(ait_config_resolve "$PWD")" || return 1
   fi
+  printf '%s\n' "$text" | _ait_config_pick "$key"
+}
+
+# _ait_config_pick <key> - the value of <key> in the YAML on stdin (the
+# ait_config_get rules); 1 when it is absent or empty.
+_ait_config_pick() {
+  local key="$1" section="" sub="" val=""
   case "$key" in
     *.*)
       section="${key%%.*}"
       sub="${key#*.}"
-      val="$(printf '%s\n' "$text" | awk -v s="$section" -v k="$sub" '
+      val="$(awk -v s="$section" -v k="$sub" '
         /^[A-Za-z_]+:/ { insec = ($0 ~ "^" s ":"); next }
         insec && $0 ~ "^  " k ":" { sub("^  " k ":[ \t]*", ""); print; exit }')"
       ;;
     *)
-      val="$(printf '%s\n' "$text" | awk -v k="$key" '$0 ~ "^" k ":" { sub("^" k ":[ \t]*", ""); print; exit }')"
+      val="$(awk -v k="$key" '$0 ~ "^" k ":" { sub("^" k ":[ \t]*", ""); print; exit }')"
       ;;
   esac
   val="$(printf '%s' "$val" | sed -E 's/^"([^"]*)".*$/\1/; t; s/^'"'"'([^'"'"']*)'"'"'.*$/\1/; t; s/[[:space:]]+#.*$//; s/[[:space:]]+$//')"
@@ -399,11 +408,23 @@ ait_config_get() {
 # ait_issue_url <ref> [<config>] - tracker URL for a ref, or nothing. Without
 # <config>, the effective config for $PWD.
 ait_issue_url() {
-  local ref="$1" cfg="${2:-}" backend repo site
-  backend="$(ait_config_get backend "$cfg")" || return 1
+  local ref="$1" cfg="${2:-}" text
+  if [ -n "$cfg" ]; then
+    text="$(cat "$cfg" 2>/dev/null)" || return 1
+  else
+    text="$(ait_config_resolve "$PWD")" || return 1
+  fi
+  _ait_issue_url_from "$ref" "$text"
+}
+
+# _ait_issue_url_from <ref> <yaml> - ait_issue_url over already-read config
+# text, for callers that resolved once.
+_ait_issue_url_from() {
+  local ref="$1" text="$2" backend repo site
+  backend="$(printf '%s\n' "$text" | _ait_config_pick backend)" || return 1
   case "$backend" in
     github)
-      repo="$(ait_config_get github.repo "$cfg")" || return 1
+      repo="$(printf '%s\n' "$text" | _ait_config_pick github.repo)" || return 1
       case "$ref" in
         \#[0-9]*) printf 'https://github.com/%s/issues/%s' "$repo" "${ref#\#}" ;;
         */*\#[0-9]*) printf 'https://github.com/%s/issues/%s' "${ref%%#*}" "${ref##*#}" ;;
@@ -411,7 +432,7 @@ ait_issue_url() {
       esac
       ;;
     jira)
-      site="$(ait_config_get jira.site "$cfg")" || return 1
+      site="$(printf '%s\n' "$text" | _ait_config_pick jira.site)" || return 1
       case "$ref" in
         [A-Z]*-[0-9]*) printf 'https://%s/browse/%s' "$site" "$ref" ;;
         *) return 1 ;;

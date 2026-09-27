@@ -700,3 +700,22 @@ def test_machine_block_branch_match_tolerates_crlf(project, hook_env, tmp_path):
     git(project, "checkout", "-q", "-b", "feat/obs")
     t = title_of(run_hook(payload_for(project), hook_env, stub_bin=stub_bin))
     assert t == "#7 obs-rollout · next #9"
+
+
+def test_hook_resolves_config_once(project, hook_env, tmp_path):
+    """One ait_config_resolve per hook run, not one per key read (#7 I1).
+
+    From a subdirectory every resolve walks up through ait_main_repo, which
+    runs `git rev-parse --git-common-dir` exactly once, so GIT_TRACE counts
+    resolves. (A PATH stub cannot: Git Bash puts its own git first.) A
+    per-read resolve costs ~0.7s on Git Bash."""
+    trace = tmp_path / "git.trace"
+    git(project, "switch", "-c", "feat/42-board-support")
+    sub = project / "src"
+    sub.mkdir()
+    env = dict(hook_env, GIT_TRACE=str(trace))
+    t = title_of(run_hook(payload_for(sub), env))
+    assert t == "#42 board-support"
+    calls = [ln for ln in trace.read_text().splitlines()
+             if "built-in: git rev-parse --git-common-dir" in ln]
+    assert len(calls) == 1, calls

@@ -46,8 +46,10 @@ case "$src" in startup | resume) : ;; *) exit 0 ;; esac
 
 # --- stage 3: config gate ------------------------------------------------------
 toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)" || toplevel=""
-ait_config_path "$cwd" >/dev/null || exit 0
-cfg_get() { ( cd "$cwd" 2>/dev/null && ait_config_get "$1" 2>/dev/null ) || true; }
+# Resolve once (a resolve costs ~0.7s on Git Bash); it fails exactly when
+# there is no project file, which is the "not configured" gate.
+eff="$( cd "$cwd" 2>/dev/null && ait_config_resolve 2>/dev/null )" || exit 0
+cfg_get() { printf '%s\n' "$eff" | _ait_config_pick "$1" 2>/dev/null || true; }
 [ "$(cfg_get session_titles)" = "false" ] && exit 0
 
 # --- stage 4: manual-rename gate ------------------------------------------------
