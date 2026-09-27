@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Config layers** (#7). A global `~/.claude/issue-tracker.yaml` now acts as
+  a base layer under the project file, merged by top-level key, and four env
+  vars (`TRACKER_BACKEND_OVERRIDE`, `TRACKER_GITHUB_REPO_OVERRIDE`,
+  `TRACKER_JIRA_SITE_OVERRIDE`, `TRACKER_JIRA_PROJECT_OVERRIDE`) override
+  single values for a run. The global file never configures a repo on its
+  own. New `scripts/config-resolve.sh` (with `--provenance`) is what commands
+  and skills read; `ait_config_get` without a path reads the same view.
+  `/tracker-doctor` shows each key's source and `/tracker-init --global`
+  scaffolds the global file.
+
 ### Fixed
 
 - **Config lookup walks up** (#146). `ait_config_path` used to check only

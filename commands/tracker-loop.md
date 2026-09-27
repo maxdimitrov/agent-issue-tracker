@@ -28,7 +28,7 @@ Session crons expire after seven days and end with the conversation; `/schedule`
 
 ## Configuration
 
-Optional `loops:` block in `.claude/issue-tracker.yaml` (defaults shown; `examples/issue-tracker.yaml.example` documents it):
+Optional `loops:` block in the effective config (defaults shown; `examples/issue-tracker.yaml.example` documents it; README "Where the config is found"):
 
 ```yaml
 loops:
@@ -95,7 +95,7 @@ Before the table, classify every `SB.review.threads[]` with `awaiting_you == tru
 | `ci.conclusion == "failure"` | **fix-ci**: `superpowers:systematic-debugging` on `ci.failed_jobs`, `superpowers:test-driven-development` for the fix, push |
 | an awaiting thread classified `code` | **address-review**: make the change, push, reply on the thread naming the commit SHA, resolve the thread |
 | an awaiting thread classified `judgement` | **stop: needs-you** — quote author, path:line, excerpt |
-| `pr.reviewDecision == "APPROVED"` and the effective `--merge` | **merge**: `gh pr merge --<merge_method> --match-head-commit <pr.headRefOid> --auto` (`merge_method` from `.claude/issue-tracker.yaml`, default `squash`; falls back to a direct merge with the same method and pin only where auto-merge is unavailable; never `--delete-branch`). A direct merge lands immediately: run `/work-issue <ref> --finish` and **stop: done**. An armed auto-merge lands when the checks pass: record the action and keep iterating (`wait-ci` while checks run), so the first row observes `pr.state == MERGED` and runs `--finish` at its stop |
+| `pr.reviewDecision == "APPROVED"` and the effective `--merge` | **merge**: `gh pr merge --<merge_method> --match-head-commit <pr.headRefOid> --auto` (`merge_method` from the effective config, default `squash`; falls back to a direct merge with the same method and pin only where auto-merge is unavailable; never `--delete-branch`). A direct merge lands immediately: run `/work-issue <ref> --finish` and **stop: done**. An armed auto-merge lands when the checks pass: record the action and keep iterating (`wait-ci` while checks run), so the first row observes `pr.state == MERGED` and runs `--finish` at its stop |
 | `pr.reviewDecision == "APPROVED"`, no effective `--merge` | **stop: ready-to-merge** — the operator's call |
 | `ci.status` is `queued`, `in_progress`, `waiting` or `pending` | **wait-ci** (hint: CI in progress) — recorded without `--noop`; does not count toward `idle_stop_after` |
 | anything else | **wait** (hint: idle, see Pacing hint) — recorded with `--noop`; counts toward `idle_stop_after` |

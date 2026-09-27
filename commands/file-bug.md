@@ -14,7 +14,7 @@ Any text after the command (`/file-bug auth modal hangs on submit`) seeds the is
 2. The skill does the rest, unchanged:
    - gathers the body in the agent-prompt shape (Goal, Locus, Skills to load, Symptom + Repro + Impact, Constraints, Acceptance, Verify);
    - applies the bail criteria (no clear locus / unbounded blast radius / open design question / no writable regression test → ask for what's missing rather than file a vague issue);
-   - resolves the backend from `.claude/issue-tracker.yaml` and dispatches `create_issue` (with the `bug` label plus any area labels) through `backends/<backend>.md`.
+   - resolves the backend from the effective config (`${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh`; README "Where the config is found") and dispatches `create_issue` (with the `bug` label plus any area labels) through `backends/<backend>.md`.
 
 ## Relationship to siblings
 

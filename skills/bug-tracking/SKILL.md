@@ -23,7 +23,7 @@ description: >-
 
 The canonical tracker is the one configured in the consumer project's
 `.claude/issue-tracker.yaml`: the nearest one walking up from the current
-directory, so a worktree or a repo under a workspace root finds it too. The plugin's `backends/_interface.md`
+directory, so a worktree or a repo under a workspace root finds it too, plus the global base layer and env overrides — read it through `${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh`. The plugin's `backends/_interface.md`
 documents the ten operations every backend implements;
 `backends/<backend>.md` (e.g. `backends/github.md`) documents the literal
 CLI / MCP invocation for each operation.
@@ -78,7 +78,7 @@ Do **not** file an issue when:
 
 Invoke the configured backend's `create_issue` operation — see
 `backends/<backend>.md` where `<backend>` is the value of `backend:` in
-`.claude/issue-tracker.yaml`. Pass:
+the effective config (`${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh`; README "Where the config is found"). Pass:
 
 - `type`: `bug`
 - `title`: `<component>: <symptom>` (see Title format below)

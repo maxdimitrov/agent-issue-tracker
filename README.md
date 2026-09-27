@@ -85,7 +85,7 @@ Enable the Atlassian connector in [claude.ai](https://claude.ai) → Settings �
 
 Every consuming project commits one `.claude/issue-tracker.yaml`. It declares the backend, the project's vocabulary (areas, subsystems), and any backend-specific overrides (Jira issue-type mapping, parent-link style, custom workflow transitions). The fully-commented schema lives at [`examples/issue-tracker.yaml.example`](examples/issue-tracker.yaml.example) — read it once; you'll override maybe three keys.
 
-`.claude/issue-tracker.yaml` is the only configuration surface. No env-var overrides in v1; no global `~/.claude/issue-tracker.yaml`. Both are filed as v2 follow-on issues.
+The project file is required; a global `~/.claude/issue-tracker.yaml` and four env overrides can layer on top of it (below).
 
 ### Where the config is found
 
@@ -96,6 +96,22 @@ Every script, hook and command resolves the file the same way (`ait_config_path`
 3. the directories above the toplevel, nearest first.
 
 The walk above the toplevel stops below `$HOME`, so `~/.claude/issue-tracker.yaml` is never picked up. As a result, a workspace directory that is not itself a git repo can hold one config for every repo and worktree beneath it, and a repo's own config still wins over the workspace's. `/tracker-doctor` prints the path it resolved.
+
+The project file found this way is the only thing that makes a repo configured. Two more layers can then change what readers see, lowest priority first:
+
+1. **Global base layer** — `~/.claude/issue-tracker.yaml`. Merged *under* the project file by top-level key: a key the project sets (its whole block, e.g. `github:` with all its children) wins; a key the project lacks (e.g. `areas:`, `loops:`) is inherited. `schema_version` always comes from the project. The global file never applies on its own — a repo with no project file stays unconfigured — and it is skipped, with a warning, when malformed or on a different `schema_version`. `/tracker-init --global` scaffolds one with the shared sections only.
+2. **Env overrides** — for retargeting a CI or headless run without editing the committed file. Only these four; an empty value counts as unset:
+
+   | Env var | Overrides |
+   | --- | --- |
+   | `TRACKER_BACKEND_OVERRIDE` | `backend` |
+   | `TRACKER_GITHUB_REPO_OVERRIDE` | `github.repo` |
+   | `TRACKER_JIRA_SITE_OVERRIDE` | `jira.site` |
+   | `TRACKER_JIRA_PROJECT_OVERRIDE` | `jira.project` |
+
+   Each replaces one value and keeps its siblings. Set them for a whole run: changing `TRACKER_BACKEND_OVERRIDE` mid-run changes the ref shape (`#N` vs `PROJ-1`) of everything after it.
+
+Scripts read the result through `ait_config_get` (`scripts/lib/common.sh`); commands and skills run `${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh` and read its stdout (exit 1 = not configured). `config-resolve.sh --provenance` and `/tracker-doctor` show which layer each key came from.
 
 ## Session titles
 
@@ -204,7 +220,6 @@ A GitLab backend is filed as [#4](https://github.com/maxdimitrov/agent-issue-tra
 The current release is the top entry in [CHANGELOG.md](CHANGELOG.md); every shipped capability is recorded there with its issue and PR numbers. Open work, in priority order, lives in [the issues list](https://github.com/maxdimitrov/agent-issue-tracker/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement):
 
 - **Session-boundary nudges** via hook `systemMessage` (#114, needs a design pass).
-- **Config resolution** — env-var overrides and a global `~/.claude/issue-tracker.yaml` fallback (#7, needs a design pass).
 
 ## License
 

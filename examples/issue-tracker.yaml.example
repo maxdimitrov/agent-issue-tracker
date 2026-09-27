@@ -7,6 +7,13 @@
 # Fields marked REQUIRED have no default. Fields marked optional show the
 # default the plugin uses if you omit them.
 
+# Layers: this project file is required and wins. Keys it omits may be
+# inherited, whole top-level block at a time, from ~/.claude/issue-tracker.yaml
+# (a base layer that never applies on its own). TRACKER_BACKEND_OVERRIDE,
+# TRACKER_GITHUB_REPO_OVERRIDE, TRACKER_JIRA_SITE_OVERRIDE and
+# TRACKER_JIRA_PROJECT_OVERRIDE override single values for one run.
+# See README "Where the config is found".
+
 # REQUIRED. Schema version. The plugin reads this to apply forward-compat
 # migrations. v1 is the only version v1 of the plugin understands.
 schema_version: 1

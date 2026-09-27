@@ -37,8 +37,8 @@ description: >-
 
 # Initiative Tracking — Multi-Week Effort as Epic + Sub-Issues
 
-The canonical tracker is the one configured in the consumer
-project's `.claude/issue-tracker.yaml`. The plugin's
+The canonical tracker is the one configured in the effective config
+(`${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh`; README "Where the config is found"). The plugin's
 `backends/_interface.md` documents the ten operations every
 backend implements; `backends/<backend>.md` (e.g.
 `backends/github.md`) documents the literal CLI / MCP invocation
