@@ -217,6 +217,155 @@ ait_config_path() {
   done
 }
 
+# --- config resolution (#7): global base layer + env overrides ---------------
+# The effective config is the project file (ait_config_path) merged over
+# $HOME/.claude/issue-tracker.yaml by top-level key, then the four
+# TRACKER_*_OVERRIDE leaves. The global file never activates on its own: no
+# project file means not configured. README "Where the config is found".
+
+# _ait_config_wellformed <file> - every line is blank, a comment, a top-level
+# `key:` line, an indented line or a top-level list item.
+_ait_config_wellformed() {
+  awk '/^[[:space:]]*$/ || /^[[:space:]]*#/ || /^[A-Za-z_][A-Za-z0-9_]*:/ || /^[[:space:]]/ || /^- / { next }
+       { bad = 1; exit }
+       END { exit bad }' "$1"
+}
+
+# _ait_config_keys <file> - its top-level keys, in file order.
+_ait_config_keys() {
+  awk '/^[A-Za-z_][A-Za-z0-9_]*:/ { k = $0; sub(/:.*/, "", k); print k }' "$1"
+}
+
+# _ait_config_merge <project> [<global>] - the project's blocks in project
+# order, then the global's blocks for keys the project lacks, in global order.
+# A block is a top-level `key:` line plus everything up to the next one;
+# comments and blank lines between blocks travel with the block after them.
+# schema_version never comes from the global file.
+_ait_config_merge() {
+  awk '
+    function close_block() {
+      if (key != "") { body[f, key] = buf; order[f, ++n[f]] = key; has[f, key] = 1 }
+      key = ""; buf = ""
+    }
+    FNR == 1 { if (NR > 1) close_block(); f++; pend = "" }
+    /^[A-Za-z_][A-Za-z0-9_]*:/ {
+      close_block()
+      key = $0; sub(/:.*/, "", key)
+      buf = pend $0 "\n"; pend = ""
+      next
+    }
+    /^[[:space:]]*$/ || /^#/ { pend = pend $0 "\n"; next }
+    { if (key == "") pend = pend $0 "\n"; else { buf = buf pend $0 "\n"; pend = "" } }
+    END {
+      close_block()
+      for (i = 1; i <= n[1]; i++) printf "%s", body[1, order[1, i]]
+      for (i = 1; i <= n[2]; i++) {
+        k = order[2, i]
+        if (k == "schema_version" || has[1, k]) continue
+        printf "%s", body[2, k]
+      }
+    }' "$@"
+}
+
+# _ait_config_set_leaf <key> <value> - stdin YAML with one leaf set: a
+# top-level `key: value`, or `  sub: value` under `section:`. Replaces the
+# line when present, appends it to the section (or the file) when not. A value
+# holding `#` or `: ` is double-quoted so ait_config_get reads it back whole.
+_ait_config_set_leaf() {
+  local key="$1" val="$2" section="" sub=""
+  case "$val" in *'#'* | *': '*) val="\"$val\"" ;; esac
+  case "$key" in *.*) section="${key%%.*}"; sub="${key#*.}" ;; *) sub="$key" ;; esac
+  awk -v s="$section" -v k="$sub" -v v="$val" '
+    function emit_missing() {
+      if (done) return
+      if (s == "") print k ": " v
+      else if (insec) print "  " k ": " v
+      else { print s ":"; print "  " k ": " v }
+      done = 1
+    }
+    s == "" && $0 ~ "^" k ":" { print k ": " v; done = 1; next }
+    s != "" && /^[A-Za-z_][A-Za-z0-9_]*:/ {
+      if (insec) emit_missing()
+      insec = ($0 ~ "^" s ":")
+      print; next
+    }
+    s != "" && insec && $0 ~ "^  " k ":" { print "  " k ": " v; done = 1; next }
+    { print }
+    END { emit_missing() }'
+}
+
+# _ait_config_env - stdin YAML with the non-empty TRACKER_*_OVERRIDE leaves set.
+_ait_config_env() {
+  local out
+  out="$(cat)"
+  [ -n "${TRACKER_BACKEND_OVERRIDE:-}" ] &&
+    out="$(printf '%s\n' "$out" | _ait_config_set_leaf backend "$TRACKER_BACKEND_OVERRIDE")"
+  [ -n "${TRACKER_GITHUB_REPO_OVERRIDE:-}" ] &&
+    out="$(printf '%s\n' "$out" | _ait_config_set_leaf github.repo "$TRACKER_GITHUB_REPO_OVERRIDE")"
+  [ -n "${TRACKER_JIRA_SITE_OVERRIDE:-}" ] &&
+    out="$(printf '%s\n' "$out" | _ait_config_set_leaf jira.site "$TRACKER_JIRA_SITE_OVERRIDE")"
+  [ -n "${TRACKER_JIRA_PROJECT_OVERRIDE:-}" ] &&
+    out="$(printf '%s\n' "$out" | _ait_config_set_leaf jira.project "$TRACKER_JIRA_PROJECT_OVERRIDE")"
+  printf '%s\n' "$out"
+}
+
+# _ait_config_global <project> - the global file to merge under <project>, or
+# nothing. It must exist, not be <project> itself, be well-formed, and carry
+# the project's schema_version (or none). A skipped file gets one WARN on stderr.
+_ait_config_global() {
+  local proj="$1" g pv gv
+  [ -n "${HOME:-}" ] || return 0
+  g="$HOME/.claude/issue-tracker.yaml"
+  { [ -f "$g" ] && [ -r "$g" ]; } || return 0
+  [ "$(ait_norm_path "${g%/*}")" = "$(ait_norm_path "${proj%/*}")" ] && return 0
+  if ! _ait_config_wellformed "$g"; then
+    printf 'WARN: %s is malformed; ignoring it\n' "$g" >&2
+    return 0
+  fi
+  pv="$(ait_config_get schema_version "$proj")" || pv=""
+  gv="$(ait_config_get schema_version "$g")" || gv=""
+  if [ -n "$gv" ] && [ "$gv" != "$pv" ]; then
+    printf 'WARN: %s has schema_version %s but the project has %s; ignoring it\n' \
+      "$g" "$gv" "${pv:-none}" >&2
+    return 0
+  fi
+  printf '%s' "$g"
+}
+
+# ait_config_resolve [<dir>] - the effective config as YAML on stdout; 1 with
+# no output when no project file is found.
+ait_config_resolve() {
+  local proj glob
+  proj="$(ait_config_path "${1:-$PWD}")" || return 1
+  [ -r "$proj" ] || return 1
+  glob="$(_ait_config_global "$proj")"
+  _ait_config_merge "$proj" ${glob:+"$glob"} | _ait_config_env
+}
+
+# ait_config_provenance [<dir>] - `key<TAB>source` per effective top-level key
+# (project:<path> | global:<path>), then one `section.key<TAB>env:<VAR>` line
+# per applied override; 1 when not configured.
+ait_config_provenance() {
+  local proj glob k var key
+  proj="$(ait_config_path "${1:-$PWD}")" || return 1
+  [ -r "$proj" ] || return 1
+  glob="$(_ait_config_global "$proj" 2>/dev/null)"
+  _ait_config_keys "$proj" | while IFS= read -r k; do printf '%s\tproject:%s\n' "$k" "$proj"; done
+  if [ -n "$glob" ]; then
+    _ait_config_keys "$glob" | while IFS= read -r k; do
+      [ "$k" = schema_version ] && continue
+      _ait_config_keys "$proj" | grep -qx "$k" && continue
+      printf '%s\tglobal:%s\n' "$k" "$glob"
+    done
+  fi
+  for var in TRACKER_BACKEND_OVERRIDE:backend TRACKER_GITHUB_REPO_OVERRIDE:github.repo \
+             TRACKER_JIRA_SITE_OVERRIDE:jira.site TRACKER_JIRA_PROJECT_OVERRIDE:jira.project; do
+    key="${var#*:}"; var="${var%%:*}"
+    [ -n "${!var:-}" ] && printf '%s\tenv:%s\n' "$key" "$var"
+  done
+  return 0
+}
+
 # ait_config_get <key> [<config>] - `backend`, `github.repo`, `loops.interval`.
 # A flat reader for the plugin's own schema: a top-level `key: value`, or a
 # two-space-indented `sub: value` under `section:`. Quoted values keep
