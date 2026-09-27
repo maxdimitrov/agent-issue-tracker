@@ -186,7 +186,7 @@ Grant the token scope once with `gh auth refresh -s project,read:project`, then
 
 ## `--global`
 
-Writes `~/.claude/issue-tracker.yaml`: a base layer merged under every project file by top-level key (README "Where the config is found"). It never configures a repo on its own.
+Writes `~/.claude/issue-tracker.yaml`: a base layer merged under every project file by top-level key (README "Where the config is found"). It never configures a repo on its own. Exception: when the current directory is `$HOME` itself, that file is found as the project file.
 
 1. If `~/.claude/issue-tracker.yaml` exists and `--force` was not passed, stop: "Global config already exists at `~/.claude/issue-tracker.yaml`; pass `--force` to overwrite."
 2. Ask (`AskUserQuestion`) only for the shared vocabulary and defaults: `areas`, `subsystems`, `merge_method` (default `squash`), `session_titles` (default `true`). Skip the backend, credential and Jira phases entirely.

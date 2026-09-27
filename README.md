@@ -95,11 +95,11 @@ Every script, hook and command resolves the file the same way (`ait_config_path`
 2. from a linked worktree, the main checkout's root;
 3. the directories above the toplevel, nearest first.
 
-The walk above the toplevel stops below `$HOME`, so `~/.claude/issue-tracker.yaml` is never picked up. As a result, a workspace directory that is not itself a git repo can hold one config for every repo and worktree beneath it, and a repo's own config still wins over the workspace's. `/tracker-doctor` prints the path it resolved.
+The walk above the toplevel stops below `$HOME`, so that walk never picks up `~/.claude/issue-tracker.yaml`. As a result, a workspace directory that is not itself a git repo can hold one config for every repo and worktree beneath it, and a repo's own config still wins over the workspace's. `/tracker-doctor` prints the path it resolved.
 
 The project file found this way is the only thing that makes a repo configured. Two more layers can then change what readers see, lowest priority first:
 
-1. **Global base layer** — `~/.claude/issue-tracker.yaml`. Merged *under* the project file by top-level key: a key the project sets (its whole block, e.g. `github:` with all its children) wins; a key the project lacks (e.g. `areas:`, `loops:`) is inherited. `schema_version` always comes from the project. The global file never applies on its own — a repo with no project file stays unconfigured — and it is skipped, with a warning, when malformed or on a different `schema_version`. `/tracker-init --global` scaffolds one with the shared sections only.
+1. **Global base layer** — `~/.claude/issue-tracker.yaml`. Merged *under* the project file by top-level key: a key the project sets (its whole block, e.g. `github:` with all its children) wins; a key the project lacks (e.g. `areas:`, `loops:`) is inherited. `schema_version` always comes from the project. In both files, section children use a two-space indent, because the resolver and the readers rely on it. The global file never applies on its own — a repo with no project file stays unconfigured — and it is skipped, with a warning, when malformed or on a different `schema_version`. Exception: when the current directory is `$HOME` itself, that file is found as the project file. `/tracker-init --global` scaffolds one with the shared sections only.
 2. **Env overrides** — for retargeting a CI or headless run without editing the committed file. Only these four; an empty value counts as unset:
 
    | Env var | Overrides |
