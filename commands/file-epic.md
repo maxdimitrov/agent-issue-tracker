@@ -15,7 +15,7 @@ Any text after the command (`/file-epic observability rollout across the worker 
    - confirms the scope is genuinely multi-week and spans more than one PR (single-issue scope belongs in `/file-bug` or `/file-feature`, not an epic);
    - files the epic body in the **evergreen** shape (`## Goal`, `## Scope`, `## Success criteria`, `## Design spec` — `templates/epic-body.md`), plus a marker-tagged **machine-block comment** (`templates/epic-machine-block.md`) for the phase breakdown when phases are known at file time — never a body Status block or Children mirror;
    - files each sub-issue and links it via the backend's native `link_sub_issue` operation, appending its ref to the epic's machine-block `## Phases` map when the epic is phased;
-   - resolves the backend from `.claude/issue-tracker.yaml` and dispatches `create_issue` / `link_sub_issue` (with the `epic` label) through `backends/<backend>.md`.
+   - resolves the backend from the effective config (`${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh`; README "Where the config is found") and dispatches `create_issue` / `link_sub_issue` (with the `epic` label) through `backends/<backend>.md`.
 
 Once filed, [`/resume-initiative`](resume-initiative.md) walks the epic tree and points at the next-up child.
 

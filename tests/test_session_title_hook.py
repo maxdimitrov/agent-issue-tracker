@@ -47,6 +47,8 @@ def hook_env(tmp_path):
     env["XDG_CACHE_HOME"] = (tmp_path / "cache").as_posix()
     env["AIT_TITLE_NO_AI"] = "1"
     env.pop("AIT_TITLE_GUARD", None)
+    env["HOME"] = (tmp_path / "home").as_posix()
+    (tmp_path / "home").mkdir(parents=True, exist_ok=True)
     return env
 
 
@@ -195,6 +197,9 @@ def test_default_title_with_regex_metachar_dirname(tmp_path):
     env = dict(os.environ)
     env["XDG_CACHE_HOME"] = (tmp_path / "cache").as_posix()
     env["AIT_TITLE_NO_AI"] = "1"
+    # Pinned like hook_env: a real ~/.claude/issue-tracker.yaml must not leak in.
+    env["HOME"] = (tmp_path / "home").as_posix()
+    (tmp_path / "home").mkdir(parents=True, exist_ok=True)
     r = run_hook(payload_for(proj, session_id="meta1", session_title="proj+abc-3f"), env)
     assert r.returncode == 0
     assert not (Path(env["XDG_CACHE_HOME"]) / "agent-issue-tracker" / "session-titles" / "meta1.pinned").exists()
@@ -648,6 +653,44 @@ GH_STUB_MACHINE_BLOCK_CRLF = """case "$*" in
 esac"""
 
 
+def test_global_session_titles_false_disables(project, hook_env, tmp_path):
+    # Sanity first: this exact setup (project config, branch with a ref) emits
+    # a title with no global file in the picture at all.
+    git(project, "switch", "-c", "feat/42-board-support")
+    baseline = title_of(run_hook(payload_for(project, session_id="baseline"), hook_env))
+    assert baseline == "#42 board-support"
+
+    # Now add a global file that says session_titles: false. The project file
+    # itself never mentions session_titles, so a hook that only greps the
+    # project file (the pre-#7 behavior) would still emit a title here; only
+    # reading the merged/resolved config picks up the global suppression.
+    home = Path(hook_env["HOME"])
+    (home / ".claude").mkdir(parents=True, exist_ok=True)
+    (home / ".claude" / "issue-tracker.yaml").write_text("schema_version: 1\nsession_titles: false\n")
+    r = run_hook(payload_for(project, session_id="gated"), hook_env)
+    assert r.returncode == 0
+    assert title_of(r) is None
+
+
+def test_jira_project_override_narrows_ref_shape(project, hook_env):
+    # Project config says backend: github; only the runtime env overrides say
+    # jira/SBX. The branch itself carries no ref (ait_ref_from_branch finds
+    # nothing in "general-cleanup"), so the title comes entirely from the
+    # transcript-fallback ref, whose shape depends on backend/jira.project as
+    # read by the hook. The transcript carries three candidate refs, one per
+    # possible (mis)reading:
+    #   "#7"     -- backend override never read; stuck on raw "github"
+    #   "OPS-9"  -- backend read as jira, but jira.project not narrowed
+    #   "SBX-12" -- only when both come from the resolved config
+    git(project, "switch", "-c", "feat/general-cleanup")
+    (project / "transcript.jsonl").write_text(
+        user_line("check SBX-12 first then OPS-9 status then #7 last")
+    )
+    env = dict(hook_env, TRACKER_BACKEND_OVERRIDE="jira", TRACKER_JIRA_PROJECT_OVERRIDE="SBX")
+    t = title_of(run_hook(payload_for(project), env))
+    assert t == "SBX-12"
+
+
 def test_machine_block_branch_match_tolerates_crlf(project, hook_env, tmp_path):
     """A machine-block comment edited via the GitHub web UI comes back with
     CRLF line endings. The branch-match jq must rtrimstr("\\r") each split
@@ -660,3 +703,22 @@ def test_machine_block_branch_match_tolerates_crlf(project, hook_env, tmp_path):
     git(project, "checkout", "-q", "-b", "feat/obs")
     t = title_of(run_hook(payload_for(project), hook_env, stub_bin=stub_bin))
     assert t == "#7 obs-rollout · next #9"
+
+
+def test_hook_resolves_config_once(project, hook_env, tmp_path):
+    """One ait_config_resolve per hook run, not one per key read (#7 I1).
+
+    From a subdirectory every resolve walks up through ait_main_repo, which
+    runs `git rev-parse --git-common-dir` exactly once, so GIT_TRACE counts
+    resolves. (A PATH stub cannot: Git Bash puts its own git first.) A
+    per-read resolve costs ~0.7s on Git Bash."""
+    trace = tmp_path / "git.trace"
+    git(project, "switch", "-c", "feat/42-board-support")
+    sub = project / "src"
+    sub.mkdir()
+    env = dict(hook_env, GIT_TRACE=str(trace))
+    t = title_of(run_hook(payload_for(sub), env))
+    assert t == "#42 board-support"
+    calls = [ln for ln in trace.read_text().splitlines()
+             if "built-in: git rev-parse --git-common-dir" in ln]
+    assert len(calls) == 1, calls

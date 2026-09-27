@@ -12,12 +12,14 @@ Write a valid `.claude/issue-tracker.yaml` to the consumer project's root. This 
 |---|---|
 | `/tracker-init` | Interactive flow. Refuses to overwrite an existing `.claude/issue-tracker.yaml`. |
 | `/tracker-init --force` | Interactive flow. Overwrites an existing `.claude/issue-tracker.yaml`. |
+| `/tracker-init --global` | Scaffold `~/.claude/issue-tracker.yaml` with the shared sections only. Refuses to overwrite an existing global file. |
+| `/tracker-init --global --force` | Same, overwriting. |
 
 ## What you should do
 
 ### Phase 1 — Pre-flight: existing-config guard
 
-1. Check whether `.claude/issue-tracker.yaml` exists in the consumer's CWD. (Only the CWD: `/tracker-init` writes there. A config found higher up by the walk-up lookup in README "Where the config is found" does not block a new one here; the nearer file wins for this directory.)
+1. Check whether `.claude/issue-tracker.yaml` exists in the consumer's CWD. (Only the CWD: `/tracker-init` writes there. A config found higher up by the walk-up lookup in README "Where the config is found" does not block a new one here; the nearer file wins for this directory.) With `--global` passed, this whole flow is replaced — see `--global` below instead: it checks `~/.claude/issue-tracker.yaml`, not the CWD.
 2. If the file does not exist → continue to Phase 2.
 3. If the file exists and `--force` was NOT passed → report the file's path, suggest running `/tracker-doctor` (to validate the existing config) or re-invoking `/tracker-init --force` (to overwrite). Stop. Do not prompt further.
 4. If the file exists and `--force` was passed → note that an overwrite is happening; surface this in the final summary (Phase 8); continue to Phase 2.
@@ -181,6 +183,32 @@ Grant the token scope once with `gh auth refresh -s project,read:project`, then
 **For Jira:** Append: "If `/tracker-doctor` reports missing issue types in the project, it will print the next-step `getJiraProjectIssueTypesMetadata` call you can run."
 
 **For `--force` overwrites:** Prepend the entire output with: "(Overwrote existing config at `.claude/issue-tracker.yaml`.)"
+
+## `--global`
+
+Writes `~/.claude/issue-tracker.yaml`: a base layer merged under every project file by top-level key (README "Where the config is found"). It never configures a repo on its own. Exception: when the current directory is `$HOME` itself, that file is found as the project file.
+
+1. If `~/.claude/issue-tracker.yaml` exists and `--force` was not passed, stop: "Global config already exists at `~/.claude/issue-tracker.yaml`; pass `--force` to overwrite."
+2. Ask (`AskUserQuestion`) only for the shared vocabulary and defaults: `areas`, `subsystems`, `merge_method` (default `squash`), `session_titles` (default `true`). Skip the backend, credential and Jira phases entirely.
+3. Assemble and `Write` it in one call:
+
+   ```yaml
+   # ~/.claude/issue-tracker.yaml — agent-issue-tracker global base layer.
+   # Merged under each project's .claude/issue-tracker.yaml by top-level key;
+   # a project key wins as a whole block. Never applies without a project file.
+   # backend / github / jira are left out on purpose: a global repo target is
+   # almost always wrong for some repo. Add them only if every repo shares them.
+   schema_version: 1
+   areas:
+     - <area>
+   subsystems:
+     - <subsystem>
+   merge_method: squash
+   session_titles: true
+   ```
+
+   Include `triage:` and `loops:` only if the operator gave non-default values.
+4. Print `Wrote ~/.claude/issue-tracker.yaml (global base layer).` Then suggest `/tracker-doctor` from inside a configured repo, to see which keys it inherits.
 
 ## Failure modes
 

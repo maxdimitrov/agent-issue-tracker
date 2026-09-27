@@ -81,6 +81,8 @@ def isolated_env(tmp_path, **extra):
     for k in ("AIT_TRANSCRIPT", "CLAUDE_CODE_SESSION_ID", "AIT_SINCE",
               "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN"):
         env.pop(k, None)
+    env["HOME"] = (tmp_path / "home").as_posix()
+    (tmp_path / "home").mkdir(parents=True, exist_ok=True)
     env.update(extra)
     return env
 

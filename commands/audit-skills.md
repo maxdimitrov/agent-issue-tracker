@@ -26,7 +26,7 @@ file is a *candidate* staleness, not proof.
 
 ### Step 1 — Read the optional config
 
-If `.claude/issue-tracker.yaml` exists and has a `skill_currency:` block,
+If `${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh` succeeds and the effective config has a `skill_currency:` block,
 translate it to CLI flags:
 
 - each entry under `doc_globs:` → a `--doc-glob '<glob>'` flag

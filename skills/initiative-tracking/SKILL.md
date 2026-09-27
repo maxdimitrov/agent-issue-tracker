@@ -37,8 +37,8 @@ description: >-
 
 # Initiative Tracking — Multi-Week Effort as Epic + Sub-Issues
 
-The canonical tracker is the one configured in the consumer
-project's `.claude/issue-tracker.yaml`. The plugin's
+The canonical tracker is the one configured in the effective config
+(`${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh`; README "Where the config is found"). The plugin's
 `backends/_interface.md` documents the ten operations every
 backend implements; `backends/<backend>.md` (e.g.
 `backends/github.md`) documents the literal CLI / MCP invocation
@@ -282,7 +282,7 @@ Invoke the configured backend's `create_issue` operation. Pass:
   `epic:` prefix makes it visually distinct from single issues
   in the tracker's issue-list view.
 - `labels`: `[epic, <area>]` where `<area>` is one of your
-  configured `areas:` enum from `.claude/issue-tracker.yaml`.
+  configured `areas:` enum from the effective config (`${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh`; README "Where the config is found").
 - `body`: the filled-in `templates/epic-body.md` template — the
   evergreen shape (`## Goal`, `## Scope`, `## Success criteria`,
   `## Design spec`). See "Epic body template" below.

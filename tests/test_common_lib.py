@@ -224,3 +224,47 @@ def test_json_type(value, kind):
 def test_json_type_rejects_non_values(value):
     r = run_lib(f"ait_json_type '{value}'")
     assert r.stdout == "" and r.returncode == 1
+
+
+def test_config_get_pathless_reads_merged_view(tmp_path):
+    home = tmp_path / "home"
+    repo = init_repo(home / "code" / "app")
+    _write_config(repo, "schema_version: 1\nbackend: github\n")
+    _write_config(home, "schema_version: 1\nloops:\n  interval: 7m\n")
+    env = _home_env(home)
+    assert run_lib("ait_config_get loops.interval", env=env, cwd=str(repo)).stdout == "7m"
+    raw = (repo / ".claude" / "issue-tracker.yaml").as_posix()
+    r = run_lib(f'ait_config_get loops.interval "{raw}"', env=env, cwd=str(repo))
+    assert r.returncode == 1 and r.stdout == ""   # explicit path = that file only
+
+
+def test_issue_url_pathless_honours_override(tmp_path):
+    home = tmp_path / "home"
+    repo = init_repo(home / "code" / "app")
+    _write_config(repo, CONFIG)
+    env = _home_env(home)
+    env["TRACKER_GITHUB_REPO_OVERRIDE"] = "sandbox/repo"
+    r = run_lib('ait_issue_url "#5"', env=env, cwd=str(repo))
+    assert r.stdout == "https://github.com/sandbox/repo/issues/5"
+
+
+def test_config_pick_reads_yaml_on_stdin():
+    # The pick half of ait_config_get: callers that resolved once reuse the text.
+    snippet = "printf '%s' \"$Y\" | _ait_config_pick"
+    env = dict(os.environ, Y=CONFIG)
+    assert run_lib(f"{snippet} backend", env=env).stdout == "github"
+    assert run_lib(f"{snippet} github.repo", env=env).stdout == "acme/widgets"
+    assert run_lib(f"{snippet} github.default_pr_close_syntax", env=env).stdout == "Fixes #N"
+    assert run_lib(f"{snippet} loops.interval", env=env).stdout == "15m"
+    r = run_lib(f"{snippet} loops.claim_label", env=env)
+    assert r.returncode == 1 and r.stdout == ""
+
+
+def test_issue_url_from_pre_resolved_text():
+    snippet = '_ait_issue_url_from "$R" "$Y"'
+    env = dict(os.environ, Y=CONFIG, R="#42")
+    assert run_lib(snippet, env=env).stdout == "https://github.com/acme/widgets/issues/42"
+    env = dict(os.environ, Y=CONFIG.replace("backend: github", "backend: jira"), R="PROJ-9")
+    assert run_lib(snippet, env=env).stdout == "https://example.atlassian.net/browse/PROJ-9"
+    r = run_lib(snippet, env=dict(os.environ, Y="schema_version: 1\n", R="#1"))
+    assert r.returncode == 1 and r.stdout == ""

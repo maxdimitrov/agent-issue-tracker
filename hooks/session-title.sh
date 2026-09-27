@@ -46,8 +46,11 @@ case "$src" in startup | resume) : ;; *) exit 0 ;; esac
 
 # --- stage 3: config gate ------------------------------------------------------
 toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)" || toplevel=""
-config="$(ait_config_path "$cwd")" || exit 0
-grep -Eq '^session_titles:[[:space:]]*false[[:space:]]*$' "$config" && exit 0
+# Resolve once (a resolve costs ~0.7s on Git Bash); it fails exactly when
+# there is no project file, which is the "not configured" gate.
+eff="$( cd "$cwd" 2>/dev/null && ait_config_resolve 2>/dev/null )" || exit 0
+cfg_get() { printf '%s\n' "$eff" | _ait_config_pick "$1" 2>/dev/null || true; }
+[ "$(cfg_get session_titles)" = "false" ] && exit 0
 
 # --- stage 4: manual-rename gate ------------------------------------------------
 state_dir="${XDG_CACHE_HOME:-$HOME/.cache}/agent-issue-tracker/session-titles"
@@ -84,11 +87,10 @@ if [ -n "$branch" ]; then
 fi
 # The configured backend decides what a ref looks like from here on:
 # `#N` on GitHub; `KEY-N` on Jira, narrowed to `jira.project` when it is set.
-backend="$(grep -E '^backend:' "$config" 2>/dev/null | head -1 | awk '{print $2}')" || backend=""
+backend="$(cfg_get backend)"
 jira_key=""
 if [ "$backend" = "jira" ]; then
-  jira_key="$(awk '/^jira:/{f=1; next} /^[^[:space:]#]/{f=0} f && /^[[:space:]]+project:/{print $2; exit}' \
-    "$config" 2>/dev/null | tr -d '"'"'")" || jira_key=""
+  jira_key="$(cfg_get jira.project)"
   case "$jira_key" in *[!A-Z0-9]*) jira_key="" ;; esac
 fi
 case "$backend" in

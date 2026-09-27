@@ -444,3 +444,34 @@ def test_staged_rename_reports_new_path(repo, tmp_path):
     out = run(repo, isolated_env(tmp_path))
     files = out["git"]["dirty_files"]
     assert files == [{"status": "R ", "path": "renamed.txt", "orig_path": "a.txt"}]
+
+
+def _no_overrides(env):
+    for k in ("TRACKER_BACKEND_OVERRIDE", "TRACKER_GITHUB_REPO_OVERRIDE",
+              "TRACKER_JIRA_SITE_OVERRIDE", "TRACKER_JIRA_PROJECT_OVERRIDE"):
+        env.pop(k, None)
+    return env
+
+
+def test_global_config_alone_is_not_configured(tmp_path):
+    # Only $HOME/.claude/issue-tracker.yaml exists: the global file is a base
+    # layer, never a standalone config (#7), so the collector reports nothing.
+    env = _no_overrides(isolated_env(tmp_path))
+    home = Path(env["HOME"])
+    (home / ".claude").mkdir(parents=True, exist_ok=True)
+    (home / ".claude" / "issue-tracker.yaml").write_text(CONFIG)
+    bare = init_repo(tmp_path / "unconfigured")
+    git(bare, "switch", "-q", "-c", "feat/42-widget")
+    out = run(bare, env)
+    assert out["config"]["path"] is None
+    assert out["config"]["backend"] is None
+    assert out["ticket"] == {"key": "#42", "url": None}
+
+
+def test_repo_override_reaches_ticket_url(repo, tmp_path):
+    # The ticket URL comes from the effective config, not the raw project file.
+    env = _no_overrides(isolated_env(tmp_path))
+    env["TRACKER_GITHUB_REPO_OVERRIDE"] = "s/r"
+    out = run(repo, env)
+    assert out["config"]["path"].endswith(".claude/issue-tracker.yaml")
+    assert out["ticket"] == {"key": "#42", "url": "https://github.com/s/r/issues/42"}

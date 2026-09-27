@@ -39,8 +39,13 @@ command -v gh >/dev/null 2>&1 && have_gh=true
 
 CWD="$(ait_norm_path "$PWD")"
 CONFIG="$(ait_config_path "$PWD")" || CONFIG=""
-BACKEND=""
-[ -n "$CONFIG" ] && { BACKEND="$(ait_config_get backend "$CONFIG")" || BACKEND=""; }
+BACKEND=""; EFF=""
+# One resolve for every read below (backend, the ticket URL): each costs
+# ~0.7s on Git Bash.
+if [ -n "$CONFIG" ]; then
+  EFF="$(ait_config_resolve "$PWD")" || EFF=""
+  BACKEND="$(printf '%s\n' "$EFF" | _ait_config_pick backend)" || BACKEND=""
+fi
 STATE_DIR="$(ait_state_dir "$PWD")"
 
 # ------------------------------------------------------- tmp dir for spills
@@ -146,7 +151,7 @@ fi
 if [ -n "$TICKET_KEY" ]; then
   TICKET="$(ait_json_str "$TICKET_KEY")"
   if [ -n "$CONFIG" ]; then
-    url="$(ait_issue_url "$TICKET_KEY" "$CONFIG")" || url=""
+    url="$(_ait_issue_url_from "$TICKET_KEY" "$EFF")" || url=""
     [ -n "$url" ] && TICKET_URL="$(ait_json_str "$url")"
   fi
 fi
