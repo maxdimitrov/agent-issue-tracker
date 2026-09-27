@@ -203,13 +203,47 @@ def test_provenance_sources(layout):
     r = run_lib("ait_config_provenance", env=_env(home, TRACKER_GITHUB_REPO_OVERRIDE="s/r"),
                 cwd=str(repo))
     assert r.returncode == 0
-    rows = dict(line.split("\t", 1) for line in r.stdout.splitlines())
+    lines = r.stdout.splitlines()
+    assert lines[0].startswith("#global\t")
+    rows = dict(line.split("\t", 1) for line in lines)
+    assert rows["#global"].replace("\\", "/").endswith("home/.claude/issue-tracker.yaml")
     assert rows["backend"].startswith("project:")
     assert rows["backend"].replace("\\", "/").endswith("app/.claude/issue-tracker.yaml")
     assert rows["areas"].startswith("global:")
     assert rows["loops"].startswith("global:")
     assert rows["github.repo"] == "env:TRACKER_GITHUB_REPO_OVERRIDE"
     assert "schema_version" in rows and rows["schema_version"].startswith("project:")
+
+
+def test_provenance_names_a_fully_shadowed_global(layout):
+    # Every global key is shadowed by the project, so no `global:` rows; the
+    # doctor still needs the path to show it and parse-check it.
+    home, repo = layout
+    _write(repo, PROJECT)
+    _write(home, "schema_version: 1\nbackend: jira\n")
+    r = run_lib("ait_config_provenance", env=_env(home), cwd=str(repo))
+    lines = r.stdout.splitlines()
+    assert lines[0].startswith("#global\t")
+    assert not any("\tglobal:" in ln for ln in lines)
+
+
+def test_provenance_paths_share_one_form(layout):
+    # project: and global: (and #global) print the same path form as Python
+    # sees it, not MSYS /tmp or /c/ for one and C:/ for the other.
+    home, repo = layout
+    _write(repo, PROJECT)
+    _write(home, GLOBAL)
+    r = run_lib("ait_config_provenance", env=_env(home), cwd=str(repo))
+    rows = dict(line.split("\t", 1) for line in r.stdout.splitlines())
+
+    def norm(p):
+        return str(p).replace("\\", "/").lower()
+
+    proj = norm(repo / ".claude" / "issue-tracker.yaml")
+    glob = norm(home / ".claude" / "issue-tracker.yaml")
+    assert norm(rows["backend"]) == "project:" + proj
+    assert norm(rows["areas"]) == "global:" + glob
+    assert norm(rows["#global"]) == glob
 
 
 def test_provenance_not_configured(layout):
@@ -232,7 +266,11 @@ def test_cli_dir_argument_and_provenance(layout, tmp_path):
     _write(repo, PROJECT)
     r = run_script(CLI, ["--provenance", repo.as_posix()], env=_env(home), cwd=str(tmp_path))
     assert r.returncode == 0
-    assert r.stdout.splitlines()[0].startswith("schema_version\tproject:")
+    assert r.stdout.splitlines()[0].startswith("schema_version\tproject:")  # no global: no #global row
+    _write(home, GLOBAL)
+    r = run_script(CLI, ["--provenance", repo.as_posix()], env=_env(home), cwd=str(tmp_path))
+    lines = r.stdout.splitlines()
+    assert lines[0].startswith("#global\t") and lines[1].startswith("schema_version\tproject:")
 
 
 def test_cli_not_configured_exits_1(layout):

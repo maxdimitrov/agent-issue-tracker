@@ -7,7 +7,9 @@
 # $HOME/.claude/issue-tracker.yaml by top-level key, then the
 # TRACKER_*_OVERRIDE leaves. README "Where the config is found" has the rule.
 #
-# Exit 0: stdout is the YAML (or, with --provenance, `key<TAB>source` lines).
+# Exit 0: stdout is the YAML. With --provenance: a first `#global<TAB><path>`
+#   line when a global file is merged (even if every key in it is shadowed),
+#   then `key<TAB>source` lines (project:<path>, global:<path>, env:<VAR>).
 # Exit 1: not configured (no project file); stdout is empty.
 # Exit 2: bad usage.
 # Warnings about a skipped global file go to stderr.

@@ -20,8 +20,8 @@ Validate the consumer project's `.claude/issue-tracker.yaml`. Runs four sequenti
 Resolve the config the way every reader does (README "Where the config is found"): `"${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh"` for the effective YAML, and `config-resolve.sh --provenance` for where each key came from. Print, as the phase's first lines:
 
 - `[INFO] config: <project path>`: the `project:` path from the provenance output.
-- `[INFO] global: <path>`, or `[INFO] global: none` when no `global:` rows are present.
-- `[INFO] <key> from <source>`: one line per provenance row whose source is not `project:`.
+- `[INFO] global: <path>`: the path on the `#global` row, which is present whenever a global file is merged, even when the project shadows every key in it. `[INFO] global: none` when there is no `#global` row.
+- `[INFO] <key> from <source>`: one line per provenance row whose source is not `project:` (skip the `#global` row).
 
 Run the *YAML parses* check on each source file separately (project, and global when present), and every other check below on the effective YAML. Then emit a `WARN` line for each of these:
 

@@ -344,20 +344,27 @@ ait_config_resolve() {
   _ait_config_merge "$proj" ${glob:+"$glob"} | _ait_config_env
 }
 
-# ait_config_provenance [<dir>] - `key<TAB>source` per effective top-level key
-# (project:<path> | global:<path>), then one `section.key<TAB>env:<VAR>` line
-# per applied override; 1 when not configured.
+# ait_config_provenance [<dir>] - a `#global<TAB><path>` line when a global
+# file is merged (even if the project shadows all its keys), then
+# `key<TAB>source` per effective top-level key (project:<path> |
+# global:<path>), then one `section.key<TAB>env:<VAR>` line per applied
+# override; 1 when not configured. Paths are in ait_norm_path form.
 ait_config_provenance() {
-  local proj glob k var key
+  local proj glob pn gn k var key
   proj="$(ait_config_path "${1:-$PWD}")" || return 1
   [ -r "$proj" ] || return 1
   glob="$(_ait_config_global "$proj" 2>/dev/null)"
-  _ait_config_keys "$proj" | while IFS= read -r k; do printf '%s\tproject:%s\n' "$k" "$proj"; done
+  pn="$(ait_norm_path "${proj%/*}")/${proj##*/}"
+  if [ -n "$glob" ]; then
+    gn="$(ait_norm_path "${glob%/*}")/${glob##*/}"
+    printf '#global\t%s\n' "$gn"
+  fi
+  _ait_config_keys "$proj" | while IFS= read -r k; do printf '%s\tproject:%s\n' "$k" "$pn"; done
   if [ -n "$glob" ]; then
     _ait_config_keys "$glob" | while IFS= read -r k; do
       [ "$k" = schema_version ] && continue
       _ait_config_keys "$proj" | grep -qx "$k" && continue
-      printf '%s\tglobal:%s\n' "$k" "$glob"
+      printf '%s\tglobal:%s\n' "$k" "$gn"
     done
   fi
   for var in TRACKER_BACKEND_OVERRIDE:backend TRACKER_GITHUB_REPO_OVERRIDE:github.repo \
