@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from shell_helpers import init_repo, run_lib
+from shell_helpers import SCRIPTS, init_repo, run_lib, run_script
+
+CLI = SCRIPTS / "config-resolve.sh"
 
 OVERRIDES = ("TRACKER_BACKEND_OVERRIDE", "TRACKER_GITHUB_REPO_OVERRIDE",
              "TRACKER_JIRA_SITE_OVERRIDE", "TRACKER_JIRA_PROJECT_OVERRIDE")
@@ -201,3 +203,32 @@ def test_provenance_not_configured(layout):
     home, repo = layout
     r = run_lib("ait_config_provenance", env=_env(home), cwd=str(repo))
     assert r.returncode == 1 and r.stdout == ""
+
+
+def test_cli_prints_effective_yaml(layout):
+    home, repo = layout
+    _write(repo, PROJECT)
+    _write(home, GLOBAL)
+    r = run_script(CLI, env=_env(home), cwd=str(repo))
+    assert r.returncode == 0
+    assert r.stdout.startswith(PROJECT) and "areas:" in r.stdout
+
+
+def test_cli_dir_argument_and_provenance(layout, tmp_path):
+    home, repo = layout
+    _write(repo, PROJECT)
+    r = run_script(CLI, ["--provenance", repo.as_posix()], env=_env(home), cwd=str(tmp_path))
+    assert r.returncode == 0
+    assert r.stdout.splitlines()[0].startswith("schema_version\tproject:")
+
+
+def test_cli_not_configured_exits_1(layout):
+    home, repo = layout
+    r = run_script(CLI, env=_env(home), cwd=str(repo))
+    assert r.returncode == 1 and r.stdout == ""
+
+
+def test_cli_bad_flag_exits_2(layout):
+    home, repo = layout
+    r = run_script(CLI, ["--bogus"], env=_env(home), cwd=str(repo))
+    assert r.returncode == 2 and "usage" in r.stderr.lower()
