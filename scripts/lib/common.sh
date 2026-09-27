@@ -231,9 +231,9 @@ _ait_config_wellformed() {
        END { exit bad }' "$1"
 }
 
-# _ait_config_keys <file> - its top-level keys, in file order.
+# _ait_config_keys <file> - its top-level keys, in file order, each once.
 _ait_config_keys() {
-  awk '/^[A-Za-z_][A-Za-z0-9_]*:/ { k = $0; sub(/:.*/, "", k); print k }' "$1"
+  awk '/^[A-Za-z_][A-Za-z0-9_]*:/ { k = $0; sub(/:.*/, "", k); if (!seen[k]++) print k }' "$1"
 }
 
 # _ait_config_merge <project> [<global>] - the project's blocks in project
@@ -244,7 +244,9 @@ _ait_config_keys() {
 _ait_config_merge() {
   awk '
     function close_block() {
-      if (key != "") { body[f, key] = buf; order[f, ++n[f]] = key; has[f, key] = 1 }
+      # A key repeated within one file keeps its first block (the old reader
+      # returned the first value).
+      if (key != "" && !has[f, key]) { body[f, key] = buf; order[f, ++n[f]] = key; has[f, key] = 1 }
       key = ""; buf = ""
     }
     FNR == 1 { if (NR > 1) close_block(); f++; pend = "" }

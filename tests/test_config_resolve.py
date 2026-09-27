@@ -183,6 +183,19 @@ def test_other_tracker_vars_are_ignored(layout):
     assert resolve(repo, env).stdout == PROJECT
 
 
+def test_duplicate_top_level_key_keeps_first_block(layout):
+    # The pre-#7 reader returned the first value; the merge must not print
+    # the last block once per occurrence.
+    home, repo = layout
+    _write(repo, "schema_version: 1\nbackend: github\ngithub:\n  repo: a/b\nbackend: jira\n")
+    env = _env(home)
+    assert get(repo, env, "backend").stdout == "github"
+    out = resolve(repo, env).stdout
+    assert out.count("backend:") == 1 and "backend: github" in out
+    prov = run_lib("ait_config_provenance", env=env, cwd=str(repo)).stdout
+    assert [ln.split("\t")[0] for ln in prov.splitlines()].count("backend") == 1
+
+
 def test_provenance_sources(layout):
     home, repo = layout
     _write(repo, PROJECT)
