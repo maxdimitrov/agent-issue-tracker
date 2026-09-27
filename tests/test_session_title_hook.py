@@ -651,21 +651,41 @@ esac"""
 
 
 def test_global_session_titles_false_disables(project, hook_env, tmp_path):
+    # Sanity first: this exact setup (project config, branch with a ref) emits
+    # a title with no global file in the picture at all.
+    git(project, "switch", "-c", "feat/42-board-support")
+    baseline = title_of(run_hook(payload_for(project, session_id="baseline"), hook_env))
+    assert baseline == "#42 board-support"
+
+    # Now add a global file that says session_titles: false. The project file
+    # itself never mentions session_titles, so a hook that only greps the
+    # project file (the pre-#7 behavior) would still emit a title here; only
+    # reading the merged/resolved config picks up the global suppression.
     home = Path(hook_env["HOME"])
     (home / ".claude").mkdir(parents=True, exist_ok=True)
     (home / ".claude" / "issue-tracker.yaml").write_text("schema_version: 1\nsession_titles: false\n")
-    r = run_hook(payload_for(project), hook_env)
+    r = run_hook(payload_for(project, session_id="gated"), hook_env)
     assert r.returncode == 0
     assert title_of(r) is None
 
 
 def test_jira_project_override_narrows_ref_shape(project, hook_env):
-    (project / ".claude" / "issue-tracker.yaml").write_text(
-        "schema_version: 1\nbackend: github\ngithub:\n  repo: acme/widgets\n")
-    git(project, "checkout", "-q", "-b", "feat/SBX-12-thing")
+    # Project config says backend: github; only the runtime env overrides say
+    # jira/SBX. The branch itself carries no ref (ait_ref_from_branch finds
+    # nothing in "general-cleanup"), so the title comes entirely from the
+    # transcript-fallback ref, whose shape depends on backend/jira.project as
+    # read by the hook. The transcript carries three candidate refs, one per
+    # possible (mis)reading:
+    #   "#7"     -- backend override never read; stuck on raw "github"
+    #   "OPS-9"  -- backend read as jira, but jira.project not narrowed
+    #   "SBX-12" -- only when both come from the resolved config
+    git(project, "switch", "-c", "feat/general-cleanup")
+    (project / "transcript.jsonl").write_text(
+        user_line("check SBX-12 first then OPS-9 status then #7 last")
+    )
     env = dict(hook_env, TRACKER_BACKEND_OVERRIDE="jira", TRACKER_JIRA_PROJECT_OVERRIDE="SBX")
-    r = run_hook(payload_for(project), env)
-    assert "SBX-12" in (title_of(r) or "")
+    t = title_of(run_hook(payload_for(project), env))
+    assert t == "SBX-12"
 
 
 def test_machine_block_branch_match_tolerates_crlf(project, hook_env, tmp_path):
