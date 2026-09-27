@@ -17,11 +17,23 @@ Validate the consumer project's `.claude/issue-tracker.yaml`. Runs four sequenti
 
 ### Phase 1 — Schema validation
 
-Resolve the config the way every reader does: the nearest `.claude/issue-tracker.yaml` walking up from the CWD (`ait_config_path` in `scripts/lib/common.sh`; README "Where the config is found"). Print the resolved path as the phase's first line, `[INFO] config: <path>`, so an operator in a worktree can see which file was used. Apply these checks in order; each is its own line in the output:
+Resolve the config the way every reader does (README "Where the config is found"): `"${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh"` for the effective YAML, and `config-resolve.sh --provenance` for where each key came from. Print, as the phase's first lines:
+
+- `[INFO] config: <project path>`: the `project:` path from the provenance output.
+- `[INFO] global: <path>`, or `[INFO] global: none` when no `global:` rows are present.
+- `[INFO] <key> from <source>`: one line per provenance row whose source is not `project:`.
+
+Run the *YAML parses* check on each source file separately (project, and global when present), and every other check below on the effective YAML. Then emit a `WARN` line for each of these:
+
+- stderr of `config-resolve.sh` names a skipped global file (malformed, or a different `schema_version`). Echo that line.
+- A `TRACKER_*_OVERRIDE` var is set but no project file was found: "env override `<VAR>` is set but this repo has no project config; it has no effect".
+- An override targets the inactive backend. Examples: `TRACKER_JIRA_SITE_OVERRIDE` or `TRACKER_JIRA_PROJECT_OVERRIDE` while the effective `backend` is `github`, or `TRACKER_GITHUB_REPO_OVERRIDE` while it is `jira`.
+
+Apply these checks in order; each is its own line in the output:
 
 | Check | PASS condition | FAIL output |
 |---|---|---|
-| File exists | the walk-up lookup resolves a `.claude/issue-tracker.yaml` | "no config found in the CWD or any ancestor below `$HOME`; run `/tracker-init`" |
+| File exists | the walk-up lookup resolves a `.claude/issue-tracker.yaml` | "no project config found in the CWD or any ancestor below `$HOME` (a global file alone does not configure a repo); run `/tracker-init`" |
 | YAML parses | the file loads as a valid YAML document | "YAML parse error: `<line>:<col>: <message>`" |
 | `schema_version: 1` | top-level key present with value `1` | "missing or wrong schema_version (only `1` is supported in v1)" |
 | `backend:` present | top-level key present with value `github` or `jira` | "missing or unrecognized backend (must be `github` or `jira`)" |
@@ -379,4 +391,4 @@ mkdir -p ~/.claude-runner && cp "${CLAUDE_PLUGIN_ROOT}/scripts/git-sign.sh" ~/.c
 
 ## Conventions assumed
 
-The schema reference is `examples/issue-tracker.yaml.example`. The consumer-project's `.claude/issue-tracker.yaml` usually lives at the repo root, or at a workspace root above several repos; it is resolved by walking up from the CWD (README "Where the config is found"). The sibling `/tracker-init` is the writer of the file `/tracker-doctor` validates; the two share schema invariants. The configured backend is dispatched via `backends/<backend>.md`; raw CLI / MCP calls appear only in the per-backend setup-verification probes documented there.
+The schema reference is `examples/issue-tracker.yaml.example`. The consumer-project's `.claude/issue-tracker.yaml` usually lives at the repo root, or at a workspace root above several repos; it is resolved by walking up from the CWD (README "Where the config is found"), then layered over the optional global `~/.claude/issue-tracker.yaml` and the `TRACKER_*_OVERRIDE` env vars. The sibling `/tracker-init` is the writer of the file `/tracker-doctor` validates; the two share schema invariants. The configured backend is dispatched via `backends/<backend>.md`; raw CLI / MCP calls appear only in the per-backend setup-verification probes documented there.
