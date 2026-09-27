@@ -126,8 +126,8 @@ it `needs-triage` and expect a human pass before any agent can work it.
 | `bug` | A defect, regression, or known gap. |
 | `enhancement` | (sibling skill) New capability or redesign. |
 
-**Area labels** are project-specific. The consumer's
-`.claude/issue-tracker.yaml` lists the project's valid `areas:` enum (e.g.
+**Area labels** are project-specific. The effective config
+(`${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh`; README "Where the config is found") lists the project's valid `areas:` enum (e.g.
 `dashboard / backend / frontend / infra`, or whatever the consumer chose).
 Pick the matching area from that enum when filling the `area` label.
 

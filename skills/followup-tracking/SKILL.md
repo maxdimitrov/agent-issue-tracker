@@ -220,8 +220,8 @@ once the run starts.
 Every follow-up gets:
 
 - One type-shape label: `bug` or `enhancement`.
-- One or more area labels from the consumer's
-  `.claude/issue-tracker.yaml` `areas:` enum.
+- One or more area labels from the `areas:` enum of the effective config
+  (`${CLAUDE_PLUGIN_ROOT}/scripts/config-resolve.sh`; README "Where the config is found").
 - The **`followup`** label.
 
 Triage flags (agents skip):
