@@ -24,7 +24,10 @@ KEY_REF = "op://Automation/agent-signing-key"
 LOG_ARGV = ('(IFS="$(printf \'\\t\')"; printf \'%s\\n\' "$*") '
             '>>"$AIT_TEST_LOGS/$(basename "$0").log"')
 
+# STUB_OPSSH_LEAVE_EMPTY_SIG=1 mimics 1Password's "failed to fill whole
+# buffer": the app creates <buffer>.sig, writes nothing into it, and fails.
 OP_SSH_SIGN_STUB = f"""{LOG_ARGV}
+if [ "${{STUB_OPSSH_LEAVE_EMPTY_SIG:-0}}" = 1 ]; then : >"${{!#}}.sig"; fi
 printf 'DESKTOP-SIG\\n'
 exit "${{STUB_OPSSH_RC:-0}}"
 """
@@ -80,10 +83,17 @@ touch "$AIT_TEST_STATE/loaded"
 echo "Identity added: (stdin) (agent-signing-key)" >&2
 """
 
+# -Y sign: like the real ssh-keygen, an existing <buffer>.sig triggers the
+# "Overwrite (y/n)?" prompt; on git's null stdin that reads as no, and it
+# exits 0 without signing, leaving git whatever the file already held.
 SSH_KEYGEN_STUB = f"""{LOG_ARGV}
 case "$1" in
     -lf) echo "256 SHA256:stubfp comment (ED25519)" ;;
-    -Y) echo "STUB-SIGNATURE" ;;
+    -Y) if [ -e "${{!#}}.sig" ]; then
+            printf '%s.sig already exists.\\nOverwrite (y/n)? ' "${{!#}}"
+            exit 0
+        fi
+        echo "STUB-SIGNATURE" ;;
     *) exit 1 ;;
 esac
 """
@@ -366,3 +376,14 @@ def test_missing_op_cli_fails_with_one_line(rig):
     assert len(lines) == 1, r.stderr
     assert "op CLI" in lines[0]
     assert rig.calls("ssh-keygen") == []
+
+
+# 10. Desktop signer fails but leaves an empty <buffer>.sig (1Password's
+# "failed to fill whole buffer") -> the wrapper removes it before the
+# fallback; otherwise ssh-keygen's overwrite prompt declines on git's null
+# stdin, exits 0, and git silently records an unsigned commit.
+def test_empty_sig_left_by_desktop_signer_is_removed_before_fallback(rig):
+    rig.write_token_file()
+    r = rig.run(STUB_OPSSH_RC="1", STUB_OPSSH_LEAVE_EMPTY_SIG="1")
+    assert_fallback_signed(rig, r)
+    assert not (rig.tmp / "buffer.sig").exists()

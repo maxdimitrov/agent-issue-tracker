@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Signing fallback vs. an empty `.sig`** (#151). When the 1Password desktop
+  signer failed with "failed to fill whole buffer" it left a zero-byte
+  `<buffer>.sig` behind; the fallback `ssh-keygen -Y sign` in
+  `scripts/git-sign.sh` then hit its "Overwrite (y/n)?" prompt, read git's
+  null stdin as no, exited 0 without signing, and git recorded the empty
+  signature as an unsigned commit with no error. The wrapper now removes
+  the leftover before falling back, so headless commits are signed again.
 - **Config lookup walks up** (#146). `ait_config_path` used to check only
   the current directory and its git toplevel, so a repo or linked worktree
   under a non-git workspace root that held `.claude/issue-tracker.yaml`
