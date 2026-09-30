@@ -90,6 +90,13 @@ if [ "${AIT_SIGN_FORCE_SA:-0}" != "1" ] && [ -n "$OP_SSH_SIGN" ] &&
     # Stay quiet on a successful fallback; prefix any later failure instead,
     # so stderr never carries more than one line.
     WHY="op-ssh-sign failed (rc $rc); "
+    # A failed op-ssh-sign ("1Password: failed to fill whole buffer") can
+    # leave an empty <buffer>.sig behind. ssh-keygen -Y sign would then ask
+    # "Overwrite (y/n)?", read git's null stdin as no, exit 0 without
+    # signing, and git would record the empty file as the signature: an
+    # unsigned commit that nothing reports. Drop the leftover first.
+    for buf in "$@"; do :; done
+    if [ -n "${buf:-}" ]; then rm -f "$buf.sig"; fi
 fi
 
 # --- 2. service-account token -------------------------------------------------
