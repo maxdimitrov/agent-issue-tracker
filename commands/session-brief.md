@@ -137,7 +137,7 @@ Only when the verdict is **fresh session**. On a VS Code host (`CLAUDE_CODE_ENTR
 
 The script fires `code --open-url "vscode://anthropic.claude-code/open?prompt=<urlencoded>"`. The prompt is **typed into** the new tab's input box but **not submitted**; the operator presses Enter. VS Code first asks whether to allow the extension to open the URI, so mention that dialog. The prompt points at the note's path instead of carrying its body, which keeps the URI short (the script refuses prompts over 2000 characters) and leaves the file as the single copy.
 
-On any other host (CLI, JetBrains), or when the script prints `"opened":false`, keep the Step 4 behaviour: the note is already printed for copy-paste, so name the `reason` in one clause and stop. The new tab gets no custom title: the URI has no title parameter, and `/rename` cannot share a message with the real prompt.
+On any other host (CLI, JetBrains), or when the script prints `"opened":false`, keep the Step 4 behaviour: the note is already printed for copy-paste, so name the `reason` in one clause and stop. The new tab gets no custom title: the URI has no title parameter, and `/rename` cannot share a message with the real prompt. Outside this flow, `/new-tab <prompt>` opens the same tab on demand with any prompt.
 
 ## Red flags
 
