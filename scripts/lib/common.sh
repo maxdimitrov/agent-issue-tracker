@@ -195,9 +195,9 @@ ait_worktree_for_branch() {
   printf '%s' "$p"
 }
 
-# ait_commit_in_tag <sha> <tag> [<dir>] - is commit <sha> contained in <tag>?
-# Three answers, so unlike the rest of this file it always prints, as
-# `<verdict> <how>`, and returns 0 / 1 / 2:
+# ait_commit_in_tag <sha> <tag> [<dir>] [<owner/repo>] - is commit <sha>
+# contained in <tag>? Three answers, so unlike the rest of this file it always
+# prints, as `<verdict> <how>`, and returns 0 / 1 / 2:
 #   contained git      | contained host      -> 0
 #   not-contained git  | not-contained host  -> 1
 #   unknown no-tag | unknown shallow | unknown no-commit | unknown usage -> 2
@@ -207,31 +207,48 @@ ait_worktree_for_branch() {
 # released commit behind the graft exits 1 exactly like an unreleased one
 # (and its object may even be present). So when git cannot say yes and the
 # clone is shallow, or git cannot find the commit at all, the git host is
-# asked (GitHub compare API: is <tag> ahead of or identical to <sha>?). No
-# usable host answer -> unknown, never not-contained. The clone is never
-# deepened here: that rewrites the operator's repo and can be a large fetch.
+# asked (GitHub compare API: is the tag's commit ahead of or identical to
+# <sha>?). No usable host answer -> unknown, never not-contained. The clone
+# is never deepened here, and a partial clone is not allowed to lazy-fetch:
+# both rewrite the operator's repo and can be a large download.
+#
+# The host is asked about the tag's commit sha, resolved locally, not the tag
+# name: a branch of the same name, or a tag moved on the host, cannot change
+# the answer. Pass <owner/repo> when the caller knows which repo the commit
+# belongs to; gh's own {owner}/{repo} resolves an `upstream` remote first.
 ait_commit_in_tag() {
-  local sha="${1-}" tag="${2-}" d="${3:-.}" rc shallow status
+  local sha="${1-}" tag="${2-}" d="${3:-.}" nwo="${4-}" tsha rc shallow sfile status
   if [ -z "$sha" ] || [ -z "$tag" ]; then
     printf 'unknown usage'
     return 2
   fi
-  if ! git -C "$d" rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null 2>&1; then
+  tsha="$(git -C "$d" rev-parse -q --verify "refs/tags/$tag^{commit}" 2>/dev/null)"
+  if [ -z "$tsha" ]; then
     printf 'unknown no-tag'
     return 2
   fi
-  git -C "$d" merge-base --is-ancestor "$sha" "refs/tags/$tag" 2>/dev/null
+  GIT_NO_LAZY_FETCH=1 git -C "$d" merge-base --is-ancestor "$sha" "$tsha" 2>/dev/null
   rc=$?
   [ "$rc" -eq 0 ] && { printf 'contained git'; return 0; }
+  # --is-shallow-repository needs git 2.15; older git echoes the flag back,
+  # so the shallow file itself is checked as well.
   shallow="$(git -C "$d" rev-parse --is-shallow-repository 2>/dev/null)"
+  if [ "$shallow" != "true" ]; then
+    sfile="$(git -C "$d" rev-parse --git-path shallow 2>/dev/null)"
+    case "$sfile" in "" | /* | [A-Za-z]:*) ;; *) sfile="$d/$sfile" ;; esac
+    if [ -n "$sfile" ] && [ -s "$sfile" ]; then shallow=true; else shallow=false; fi
+  fi
   if [ "$rc" -eq 1 ] && [ "$shallow" != "true" ]; then
     printf 'not-contained git'
     return 1
   fi
   status=""
+  [ -n "$nwo" ] || nwo='{owner}/{repo}'
   if command -v gh >/dev/null 2>&1; then
+    # per_page=1: only .status is read; the default page carries the commits
+    # and file diffs of the whole range.
     status="$(cd "$d" 2>/dev/null \
-      && ait_gh_out 20 gh api "repos/{owner}/{repo}/compare/$sha...$tag" --jq .status)"
+      && ait_gh_out 20 gh api "repos/$nwo/compare/$sha...$tsha?per_page=1" --jq .status)"
   fi
   case "$status" in
     ahead | identical) printf 'contained host'; return 0 ;;

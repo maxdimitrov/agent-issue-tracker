@@ -349,14 +349,22 @@ def test_issue_url_from_pre_resolved_text():
 
 # --- ait_commit_in_tag (#149): is a merge commit contained in a release tag? ---
 
-# gh stub: answers the compare API with $GH_COMPARE_STATUS and logs every call.
+# gh stub: logs every call and answers the compare API with
+# $GH_COMPARE_STATUS -- only for the exact call in $GH_EXPECT when that is set,
+# so a request for the wrong repo or the wrong ref gets no answer.
 GH_COMPARE_STUB = r'''
 printf '%s\n' "$*" >> "$GH_LOG"
+[ -n "${GH_COMPARE_STATUS:-}" ] || exit 1
+[ -z "${GH_EXPECT:-}" ] || [ "$*" = "$GH_EXPECT" ] || exit 1
 case "$*" in
-  *"/compare/"*) [ -n "${GH_COMPARE_STATUS:-}" ] || exit 1; printf '%s\n' "$GH_COMPARE_STATUS" ;;
+  *"/compare/"*) printf '%s\n' "$GH_COMPARE_STATUS" ;;
   *) exit 1 ;;
 esac
 '''
+
+
+def _compare_call(repo, sha, tag_sha):
+    return f"api repos/{repo}/compare/{sha}...{tag_sha}?per_page=1 --jq .status"
 
 
 def _rev(repo, rev):
@@ -373,11 +381,13 @@ def released(tmp_path):
     git(origin, "commit", "--allow-empty", "-m", "the merge")
     merge = _rev(origin, "HEAD")
     git(origin, "commit", "--allow-empty", "-m", "release prep")
-    git(origin, "tag", "v1")
+    git(origin, "tag", "-a", "v1", "-m", "release v1")   # annotated, as release tags usually are
+    git(origin, "tag", "release/5.7.1")                  # lightweight, with a slash
+    tag_sha = _rev(origin, "v1^{commit}")
     git(origin, "commit", "--allow-empty", "-m", "after the release")
     # Lets a shallow clone fetch one old commit by sha, as a deepen/prune leaves it.
     git(origin, "config", "uploadpack.allowAnySHA1InWant", "true")
-    return {"origin": origin, "merge": merge, "after": _rev(origin, "HEAD")}
+    return {"origin": origin, "merge": merge, "tag_sha": tag_sha, "after": _rev(origin, "HEAD")}
 
 
 def _shallow_clone(tmp_path, origin, name="shallow"):
@@ -386,17 +396,19 @@ def _shallow_clone(tmp_path, origin, name="shallow"):
     return clone
 
 
-def _gh_env(tmp_path, status=None):
+def _gh_env(tmp_path, status=None, expect=None):
     stub = make_stub(tmp_path / "bin", "gh", GH_COMPARE_STUB)
     env = env_with_path(isolated_env(tmp_path), stub)
     env["GH_LOG"] = (tmp_path / "gh.log").as_posix()
     if status is not None:
         env["GH_COMPARE_STATUS"] = status
+    if expect is not None:
+        env["GH_EXPECT"] = expect
     return env
 
 
-def _in_tag(repo, sha, tag, env):
-    r = run_lib(f'ait_commit_in_tag "{sha}" "{tag}"', env=env, cwd=str(repo))
+def _in_tag(repo, sha, tag, env, extra="", cwd=None):
+    r = run_lib(f'ait_commit_in_tag "{sha}" "{tag}" {extra}', env=env, cwd=str(cwd or repo))
     return r.returncode, r.stdout
 
 
@@ -427,10 +439,36 @@ def test_commit_in_tag_shallow_clone_asks_the_host(released, tmp_path):
                            capture_output=True, stdin=subprocess.DEVNULL)
     assert plain.returncode != 0
     assert _in_tag(clone, merge, "v1", _gh_env(tmp_path, status="ahead")) == (0, "contained host")
-    assert _gh_calls(tmp_path) == [f"api repos/{{owner}}/{{repo}}/compare/{merge}...v1 --jq .status"]
+    # The host is asked about the tag's commit, not its name: a branch of the
+    # same name, or a tag moved on the host, must not change the answer.
+    assert _gh_calls(tmp_path) == [_compare_call("{owner}/{repo}", merge, released["tag_sha"])]
     assert _in_tag(clone, merge, "v1", _gh_env(tmp_path, status="identical")) == (0, "contained host")
     assert _in_tag(clone, merge, "v1", _gh_env(tmp_path, status="behind")) == (1, "not-contained host")
     assert _in_tag(clone, merge, "v1", _gh_env(tmp_path, status="diverged")) == (1, "not-contained host")
+
+
+def test_commit_in_tag_asks_the_named_repo_from_any_directory(released, tmp_path):
+    # --finish knows which repo the PR lives in; gh's own {owner}/{repo} can
+    # resolve to an `upstream` remote instead. <dir> and <nwo> are arguments.
+    clone = _shallow_clone(tmp_path, released["origin"])
+    git(clone, "fetch", "-q", "--depth", "1", "origin", "tag", "release/5.7.1")
+    merge, tag_sha = released["merge"], released["tag_sha"]
+    extra = f'"{clone.as_posix()}" acme/widgets'
+    right = _gh_env(tmp_path, status="ahead", expect=_compare_call("acme/widgets", merge, tag_sha))
+    assert _in_tag(clone, merge, "release/5.7.1", right, extra, cwd=tmp_path) == (0, "contained host")
+    # An answer for any other request is not an answer.
+    wrong = _gh_env(tmp_path, status="ahead", expect=_compare_call("other/repo", merge, tag_sha))
+    assert _in_tag(clone, merge, "release/5.7.1", wrong, extra, cwd=tmp_path) == (2, "unknown shallow")
+
+
+def test_commit_in_tag_handles_annotated_and_slash_tags_locally(released, tmp_path):
+    env = _gh_env(tmp_path, status="behind")
+    origin = released["origin"]
+    for tag in ("v1", "release/5.7.1"):
+        assert _in_tag(origin, released["merge"], tag, env) == (0, "contained git")
+        assert _in_tag(origin, released["merge"][:10], tag, env) == (0, "contained git")
+        assert _in_tag(origin, released["after"], tag, env) == (1, "not-contained git")
+    assert _gh_calls(tmp_path) == []
 
 
 def test_commit_in_tag_shallow_clone_with_the_commit_object_present(released, tmp_path):

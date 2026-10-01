@@ -37,9 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "not in `<tag>`" and left the ticket in the merged status. The check is
   now `ait_commit_in_tag` in `scripts/lib/common.sh`: a yes from git is
   trusted, a no only in a full clone; otherwise it asks the git host
-  (GitHub compare API). With no host answer the warning says the clone is
-  shallow and names `git fetch --unshallow`; the clone is never deepened
-  automatically. Full clones behave as before.
+  (GitHub compare API, for the PR's repository and the tag's commit sha).
+  With no host answer the warning says the clone is shallow and names
+  `git fetch --unshallow`; the clone is never deepened automatically. A
+  full clone behaves as before and makes no host call, except that one
+  missing the merge commit now asks the host instead of warning.
 - **Drift report on legacy epics covers stale checkboxes and counts**
   (#150). `/resume-initiative` only compared a legacy epic's `## Children`
   mirror with the tracker for membership, so an index whose children were
