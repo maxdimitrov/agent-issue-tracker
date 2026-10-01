@@ -28,16 +28,26 @@ def change_requested(reviews):
     return "CHANGES_REQUESTED" in verdict.values()
 
 
-def succeeded_on_head(ci, head):
-    """True when a run the collector saw finished green on the PR head.
+RUNNING = ("queued", "in_progress", "waiting", "pending")
 
-    The primary run (`ci` itself) or any `ci.all_workflows` entry counts: a
-    path-filtered primary workflow does not run on every push.
-    """
+
+def head_runs(ci, head):
+    """The runs the collector saw on the PR head: `ci` itself and `ci.all_workflows`."""
     runs = [ci] + (ci.get("all_workflows") or [])
-    return any(
-        r.get("conclusion") == "success" and (r.get("sha") or "") != "" and head.startswith(r["sha"])
-        for r in runs
+    return [r for r in runs if (r.get("sha") or "") != "" and head.startswith(r["sha"])]
+
+
+def succeeded_on_head(ci, head):
+    """True when the collector's runs on the PR head are finished and one is green.
+
+    Any workflow counts, not only the primary one: a path-filtered primary
+    workflow does not run on every push. A run still going on the head means
+    not yet, even if GitHub already reports the PR clean.
+    """
+    runs = head_runs(ci, head)
+    return (
+        any(r.get("conclusion") == "success" for r in runs)
+        and all(r.get("status") in (None, "completed") for r in runs)
     )
 
 
@@ -74,8 +84,10 @@ def decide_babysit(obs, merge=False):
     awaiting = [t for t in threads if t.get("awaiting_you")]
     if pr.get("state") in ("MERGED", "CLOSED"):
         return "stop:done"
-    if pr.get("mergeable") == "CONFLICTING" or behind_base(pr):
+    if pr.get("mergeable") == "CONFLICTING":
         return "rebase"
+    if behind_base(pr):
+        return "update-branch"
     if ci.get("conclusion") == "failure":
         return "fix-ci"
     if any(t.get("kind") == "code" for t in awaiting):
@@ -84,7 +96,8 @@ def decide_babysit(obs, merge=False):
         return "stop:needs-you"
     if review_clear(pr, ci):
         return "merge" if merge else "stop:ready-to-merge"
-    if ci.get("status") in ("queued", "in_progress", "waiting", "pending"):
+    on_head = head_runs(ci, pr.get("headRefOid") or "")
+    if ci.get("status") in RUNNING or any(r.get("status") in RUNNING for r in on_head):
         return "wait:ci"
     return "wait:idle"
 
@@ -138,6 +151,10 @@ def test_no_review_path_needs_every_condition(field, value):
      "all_workflows": [{"conclusion": "success", "sha": "cb1e777"}]},
     {"status": "completed", "conclusion": "success", "sha": "cb1e777",
      "all_workflows": [{"conclusion": "skipped", "sha": "ea916ef"}, {"conclusion": "success"}]},
+    {"status": "completed", "conclusion": "success", "sha": "ea916ef",
+     "all_workflows": [{"status": "in_progress", "conclusion": None, "sha": "ea916ef"}]},
+    {"status": "completed", "conclusion": "success", "sha": "ea916ef",
+     "all_workflows": [{"status": "requested", "conclusion": None, "sha": "ea916ef"}]},
 ])
 def test_no_review_path_needs_green_ci_on_the_head(ci):
     assert not review_clear(GREEN_NO_REVIEW["pr"], ci)
@@ -167,5 +184,5 @@ def test_behind_row_is_for_unreviewed_non_draft_prs(field, value):
 
 def test_fixture_set_covers_every_row():
     expected = {json.loads(f.read_text())["expected"] for f in FIXTURES}
-    assert expected == {"stop:done", "rebase", "fix-ci", "address-review", "stop:needs-you",
+    assert expected == {"stop:done", "rebase", "update-branch", "fix-ci", "address-review", "stop:needs-you",
                         "merge", "stop:ready-to-merge", "wait:ci", "wait:idle"}
