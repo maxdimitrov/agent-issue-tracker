@@ -132,6 +132,8 @@ searchJiraIssuesUsingJql({
 
 **Field mapping:** `parent_ref` → the JQL `parent = "<ref>"` clause. Note there is deliberately **no** `statusCategory != Done` filter — unlike `list_open_issues`, this op returns closed children too, because adoption needs them to render `[x] … — closed` mirror lines. Translate each returned issue to `{ref: key, title: summary, status: status.name}`.
 
+**Status category:** `status` is the workflow status name, which says nothing about open versus closed on its own (`Ready for Release`, `In Code Review`). Jira's status object also carries its category, `fields.status.statusCategory.key`: `new`, `indeterminate` or `done`. `/resume-initiative`'s status-drift check reads `done` from it for a legacy epic's children (`commands/resume-initiative.md` "Part 1"); the same field rides on `getJiraIssue`'s status object for `view_issue`. A response that does not carry it leaves the child's state unknown to that check; it never guesses from the name. Not yet observed live through the MCP (tracked with the other live-verify items in #109).
+
 **Return order:** `ORDER BY Rank ASC` returns the epic's rank order, which is the native child order `/resume-initiative` uses for unphased/flat ordering (Fork #4 of `docs/superpowers/specs/2026-07-27-evergreen-epics-design.md`).
 
 **Pagination:** `searchJiraIssuesUsingJql` pages its results (`nextPageToken` / `pageInfo.hasNextPage`). Follow the token until exhausted — a truncated page silently drops children from the adopted `## Children` mirror. Request only the fields you need (`["summary", "status"]`) so a many-child epic's descriptions don't blow the response size.

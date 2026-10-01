@@ -7,6 +7,8 @@ test_doc_currency.py pins the audit script:
 - mirror-line grammar: bullet-tolerant, checked AND unchecked lines
 - scope-probe extraction: first fenced block under `## Scope probe`
 - category-1 diff: native children absent from the mirror
+- status drift: a mirror checkbox that contradicts the child's live state
+- stale count: the Status block's stored `N/M` against the live count
 - forward probe diff: literal case-sensitive substring matching
 """
 
@@ -83,6 +85,78 @@ def unmirrored_children(mirror: dict, native: list) -> list:
     return [child for child in native if child["ref"] not in mirror]
 
 
+def is_settled(child: dict, merged_status=None):
+    """Whether a checked mirror line is right for this live child.
+
+    True / False when the tracker says so; None when it cannot be told
+    (a Jira status name with no category in the payload) -- never guessed
+    from the name.
+
+    - GitHub: `status` is `open` or `closed`.
+    - Jira: the status category is Done, or the child sits in the merged
+      status (`jira.merged_transition`), where `/work-issue --finish` has
+      already checked its line.
+    """
+    status = child["status"]
+    if status in ("open", "closed"):
+        return status == "closed"
+    if merged_status and status.casefold() == merged_status.casefold():
+        return True
+    category = child.get("status_category")
+    if category is None:
+        return None
+    return category == "done"
+
+
+def status_drift(mirror: dict, live: dict, merged_status=None) -> list:
+    """Mirror lines whose checkbox contradicts the child's live state.
+
+    `live` maps ref -> the child record the run already holds; a mirror
+    ref absent from it (not fetched) and a child of unknown state yield no
+    finding.
+    """
+    findings = []
+    for ref, checked in mirror.items():
+        child = live.get(ref)
+        settled = None if child is None else is_settled(child, merged_status)
+        if settled is not None and settled != checked:
+            findings.append({"ref": ref, "checked": checked, "status": child["status"]})
+    return findings
+
+
+# The Status block's Phase line, matched on its bold label, bullet-tolerant.
+PHASE_COUNT = re.compile(r"^[-*+] \*\*Phase:\*\* .*?(\d+)/(\d+)")
+
+
+def stored_count(body: str):
+    """`(closed, total)` from the Status block's Phase line; None when absent."""
+    for line in body.splitlines():
+        m = PHASE_COUNT.match(line)
+        if m:
+            return int(m.group(1)), int(m.group(2))
+    return None
+
+
+def live_count(mirror: dict, live: dict, merged_status=None) -> tuple:
+    """`(closed, total)` over the mirror, by live state; the checkbox stands
+    in for a child whose live state is unknown or was not fetched."""
+    closed = 0
+    for ref, checked in mirror.items():
+        child = live.get(ref)
+        settled = None if child is None else is_settled(child, merged_status)
+        closed += checked if settled is None else settled
+    return closed, len(mirror)
+
+
+def stale_count(body: str, mirror: dict, live: dict, merged_status=None):
+    """The one-line count finding: `(stored, live)` when they differ, else None."""
+    stored = stored_count(body)
+    current = live_count(mirror, live, merged_status)
+    if stored is None or stored == current:
+        return None
+    return stored, current
+
+
 def probe_unenumerated(items: list, mirror_lines: list, child_titles: list) -> list:
     """Forward probe diff: items matching no mirror line and no live child title."""
     haystacks = mirror_lines + child_titles
@@ -148,6 +222,82 @@ def test_fixture_c_consistent_epic_yields_zero_findings():
     body, native = load("c")
     assert unmirrored_children(parse_mirror_refs(body), native) == []
     assert parse_scope_probe(body) is None
+
+
+def by_ref(children: list) -> dict:
+    return {child["ref"]: child for child in children}
+
+
+def test_fixture_c_consistent_epic_has_no_status_findings():
+    body, native = load("c")
+    mirror = parse_mirror_refs(body)
+    assert status_drift(mirror, by_ref(native)) == []
+    assert stale_count(body, mirror, by_ref(native)) is None
+
+
+def test_fixture_d_flags_both_directions_of_status_drift():
+    body, native = load("d")
+    mirror = parse_mirror_refs(body)
+    # Membership is consistent, which is why the report used to stay silent.
+    assert unmirrored_children(mirror, native) == []
+    findings = status_drift(mirror, by_ref(native))
+    assert findings == [
+        {"ref": "#302", "checked": False, "status": "closed"},  # closed, line still [ ]
+        {"ref": "#303", "checked": True, "status": "open"},     # reopened, line still [x]
+    ]
+
+
+def test_fixture_d_reports_the_stale_count_once():
+    body, native = load("d")
+    mirror = parse_mirror_refs(body)
+    assert stored_count(body) == (1, 4)
+    assert stale_count(body, mirror, by_ref(native)) == ((1, 4), (2, 4))
+
+
+def test_status_drift_skips_children_the_run_did_not_fetch():
+    # A checked, mirror-only child is not fetched in Mode 1: no finding, and
+    # its checkbox stands in for it in the count.
+    body, native = load("d")
+    mirror = parse_mirror_refs(body)
+    live = by_ref([c for c in native if c["ref"] != "#303"])
+    assert [f["ref"] for f in status_drift(mirror, live)] == ["#302"]
+    assert live_count(mirror, live) == (3, 4)
+
+
+def test_fixture_e_jira_merged_status_matches_a_checked_line():
+    body, native = load("e")
+    mirror = parse_mirror_refs(body)
+    findings = status_drift(mirror, by_ref(native), merged_status="Ready for Release")
+    assert [(f["ref"], f["checked"], f["status"]) for f in findings] == [
+        ("PROJ-13", False, "Done"),               # Done, line still [ ]
+        ("PROJ-15", True, "In Progress"),         # reopened, line still [x]
+        ("PROJ-16", False, "Ready for Release"),  # merged, --finish never checked it
+    ]
+    # PROJ-17 is "Done" by name only: no category in the payload, no finding.
+    assert stale_count(body, mirror, by_ref(native), merged_status="ready for release") == ((3, 7), (4, 7))
+
+
+def test_fixture_e_without_a_merged_status_only_done_settles():
+    body, native = load("e")
+    mirror = parse_mirror_refs(body)
+    findings = status_drift(mirror, by_ref(native))
+    assert [f["ref"] for f in findings] == ["PROJ-12", "PROJ-13", "PROJ-15"]
+    assert stale_count(body, mirror, by_ref(native)) == ((3, 7), (2, 7))
+
+
+def test_is_settled_never_guesses_from_a_status_name():
+    assert is_settled({"status": "Done"}) is None
+    assert is_settled({"status": "Closed", "status_category": "done"}) is True
+    assert is_settled({"status": "To Do", "status_category": "new"}) is False
+    assert is_settled({"status": "closed"}) is True
+    assert is_settled({"status": "open"}) is False
+
+
+def test_stored_count_tolerates_the_bullet_glyph_and_missing_block():
+    for glyph in "-*+":
+        assert stored_count(f"{glyph} **Phase:** Phase 1a · 2/4 sub-issues closed") == (2, 4)
+    assert stored_count("## Goal\nNo status block here.\n") is None
+    assert stale_count("## Goal\n", {"#1": True}, {}) is None
 
 
 def test_bullet_glyph_is_tolerated():

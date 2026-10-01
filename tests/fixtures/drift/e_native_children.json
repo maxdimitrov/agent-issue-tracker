@@ -1,0 +1,9 @@
+[
+  {"ref": "PROJ-11", "title": "sync engine skeleton", "status": "Done", "status_category": "done"},
+  {"ref": "PROJ-12", "title": "retry queue", "status": "Ready for Release", "status_category": "indeterminate"},
+  {"ref": "PROJ-13", "title": "delta encoder", "status": "Done", "status_category": "done"},
+  {"ref": "PROJ-14", "title": "conflict banner", "status": "In Code Review", "status_category": "indeterminate"},
+  {"ref": "PROJ-15", "title": "settings toggle", "status": "In Progress", "status_category": "indeterminate"},
+  {"ref": "PROJ-16", "title": "telemetry events", "status": "Ready for Release", "status_category": "indeterminate"},
+  {"ref": "PROJ-17", "title": "migration note", "status": "Done"}
+]

@@ -485,7 +485,12 @@ mirror-vs-native diff, unchanged from before this shape existed:
 `/resume-initiative` always diffs each node's `## Children` mirror
 against the backend's `list_child_issues` — the tracker's native
 linkage is authoritative for *membership*, the mirror is the
-traversal index. Either way, drift is **reported, never
+traversal index. Because a legacy node also stores a checkbox per
+child and a `Phase` count, resume checks those against each child's
+live state too: a `[ ]` line on a closed child, an `[x]` line on a
+reopened one, and a stored count that no longer matches each render
+a finding (`status drift`, `stale count`), repaired by the legacy
+ritual under "Maintenance" below. Either way, drift is **reported, never
 auto-repaired** — resume stays read-only; the repair path is
 `link_sub_issue` / editing the machine block's `## Phases` section
 directly (evergreen) or this skill's adoption procedure (legacy). A

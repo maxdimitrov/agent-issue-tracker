@@ -85,15 +85,17 @@ after the batch list was written. Evergreen nodes have no separate
 reconciliation pass to run — the union derivation in "Deriving child
 state" already produces `unlinked` and dead-phase-map-ref findings as a
 side effect of computing membership; this section is where they get
-reported, alongside probe findings. Legacy nodes still run an explicit
-mirror-vs-native diff, today's behaviour, unchanged. Every Mode 2 node
+reported, alongside probe findings. Legacy nodes run an explicit
+mirror-vs-native diff, and because they store per-child checkboxes and a
+count, also a check of those stored values against each child's live
+state. Every Mode 2 node
 parse runs this pass and prints a **drift report** above the child tree;
 a fully-consistent node prints **nothing**. The pass runs per node,
 inside the same recursion, so the depth cap, cycle guard, and
 mixed-backend skip apply unchanged — a skipped node gets no
 reconciliation.
 
-### Part 1 — membership findings (backend-generic)
+### Part 1 — membership and status findings (backend-generic)
 
 **Evergreen nodes.** No added call — `list_child_issues` was already
 dispatched to establish the child set (see "Deriving child state"). Its
@@ -104,28 +106,68 @@ where the backend allows for `unlinked` refs; a dead ref points at editing
 the machine block's `## Phases` section. Resume never edits the machine
 block to fix a finding.
 
-**Legacy nodes.** Unchanged from today: invoke the backend's
+**Legacy nodes.** Invoke the backend's
 `list_child_issues({parent_ref})` operation — the **one added call per
 node** — and diff it against the node's `## Children` mirror, where the
 mirror set counts **checked and unchecked lines both** (a closed native
-child mirrored `[x]` is consistent, not drift). Two finding categories:
+child mirrored `[x]` is consistent, not drift). Four finding categories:
 
 1. **Unmirrored native child** — the tracker links a direct child
    (open or closed) that the mirror omits. Always real drift; report
    ref + title + state.
-2. **Dead mirror entry** — an *unchecked* mirror entry whose
-   `view_issue` fetch (already performed by child enumeration — no
-   added call) returns not-found. Checked entries are not fetched, so
-   dead-entry detection covers unchecked entries only.
+2. **Dead mirror entry** — a mirror entry whose `view_issue` fetch
+   returns not-found. Unchecked entries are fetched by child enumeration
+   (no added call); checked mirror-only entries are fetched in Mode 2/3
+   only (see "Which children are compared" below), so Mode 1 detects
+   dead entries among unchecked lines only.
+3. **Status drift** — a mirror line whose checkbox contradicts the
+   child's live state: a `[ ]` line on a **settled** child, or an `[x]`
+   line on a child that is not settled (reopened, or checked too early).
+   Report ref + checkbox + live status.
+4. **Stale count** — the Status block's `- **Phase:**` line stores
+   `<N>/<M>`. When that differs from the live count over the mirror
+   (settled children / mirror lines), report it in one line.
+
+**Settled** is the live state a checked line stands for:
+
+- **GitHub** — `status` is `closed`.
+- **Jira** — the status is in the Done category. `status` carries only
+  the workflow status name, so read the category from the same response:
+  `fields.status.statusCategory.key == "done"` (`backends/jira.md`
+  `list_child_issues`). With `jira.merged_transition` set, a child whose
+  status name equals that value (case-insensitive) is settled too:
+  `/work-issue --finish` checked its line when the PR merged, before a
+  release closes the ticket. That comparison assumes the transition and
+  the status it leads to share a name, as `Ready for Release` does;
+  where they differ, merged children with checked lines show up as
+  status drift.
+- **Unknown** — a child whose state cannot be told (a Jira response
+  without the category): no status-drift finding, and its checkbox
+  stands in for it in the count. Never infer the state from a status
+  name.
+
+**Which children are compared.** Categories 3 and 4 use the records the
+run already holds, plus one bounded fetch in Mode 2/3:
+
+- natively linked children — `list_child_issues` already returned
+  `{ref, title, status}` for them, open and closed; no added call;
+- unchecked mirror-only entries — already fetched by child enumeration;
+- checked mirror-only entries — Mode 2/3 only, one `view_issue` each.
+  Mode 1 does not fetch them: they yield no finding there, and their
+  checkbox stands in for them in the count.
 
 **Explicitly NOT drift (legacy):** a mirror entry whose issue is live but
 has no native link. Native linkage is best-effort augmentation per
 `backends/_interface.md` invariant 6 — cross-repo children and children
 past a backend's native ceiling (Jira's three-level cap) legitimately
 live in the mirror alone. Do not flag them. Mirror findings get a
-**remediation pointer, never an action**: point the operator at
-`initiative-tracking`'s adoption procedure ("Reconcile, tracker wins").
-Resume never edits the mirror. A `list_child_issues` failure soft-warns
+**remediation pointer, never an action**: membership findings point the
+operator at `initiative-tracking`'s adoption procedure ("Reconcile,
+tracker wins"); status drift and a stale count point at that skill's
+legacy "Maintenance" ritual (flip the line, recount `Phase`, reset
+`Next up`), or at `/resume-initiative <ref> --adopt`, which removes
+stored checkboxes and counts for good. Resume never edits the mirror or
+the Status block. A `list_child_issues` failure soft-warns
 (`drift check skipped for <ref> — list_child_issues failed`) and skips
 reconciliation for that node; never crash.
 
@@ -195,7 +237,18 @@ Drift report — #123 engine/operator split
 ```
 
 Legacy nodes render the same shape with mirror vocabulary instead
-(`missing from ## Children mirror` / `mirror entry — no live issue`).
+(`missing from ## Children mirror` / `mirror entry — no live issue`),
+plus their status findings:
+
+```text
+Drift report — PROJ-5531 offline-sync rework
+  ⚠ PROJ-13 — status drift: mirror [ ], tracker Done
+  ⚠ PROJ-15 — status drift: mirror [x], tracker In Progress
+  ⚠ stale count: Status block says 3/7 closed, live count is 4/7
+  → status drift / stale count: run initiative-tracking's legacy
+    Maintenance ritual on this node, or adopt it (--adopt)
+```
+
 Sub-epic findings carry the sub-epic's ref prefix. No findings and no
 probe → print nothing.
 
@@ -221,7 +274,7 @@ probe → print nothing.
    node (see "Drift reconciliation (per node)"; probes never run in
    Mode 1) and count findings across the subtree.
 
-5. Render a compact list to the operator — show the root's direct-child phase count, the rolled-up leaf count, and the next-up **leaf** (with its drill path when nested). Append `· ⚠ drift: <N>` to a root's line when its subtree has N > 0 Part 1 findings (mirror-vs-native for legacy nodes, unlinked/dead phase-map refs for evergreen nodes); N = 0 renders nothing:
+5. Render a compact list to the operator — show the root's direct-child phase count, the rolled-up leaf count, and the next-up **leaf** (with its drill path when nested). Append `· ⚠ drift: <N>` to a root's line when its subtree has N > 0 Part 1 findings (mirror-vs-native, status drift and a stale count for legacy nodes; unlinked/dead phase-map refs for evergreen nodes); N = 0 renders nothing. A legacy root's `Phase` count on this line is the stored one; a stale-count finding is what says it no longer matches:
    ```
    #123  engine/operator split      Phase 1a · 2/4 direct · 6/14 leaves   Next: #126 reserve-ledger schema · ⚠ drift: 2
    PROJ-150  observability rollout  Phase 0  · 1/3 direct · 1/9 leaves    Next: PROJ-150 ▸ PROJ-161 ▸ PROJ-164 metrics emitter
@@ -236,7 +289,7 @@ probe → print nothing.
 2. Show the operator:
    - The node's title + design-spec link (read from the body's `## Design spec` section — the first non-blank line under that heading is the spec path; `templates/epic-body.md` pins the convention for both shapes)
    - If this node has a `## Parent epic` section (machine block for evergreen, body for legacy), it is a **sub-epic** — show the breadcrumb up to the root (follow `## Parent epic` refs upward, machine block first then body as legacy fallback at each hop — the **parent-breadcrumb** descent path, so apply the depth cap, cycle guard, and mixed-backend skip on each hop per "Tree traversal"; on a cycle or unparseable parent ref, stop and render the root marker as `unknown`) so the operator knows where in the tree they are
-   - Phase breakdown with status — phase names and ref order come from `## Phases` (machine block for evergreen, body for legacy), correlated with each ref's live status: derived per "Deriving child state" for evergreen, the `## Children` mirror's checked/unchecked state for legacy
+   - Phase breakdown with status — phase names and ref order come from `## Phases` (machine block for evergreen, body for legacy), correlated with each ref's live status: derived per "Deriving child state" for evergreen, the `## Children` mirror's checked/unchecked state for legacy — except that a legacy child with a status-drift finding (step 4) renders its live status, marked `⚠ mirror stale`, since the checkbox is the stale side
    - Current branch / worktree — the machine block's `## Current branch` section for evergreen, the Status block's `- **Current branch:**` line for legacy
    - Next-up — resolved down to a **leaf** (see step 5)
    - If the current session title does not already name this node's ref, a
@@ -252,7 +305,7 @@ probe → print nothing.
 
    **Evergreen nodes** — the child set, order, and flags are the union derivation from "Deriving child state" (already computed in step 1 from `list_child_issues` + the machine block's `## Phases` section — no re-parsing here). Native children already carry `{ref, title, status}`; an `unlinked` child (phase-map-only, live) needs one `view_issue({ref})` to fill in its title/status. For every child, call `view_issue({ref})` once to check the `epic` label — **if it carries `epic` it is a sub-epic**: add it to `visited` and recurse into its own three-read derivation (`view_issue` + `read_comments` + `list_child_issues`), honouring the depth cap and cycle guard ("Tree traversal"). Otherwise it is a leaf.
 
-   **Legacy nodes** — the canonical source is the node's `## Children` task-list mirror, parsed exactly as today. For each unchecked `- [ ] <ref> — <title>` line, parse the ref using the three shapes above, then call `view_issue({ref})` for its title + status + labels. **If the child carries the `epic` label it is a sub-epic**: add it to `visited` and recurse into step 3 on its own `## Children` mirror, honouring the depth cap and cycle guard. Otherwise it is a leaf.
+   **Legacy nodes** — the canonical source is the node's `## Children` task-list mirror, parsed exactly as today. For each unchecked `- [ ] <ref> — <title>` line, parse the ref using the three shapes above, then call `view_issue({ref})` for its title + status + labels. **If the child carries the `epic` label it is a sub-epic**: add it to `visited` and recurse into step 3 on its own `## Children` mirror, honouring the depth cap and cycle guard. Otherwise it is a leaf. Checked lines are not walked. A checked line whose ref the node's `list_child_issues` result (step 4) does not carry gets one `view_issue({ref})` for the status-drift check and nothing else: no recursion, and no tree line beyond the mirror's own.
 
    Build an indented tree, annotating each epic node with its direct-child count and a rolled-up leaf count:
    ```
@@ -268,7 +321,8 @@ probe → print nothing.
 4. **Run drift reconciliation and print the report.** Per "Drift
    reconciliation (per node)": Part 1 (membership findings — the union
    side-effect for evergreen nodes, mirror vs. `list_child_issues` for
-   legacy nodes) for every node visited in step 3's recursion, Part 2
+   legacy nodes — plus, for legacy nodes, status drift and the stale
+   count) for every node visited in step 3's recursion, Part 2
    (the `## Scope probe`, when declared) for the named node and any
    sub-epic declaring its own, then Part 3's follow-up offer for
    present-but-unenumerated items. Print the drift report **above the
