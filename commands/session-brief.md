@@ -71,7 +71,7 @@ VERDICT    <keep going | /compact | fresh session> — <reason>
 - `ci.conclusion == "failure"` — name the failed jobs from `ci.failed_jobs`.
 - `git.behind > 0` by a large margin — needs a base sync before it can merge.
 - `git.dirty_count > 0` — uncommitted work that would be lost.
-- `pr.state == "OPEN"` with `reviewDecision == "APPROVED"` — ready to merge, waiting on you.
+- `pr.state == "OPEN"`, not a draft, with `reviewDecision == "APPROVED"`, or with an empty `reviewDecision` (the base branch requires no review) and `ci.conclusion == "success"` — ready to merge, waiting on you. (`/tracker-loop` babysit checks more before it merges such a PR itself; see its "Review-clear" definition.)
 - `pr.mergeable == "CONFLICTING"` — conflicts to resolve.
 - `loop.stop_reason` naming NEEDS YOU — the loop stopped for a judgement call; repeat what it asked.
 

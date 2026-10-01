@@ -1,1 +1,1 @@
-{"observation": {"pr": {"state": "OPEN", "mergeable": "MERGEABLE", "reviewDecision": "APPROVED"}, "ci": {"status": "in_progress", "conclusion": null}}, "merge": false, "expected": "stop:ready-to-merge"}
+{"observation": {"pr": {"state": "OPEN", "mergeable": "MERGEABLE", "reviewDecision": "APPROVED", "headRefOid": "ea916ef4b869578fbe4eba21919b37b8190ca2c3"}, "ci": {"status": "in_progress", "conclusion": null}}, "merge": false, "expected": "stop:ready-to-merge"}

@@ -1,0 +1,1 @@
+{"observation": {"pr": {"state": "OPEN", "isDraft": false, "mergeable": "MERGEABLE", "reviewDecision": "", "headRefOid": "ea916ef4b869578fbe4eba21919b37b8190ca2c3", "mergeStateStatus": "HAS_HOOKS", "latestReviews": []}, "ci": {"status": "completed", "conclusion": "success", "sha": "ea916ef"}, "review": {"threads": []}}, "merge": true, "expected": "merge"}
