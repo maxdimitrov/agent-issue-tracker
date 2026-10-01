@@ -2,3 +2,4 @@
 - The global ~/.claude/issue-tracker.yaml is a base layer only, never a standalone fallback -- a global repo target would point unconfigured repos at the wrong tracker (#7).
 - Env overrides are limited to backend, github.repo, jira.site and jira.project -- those are what retargeting a run needs; everything else stays in files (#7).
 - Hook and collectors resolve the config once per process -- a per-get resolve costs ~0.7s on Git Bash and SessionStart is synchronous (#7).
+- /new-tab opens the tab without an offer step -- the operator invoking it is the consent; the offer-only rule covers tabs a flow would open on its own initiative.

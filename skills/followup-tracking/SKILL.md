@@ -215,6 +215,10 @@ The new tab gets no custom title. The URI has no title parameter, and
 in the prompt identifies the work, and `/work-issue`'s branch names it
 once the run starts.
 
+Outside this flow, `/new-tab <prompt>` (`commands/new-tab.md`) opens the
+same tab on demand with any prompt; invoking it is the consent, so it has
+no offer step.
+
 ## Labels
 
 Every follow-up gets:

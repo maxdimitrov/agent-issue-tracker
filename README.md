@@ -1,6 +1,6 @@
 # agent-issue-tracker
 
-Portable issue-tracking skills + slash commands for Claude Code. Six skills, twelve slash commands, one session-title hook, two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
+Portable issue-tracking skills + slash commands for Claude Code. Six skills, thirteen slash commands, one session-title hook, two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
 
 ## What this is
 
@@ -21,7 +21,7 @@ Six skills:
 | [`skill-currency`](skills/skill-currency/SKILL.md) | Codifies the "skills update with the PR that changed the API" rule |
 | [`tracker-contribute`](skills/tracker-contribute/SKILL.md) | Reports a problem with this plugin (or a fix) upstream to its own repo |
 
-Twelve slash commands:
+Thirteen slash commands:
 
 | Command | What it does |
 | --- | --- |
@@ -33,6 +33,7 @@ Twelve slash commands:
 | [`/session-brief`](commands/session-brief.md) | Catch up on the current session — issue + PR links, CI, review threads awaiting you, a keep-going / compact / fresh verdict, and a resume note |
 | [`/tracker-brief`](commands/tracker-brief.md) | Inbound digest since the last run — tracker activity, PRs, worktrees, resume notes and loop records joined into one ledger with a verdict per issue |
 | [`/tracker-loop`](commands/tracker-loop.md) | One iteration of an unattended loop — babysit a PR, clear an epic, or poll a label — with budgets on disk; recurrence via `/loop` or `--loop` |
+| [`/new-tab`](commands/new-tab.md) | Open a new Claude Code tab in VS Code with a prompt typed in, ready for Enter — the handoff `/file-followup` and `/session-brief` offer, on demand with any prompt; prints the prompt for copy-paste off VS Code |
 | [`/file-bug`](commands/file-bug.md) | Discoverable entry-point for the `bug-tracking` skill |
 | [`/file-feature`](commands/file-feature.md) | Discoverable entry-point for the `feature-request` skill |
 | [`/file-followup`](commands/file-followup.md) | Discoverable entry-point for the `followup-tracking` skill |
@@ -139,7 +140,7 @@ Two briefs and one loop runtime, all backed by scripts that always exit 0 and pr
 - **`/tracker-brief`** is the morning read: what moved in the tracker and on the git host since the last run, joined to your worktrees and resume notes, with one verdict per issue — Needs action, Status drift (a merged PR whose issue never closed), Waiting, Closeable, Stale, or No code artifact.
 - **`/tracker-loop`** runs one iteration of an unattended loop. Three modes: `babysit` watches a PR to green and addresses code-level review comments; `clear` works an epic leaf by leaf through `/work-issue`; `poll` dispatches `/work-issue` on issues carrying a label. Recurrence is the harness's: `/loop /agent-issue-tracker:tracker-loop babysit #42` (self-paced) or `/loop 15m …` (fixed), or pass `--loop` to `/work-issue` / `/resume-initiative --start` to arm a session cron. Budgets (`loops:` in the config) are enforced from the record on disk, a judgement question from a reviewer always stops the loop, and nothing merges without `--merge`. A stopped loop stays stopped on later fires (a `checkpoint: fresh session` stop is the exception, it hands off through the resume note), and `/tracker-loop <mode> <ref> --restart` begins a new one.
 
-**New tab handoff (VS Code only).** After `/file-followup` files an issue, or when `/session-brief` says **fresh session**, the agent offers to open a new Claude Code tab with the next prompt typed in: `/agent-issue-tracker:work-issue <ref>`, or a pointer to the resume note. It uses the extension's URI handler (`code --open-url "vscode://anthropic.claude-code/open?prompt=…"`, via `scripts/open-session-tab.sh`). The prompt is not submitted, so you press Enter, and VS Code asks once to allow the URI. It is always an offer, never automatic. In the CLI or JetBrains, the prompt is printed for copy-paste as before.
+**New tab handoff (VS Code only).** After `/file-followup` files an issue, or when `/session-brief` says **fresh session**, the agent offers to open a new Claude Code tab with the next prompt typed in: `/agent-issue-tracker:work-issue <ref>`, or a pointer to the resume note. It uses the extension's URI handler (`code --open-url "vscode://anthropic.claude-code/open?prompt=…"`, via `scripts/open-session-tab.sh`). The prompt is not submitted, so you press Enter, and VS Code asks once to allow the URI. It is always an offer, never automatic. In the CLI or JetBrains, the prompt is printed for copy-paste as before. `/new-tab <prompt>` opens the same tab on demand with any prompt, outside either flow; invoking it is the consent, so there is no offer step.
 
 ## Walkthroughs
 

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`/new-tab <prompt>`**. Opens a new Claude Code tab in VS Code with the
+  prompt typed into its input box, ready for Enter — the handoff that
+  `/file-followup` and `/session-brief` offer at the end of their flows,
+  now invocable directly with any prompt. Same `scripts/open-session-tab.sh`
+  contract underneath (URI handler, prompt not submitted, copy-paste
+  fallback off VS Code). Invoking the command is the consent, so it has
+  no offer step. New `tests/test_command_inventory.py` checks that every
+  `commands/*.md` is listed in the README table, the README counts and
+  both manifest descriptions.
 - **Config layers** (#7). A global `~/.claude/issue-tracker.yaml` now acts as
   a base layer under the project file, merged by top-level key, and four env
   vars (`TRACKER_BACKEND_OVERRIDE`, `TRACKER_GITHUB_REPO_OVERRIDE`,
