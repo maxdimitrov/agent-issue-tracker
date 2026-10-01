@@ -292,7 +292,7 @@ probe → print nothing.
    **once** before entering the worktree — declining proceeds straight
    into the leaf.
 
-2. If a worktree for that child already exists (convention: `.claude/worktrees/<branch-with-slash-replaced-by-plus>`), report its path and stop. Otherwise:
+2. If a worktree for that child already exists (`/work-issue` Step 3's worktree lookup, `ait_worktree_for_branch <branch>`, finds the branch step 3 below derives for the child checked out under `.claude/worktrees/`, whatever the directory is called), report its path and stop. Otherwise:
 
 3. Use the `superpowers:using-git-worktrees` skill (or the native `EnterWorktree` tool) to create one. The worktree is created in the consumer's current working directory regardless of whether the next-up child is in the same repo as the epic or in a different repo via `owner/repo#N` — the operator's working tree is local, only the child issue body fetch (step 4) hits the child's repo via the backend's `view_issue`. The branch name comes from the child issue body's `Branch:` line if present, otherwise infer:
    - `feat/<short-slug-of-title>` for `enhancement`-labelled children
@@ -303,7 +303,7 @@ probe → print nothing.
    ```bash
    git branch -m worktree-<sanitized> <conventional-name>
    ```
-   The worktree directory keeps its `<sanitized>` name (that matches the existing on-disk convention `feat+<slug>`); only the branch is renamed.
+   The worktree directory keeps its `<sanitized>` name (typically `feat+<slug>`; nothing looks a worktree up by that name, see step 2); only the branch is renamed.
 
 4. Report the new worktree path. `EnterWorktree` already switched the session's CWD into the worktree, so the agent workflow continues inline — do NOT stop and ask the operator to open a new window.
    **(In-progress sync.)** Mark the started leaf in progress the same way

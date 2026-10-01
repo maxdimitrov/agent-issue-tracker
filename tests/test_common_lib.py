@@ -1,11 +1,13 @@
 """Unit tests for scripts/lib/common.sh, run through bash."""
 import os
+import shutil
+import sys
 import time
 from pathlib import Path
 
 import pytest
 
-from shell_helpers import git, init_repo, run_lib
+from shell_helpers import REPO_ROOT, git, init_repo, run_lib
 
 CONFIG = """schema_version: 1
 backend: github   # trailing comment
@@ -169,6 +171,79 @@ def test_config_path_walk_skips_home(tmp_path):
     repo = init_repo(home / "code" / "app")
     rc, out = _config_path_from(repo, _home_env(home))
     assert rc == 1 and out == ""
+
+
+def _worktree_for(branch, cwd):
+    r = run_lib(f'ait_worktree_for_branch "{branch}"', cwd=str(cwd))
+    return r.returncode, r.stdout.replace("\\", "/").lower()
+
+
+def test_worktree_for_branch_ignores_the_directory_name(tmp_path):
+    # #155: a bare-slug directory holding a fix/<slug> branch, which the
+    # slash-to-plus path formula never matched.
+    repo = init_repo(tmp_path / "repo")
+    wt = repo / ".claude" / "worktrees" / "git-sign-stale-sig"
+    git(repo, "worktree", "add", "-q", "-b", "fix/git-sign-stale-sig", wt.as_posix())
+    plus = repo / ".claude" / "worktrees" / "feat+board"
+    git(repo, "worktree", "add", "-q", "-b", "feat/board", plus.as_posix())
+    for cwd in (repo, wt):  # same answer from the primary checkout and a worktree
+        rc, out = _worktree_for("fix/git-sign-stale-sig", cwd)
+        assert rc == 0 and out.endswith("repo/.claude/worktrees/git-sign-stale-sig")
+    rc, out = _worktree_for("feat/board", repo)
+    assert rc == 0 and out.endswith("repo/.claude/worktrees/feat+board")
+
+
+def test_worktree_for_branch_rejects_path_outside_claude_worktrees(tmp_path):
+    repo = init_repo(tmp_path / "repo")
+    git(repo, "worktree", "add", "-q", "-b", "fix/elsewhere", (tmp_path / "elsewhere").as_posix())
+    sibling = repo / ".claude" / "worktrees-other" / "x"  # shares the prefix, not the dir
+    git(repo, "worktree", "add", "-q", "-b", "fix/sibling", sibling.as_posix())
+    assert _worktree_for("fix/elsewhere", repo) == (1, "")
+    assert _worktree_for("fix/sibling", repo) == (1, "")
+    assert _worktree_for("main", repo) == (1, "")  # the primary checkout
+
+
+def test_worktree_for_branch_skips_a_deleted_directory(tmp_path):
+    # Still registered (prunable), but there is nothing to enter or remove.
+    repo = init_repo(tmp_path / "repo")
+    wt = repo / ".claude" / "worktrees" / "gone"
+    git(repo, "worktree", "add", "-q", "-b", "fix/gone", wt.as_posix())
+    shutil.rmtree(wt)
+    assert _worktree_for("fix/gone", repo) == (1, "")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs an unprivileged symlink")
+def test_worktree_for_branch_from_a_symlinked_checkout(tmp_path):
+    # git lists real paths; the shell's logical cwd goes through the link.
+    real = tmp_path / "real"
+    repo = init_repo(real / "repo")
+    wt = repo / ".claude" / "worktrees" / "x"
+    git(repo, "worktree", "add", "-q", "-b", "fix/x", wt.as_posix())
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    via_link = link / "repo"
+    env = dict(os.environ, PWD=str(via_link))  # keep bash's cwd logical
+    r = run_lib('ait_worktree_for_branch "fix/x"', env=env, cwd=str(via_link))
+    assert r.returncode == 0 and r.stdout.endswith("repo/.claude/worktrees/x")
+
+
+def test_worktree_for_branch_matches_the_whole_branch_name(tmp_path):
+    repo = init_repo(tmp_path / "repo")
+    wt = repo / ".claude" / "worktrees" / "auth-retry"
+    git(repo, "worktree", "add", "-q", "-b", "fix/auth-retry", wt.as_posix())
+    assert _worktree_for("fix/auth", repo) == (1, "")
+    assert _worktree_for("auth-retry", repo) == (1, "")
+    assert _worktree_for("", repo) == (1, "")
+    assert _worktree_for("fix/auth-retry", tmp_path) == (1, "")  # not a git repo
+
+
+@pytest.mark.parametrize("command", ["work-issue", "tracker-loop", "resume-initiative"])
+def test_commands_find_worktrees_by_branch_not_by_directory_name(command):
+    # #155: the lookup is stated once (/work-issue Step 3) and referenced by
+    # name elsewhere; no command may resolve a worktree from the path formula.
+    text = (REPO_ROOT / "commands" / f"{command}.md").read_text(encoding="utf-8")
+    assert "ait_worktree_for_branch" in text
+    assert "branch-with-slash" not in text
 
 
 def test_issue_url_github_and_jira(tmp_path):
