@@ -39,9 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `N/M` against the live count), with a pointer to the legacy Maintenance
   ritual or `--adopt`. On Jira the check reads the status category and
   treats the merged status (`jira.merged_transition`) as matching a
-  checked line; a child whose state cannot be told yields no finding. The
-  phase breakdown shows the live status for a drifted child. The
-  "released but not closed" part of #150 is not included.
+  checked line; a child whose state cannot be told yields no finding.
+  `/work-issue --finish` now recounts a legacy parent's `Phase` by the
+  same "settled" definition, so resume agrees with what it wrote, and
+  `backends/jira.md` keeps the status category on the child record as
+  `status_category`. The phase breakdown shows the live status for a
+  drifted child. The "released but not closed" part of #150 is not
+  included.
 - **Babysit merges where no review is required** (#154). GitHub reports
   `reviewDecision: ""` when the base branch requires no review, and the
   babysit table only merged (or stopped ready-to-merge) on `APPROVED`, so a

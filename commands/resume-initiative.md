@@ -125,26 +125,40 @@ child mirrored `[x]` is consistent, not drift). Four finding categories:
    line on a child that is not settled (reopened, or checked too early).
    Report ref + checkbox + live status.
 4. **Stale count** — the Status block's `- **Phase:**` line stores
-   `<N>/<M>`. When that differs from the live count over the mirror
-   (settled children / mirror lines), report it in one line.
+   `<N>/<M> sub-issues closed` (read the count from that documented
+   tail, so a slash in the phase name is not mistaken for it). When
+   `<N>/<M>` differs from the live count over the mirror (settled
+   children / mirror lines), report it in one line that shows both, for
+   example `says 5/13 closed, live count is 12/29`: a stored total that
+   is not the mirror's line count is itself part of the finding.
 
-**Settled** is the live state a checked line stands for:
+**Settled** is the live state a checked line stands for. It is the one
+definition both this check and `/work-issue --finish`'s `Phase` recount
+(Step 8 sub-step 4) use, so resume agrees with what `--finish` wrote:
 
-- **GitHub** — `status` is `closed`.
-- **Jira** — the status is in the Done category. `status` carries only
-  the workflow status name, so read the category from the same response:
-  `fields.status.statusCategory.key == "done"` (`backends/jira.md`
-  `list_child_issues`). With `jira.merged_transition` set, a child whose
-  status name equals that value (case-insensitive) is settled too:
-  `/work-issue --finish` checked its line when the PR merged, before a
-  release closes the ticket. That comparison assumes the transition and
-  the status it leads to share a name, as `Ready for Release` does;
-  where they differ, merged children with checked lines show up as
-  status drift.
-- **Unknown** — a child whose state cannot be told (a Jira response
-  without the category): no status-drift finding, and its checkbox
-  stands in for it in the count. Never infer the state from a status
-  name.
+- **GitHub** — `status` is `closed`, compared case-insensitively
+  (`list_child_issues` returns `closed`, `view_issue` returns `CLOSED`).
+- **Jira** — the status is in the Done category: the child record's
+  `status_category` is `done` (`backends/jira.md` maps it from
+  `fields.status.statusCategory.key`, beside `status`, which carries
+  only the workflow status name). With `jira.merged_transition` set, a
+  child whose status name equals that value (case-insensitive) is
+  settled too: `/work-issue --finish` moved it there and checked its
+  line when the PR merged, before a release closes the ticket. That
+  comparison assumes the transition and the status it leads to share a
+  name, as `Ready for Release` does; where they differ, merged children
+  with checked lines show up as status drift.
+- **Unknown** — a Jira child whose record carries no `status_category`:
+  no status-drift finding, and its checkbox stands in for it in the
+  count. Never infer the state from a status name.
+
+An `[x]` line on a child that is not settled is real drift even when
+`--finish` wrote the `[x]`: `--finish` checks the line at merge, so a
+ticket nothing has closed since (Jira without `jira.merged_transition`
+and without a close-on-merge integration; a GitHub PR merged into a
+non-default branch, where the closing keyword does not fire) keeps
+showing up until the ticket is closed. There the ticket is the stale
+side, not the line.
 
 **Which children are compared.** Categories 3 and 4 use the records the
 run already holds, plus one bounded fetch in Mode 2/3:
@@ -156,6 +170,11 @@ run already holds, plus one bounded fetch in Mode 2/3:
   Mode 1 does not fetch them: they yield no finding there, and their
   checkbox stands in for them in the count.
 
+"Mirror-only" is decided against the node's `list_child_issues` result,
+so when that call failed there is nothing to decide it with: categories
+3 and 4 are skipped for the node along with the membership diff, and no
+checked line is fetched.
+
 **Explicitly NOT drift (legacy):** a mirror entry whose issue is live but
 has no native link. Native linkage is best-effort augmentation per
 `backends/_interface.md` invariant 6 — cross-repo children and children
@@ -164,12 +183,17 @@ live in the mirror alone. Do not flag them. Mirror findings get a
 **remediation pointer, never an action**: membership findings point the
 operator at `initiative-tracking`'s adoption procedure ("Reconcile,
 tracker wins"); status drift and a stale count point at that skill's
-legacy "Maintenance" ritual (flip the line, recount `Phase`, reset
-`Next up`), or at `/resume-initiative <ref> --adopt`, which removes
-stored checkboxes and counts for good. Resume never edits the mirror or
-the Status block. A `list_child_issues` failure soft-warns
+legacy "Maintenance" ritual (check or uncheck the line to match the
+tracker, recount `Phase`, reset `Next up`), or at
+`/resume-initiative <ref> --adopt`, which removes stored checkboxes and
+counts for good. For an `[x]` line on an unsettled child the pointer
+names both sides: close or transition the ticket if its work has
+merged, or uncheck the line if it was reopened. Resume never edits the
+mirror or the Status block, and never transitions a ticket. A
+`list_child_issues` failure soft-warns
 (`drift check skipped for <ref> — list_child_issues failed`) and skips
-reconciliation for that node; never crash.
+all of Part 1 for that node — membership, status drift and the stale
+count; never crash.
 
 ### Part 2 — `## Scope probe` ground truth (opt-in, Mode 2/3 only)
 
@@ -245,8 +269,10 @@ Drift report — PROJ-5531 offline-sync rework
   ⚠ PROJ-13 — status drift: mirror [ ], tracker Done
   ⚠ PROJ-15 — status drift: mirror [x], tracker In Progress
   ⚠ stale count: Status block says 3/7 closed, live count is 4/7
-  → status drift / stale count: run initiative-tracking's legacy
-    Maintenance ritual on this node, or adopt it (--adopt)
+  → mirror [ ] on a settled child, stale count: run initiative-tracking's
+    legacy Maintenance ritual on this node, or adopt it (--adopt)
+  → mirror [x] on an unsettled child: close or transition the ticket if
+    its work merged, or uncheck the line if it was reopened
 ```
 
 Sub-epic findings carry the sub-epic's ref prefix. No findings and no
@@ -284,12 +310,12 @@ probe → print nothing.
 
 ### Mode 2 — `<ref>`: load and display one node + its subtree
 
-1. Invoke `view_issue({ref})` where `<ref>` may be `#N` (GitHub), `owner/repo#N` (cross-repo GitHub), or `PROJ-123` (Jira). See `backends/<backend>.md` for the literal call signature. The returned `{ref, title, body, labels[], status, parent?}` carries the body needed to determine shape (see "Two epic shapes") and, for legacy nodes, Status-block parsing. Seed the `visited` set with this ref. For an **evergreen**-shaped node (no `## Status block` in the body), also invoke `read_comments({ref})` (to locate the machine block) and `list_child_issues({parent_ref: ref})` (to establish the native child set) — see "Deriving child state". Legacy nodes skip both; their body already carries everything needed.
+1. Invoke `view_issue({ref})` where `<ref>` may be `#N` (GitHub), `owner/repo#N` (cross-repo GitHub), or `PROJ-123` (Jira). See `backends/<backend>.md` for the literal call signature. The returned `{ref, title, body, labels[], status, parent?}` carries the body needed to determine shape (see "Two epic shapes") and, for legacy nodes, Status-block parsing. Seed the `visited` set with this ref. For an **evergreen**-shaped node (no `## Status block` in the body), also invoke `read_comments({ref})` (to locate the machine block) and `list_child_issues({parent_ref: ref})` (to establish the native child set) — see "Deriving child state". A legacy node skips `read_comments` (its body carries its structure) but does get `list_child_issues({parent_ref: ref})` here: the drift pass diffs the mirror against it, step 3 needs it to tell which checked lines are mirror-only, and the same holds for every legacy sub-epic step 3's recursion enters. If it fails, soft-warn and skip that node's Part 1 (see "Drift reconciliation").
 
-2. Show the operator:
+2. Show the operator (this display is rendered once steps 3–5 have run; it draws on their results):
    - The node's title + design-spec link (read from the body's `## Design spec` section — the first non-blank line under that heading is the spec path; `templates/epic-body.md` pins the convention for both shapes)
    - If this node has a `## Parent epic` section (machine block for evergreen, body for legacy), it is a **sub-epic** — show the breadcrumb up to the root (follow `## Parent epic` refs upward, machine block first then body as legacy fallback at each hop — the **parent-breadcrumb** descent path, so apply the depth cap, cycle guard, and mixed-backend skip on each hop per "Tree traversal"; on a cycle or unparseable parent ref, stop and render the root marker as `unknown`) so the operator knows where in the tree they are
-   - Phase breakdown with status — phase names and ref order come from `## Phases` (machine block for evergreen, body for legacy), correlated with each ref's live status: derived per "Deriving child state" for evergreen, the `## Children` mirror's checked/unchecked state for legacy — except that a legacy child with a status-drift finding (step 4) renders its live status, marked `⚠ mirror stale`, since the checkbox is the stale side
+   - Phase breakdown with status — phase names and ref order come from `## Phases` (machine block for evergreen, body for legacy), correlated with each ref's live status: derived per "Deriving child state" for evergreen, the `## Children` mirror's checked/unchecked state for legacy — except that a legacy child with a status-drift finding (step 4) renders its live status beside the checkbox state, marked `⚠ drift`
    - Current branch / worktree — the machine block's `## Current branch` section for evergreen, the Status block's `- **Current branch:**` line for legacy
    - Next-up — resolved down to a **leaf** (see step 5)
    - If the current session title does not already name this node's ref, a
@@ -305,7 +331,7 @@ probe → print nothing.
 
    **Evergreen nodes** — the child set, order, and flags are the union derivation from "Deriving child state" (already computed in step 1 from `list_child_issues` + the machine block's `## Phases` section — no re-parsing here). Native children already carry `{ref, title, status}`; an `unlinked` child (phase-map-only, live) needs one `view_issue({ref})` to fill in its title/status. For every child, call `view_issue({ref})` once to check the `epic` label — **if it carries `epic` it is a sub-epic**: add it to `visited` and recurse into its own three-read derivation (`view_issue` + `read_comments` + `list_child_issues`), honouring the depth cap and cycle guard ("Tree traversal"). Otherwise it is a leaf.
 
-   **Legacy nodes** — the canonical source is the node's `## Children` task-list mirror, parsed exactly as today. For each unchecked `- [ ] <ref> — <title>` line, parse the ref using the three shapes above, then call `view_issue({ref})` for its title + status + labels. **If the child carries the `epic` label it is a sub-epic**: add it to `visited` and recurse into step 3 on its own `## Children` mirror, honouring the depth cap and cycle guard. Otherwise it is a leaf. Checked lines are not walked. A checked line whose ref the node's `list_child_issues` result (step 4) does not carry gets one `view_issue({ref})` for the status-drift check and nothing else: no recursion, and no tree line beyond the mirror's own.
+   **Legacy nodes** — the canonical source is the node's `## Children` task-list mirror, parsed exactly as today. For each unchecked `- [ ] <ref> — <title>` line, parse the ref using the three shapes above, then call `view_issue({ref})` for its title + status + labels. **If the child carries the `epic` label it is a sub-epic**: add it to `visited` and recurse into step 3 on its own `## Children` mirror, honouring the depth cap and cycle guard. Otherwise it is a leaf. Checked lines are not walked. A checked line whose ref the node's `list_child_issues` result (step 1, or fetched on entering a legacy sub-epic) does not carry gets one `view_issue({ref})` for the status-drift check and nothing else: no recursion, and no tree line beyond the mirror's own. When that `list_child_issues` call failed, no checked line is fetched.
 
    Build an indented tree, annotating each epic node with its direct-child count and a rolled-up leaf count:
    ```
@@ -432,6 +458,6 @@ Unlike routine machine-block upkeep (start-side branch sync, phase-map append, d
 - Traversal exceeds `MAX_DEPTH` (10) → render the deepest reached node, append `…(depth cap reached)`, and stop descending that branch. Do NOT recurse unboundedly.
 - Cycle in the tree (a ref reappears in `visited`) → skip the repeated ref with a one-line warning (`cycle: <ref> already visited`) and continue. Native linkage plus a phase map (or, legacy, a `## Children` mirror) can form a loop; the visited-set guard prevents infinite recursion.
 - `Next up` names a sub-epic whose own `Next up` is exhausted (sub-epic has open structure but no startable leaf on that path) → report it and fall back to offering the operator a specific leaf from the subtree, rather than starting the sub-epic itself.
-- `list_child_issues` fails for a node → **evergreen:** membership falls back to phase-map-only (the native half of the union is unavailable); render those children flagged, WARN, and skip that node's Part 1 findings (no native set to diff against). **Legacy:** soft-warn (`drift check skipped for <ref> — list_child_issues failed`) and skip that node's Part 1 diff only — the body `## Children` mirror is still the membership source, so the node's child tree renders normally. Never crash; the resume itself continues either way.
+- `list_child_issues` fails for a node → **evergreen:** membership falls back to phase-map-only (the native half of the union is unavailable); render those children flagged, WARN, and skip that node's Part 1 findings (no native set to diff against). **Legacy:** soft-warn (`drift check skipped for <ref> — list_child_issues failed`) and skip all of that node's Part 1 (membership diff, status drift, stale count; no checked mirror line is fetched) — the body `## Children` mirror is still the membership source, so the node's child tree renders normally. Never crash; the resume itself continues either way.
 - `## Scope probe` command exits non-zero, or the section has no fenced code block → soft-warn and skip the ground-truth diff; never crash, never block the resume.
-- Drift findings but the operator declines all follow-up offers → file nothing; the report was the deliverable. Resume never edits the `## Children` mirror (legacy) or the machine block (evergreen) to fix a finding — remediation is `initiative-tracking`'s adoption procedure (legacy) or `link_sub_issue` / editing `## Phases` directly (evergreen).
+- Drift findings but the operator declines all follow-up offers → file nothing; the report was the deliverable. Resume never edits the `## Children` mirror (legacy) or the machine block (evergreen) to fix a finding — remediation is `initiative-tracking`'s adoption procedure for membership findings and its legacy Maintenance ritual for status drift and a stale count (legacy), or `link_sub_issue` / editing `## Phases` directly (evergreen).
