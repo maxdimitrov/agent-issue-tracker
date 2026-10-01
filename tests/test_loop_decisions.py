@@ -28,7 +28,7 @@ def change_requested(reviews):
     return "CHANGES_REQUESTED" in verdict.values()
 
 
-RUNNING = ("queued", "in_progress", "waiting", "pending")
+RUNNING = ("queued", "in_progress", "requested", "waiting", "pending")
 
 
 def head_runs(ci, head):
