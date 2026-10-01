@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Babysit merges where no review is required** (#154). GitHub reports
+  `reviewDecision: ""` when the base branch requires no review, and the
+  babysit table only merged (or stopped ready-to-merge) on `APPROVED`, so a
+  `--merge` loop idled on a green PR until `idle_stop_after` ended it. The
+  two review rows now fire when the PR is *review-clear*: approved, or an
+  empty decision on a PR that is green on its head (`mergeStateStatus`
+  `CLEAN`, the CI run a success on the head commit, no reviewer's standing
+  verdict a change request). Babysit reads those fields itself before the
+  table (`gh pr view --json headRefOid,mergeStateStatus,reviews`). With CI
+  still running such a PR waits for it, and with no CI at all babysit still
+  does not merge. A draft is never review-clear, approved or not, so a loop
+  no longer retries a merge GitHub refuses. `REVIEW_REQUIRED` and
+  `CHANGES_REQUESTED` never merge. `/session-brief` lists the no-review case
+  under NEEDS YOU.
 - **Worktree lookups by branch, not by directory name** (#155). `/work-issue`
   (Step 3 idempotency, `--finish` cleanup), `/tracker-loop` (babysit, poll
   claims) and `/resume-initiative --start` looked for a branch's worktree only

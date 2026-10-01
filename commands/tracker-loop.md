@@ -88,6 +88,8 @@ Work source, by case:
 
 Before the table, classify every `SB.review.threads[]` with `awaiting_you == true` as `code` (a concrete, actionable change request: rename, split, add a test, handle a case) or `judgement` (a question, a design objection, or anything a reasonable engineer would want the author to answer in prose).
 
+Also before the table, when `pr.state` is `OPEN`, read the **merge-readiness fields** and attach them to `pr`: `gh pr view <pr.number> --repo <nwo> --json headRefOid,mergeStateStatus,reviews`. The collector does not carry them, and the merge rows cannot be decided without them. This read is the command's own, not a collector step in `SB.errors`: if it fails, leave the fields absent rather than waiting out the iteration. The PR is then not review-clear this iteration, every other row still applies, and the iteration's detail says merge readiness could not be read.
+
 | Observation (first match wins) | Action |
 |---|---|
 | `pr.state` is `MERGED` or `CLOSED` | **stop: done** — when `pr.state == MERGED` and the record's ref is an issue ref (or `SB.ticket.key` resolves one), the stop action is `/work-issue <ref> --finish`; a failure there is a WARN in the stop line, never a reason to keep looping |
@@ -95,10 +97,23 @@ Before the table, classify every `SB.review.threads[]` with `awaiting_you == tru
 | `ci.conclusion == "failure"` | **fix-ci**: `superpowers:systematic-debugging` on `ci.failed_jobs`, `superpowers:test-driven-development` for the fix, push |
 | an awaiting thread classified `code` | **address-review**: make the change, push, reply on the thread naming the commit SHA, resolve the thread |
 | an awaiting thread classified `judgement` | **stop: needs-you** — quote author, path:line, excerpt |
-| `pr.reviewDecision == "APPROVED"` and the effective `--merge` | **merge**: `gh pr merge --<merge_method> --match-head-commit <pr.headRefOid> --auto` (`merge_method` from the effective config, default `squash`; falls back to a direct merge with the same method and pin only where auto-merge is unavailable; never `--delete-branch`). A direct merge lands immediately: run `/work-issue <ref> --finish` and **stop: done**. An armed auto-merge lands when the checks pass: record the action and keep iterating (`wait-ci` while checks run), so the first row observes `pr.state == MERGED` and runs `--finish` at its stop |
-| `pr.reviewDecision == "APPROVED"`, no effective `--merge` | **stop: ready-to-merge** — the operator's call |
+| the PR is **review-clear** (defined below) and the effective `--merge` | **merge**: `gh pr merge --<merge_method> --match-head-commit <pr.headRefOid> --auto` (`merge_method` from the effective config, default `squash`; falls back to a direct merge with the same method and pin only where auto-merge is unavailable; never `--delete-branch`). A direct merge lands immediately: run `/work-issue <ref> --finish` and **stop: done**. An armed auto-merge lands when the checks pass: record the action and keep iterating (`wait-ci` while checks run), so the first row observes `pr.state == MERGED` and runs `--finish` at its stop |
+| the PR is **review-clear**, no effective `--merge` | **stop: ready-to-merge** — the operator's call |
 | `ci.status` is `queued`, `in_progress`, `waiting` or `pending` | **wait-ci** (hint: CI in progress) — recorded without `--noop`; does not count toward `idle_stop_after` |
 | anything else | **wait** (hint: idle, see Pacing hint) — recorded with `--noop`; counts toward `idle_stop_after` |
+
+**Review-clear** means the merge-readiness fields were read (`pr.headRefOid` is set), the PR is not a draft (`pr.isDraft` is false), and one of:
+
+- **Approved:** `pr.reviewDecision == "APPROVED"`.
+- **No review required, and green on its head.** All of:
+  - `pr.reviewDecision` is present and empty (`""`). GitHub returns that when the base branch requires no review, so nobody will ever approve the PR. A null or absent decision is not empty; do not coerce one into `""`.
+  - no reviewer's standing verdict in `pr.reviews` is `CHANGES_REQUESTED`. A reviewer's standing verdict is their newest review (by `submittedAt`) whose state is `APPROVED`, `CHANGES_REQUESTED` or `DISMISSED`; a later `COMMENTED` review, which every thread reply creates, does not withdraw a change request. Without required reviews the decision can stay empty after someone requests changes, and a review with only a top-level body opens no thread for the rows above to catch.
+  - `pr.mergeStateStatus` is `CLEAN` (or `HAS_HOOKS`). That is GitHub's own verdict for the current head: no conflict, not blocked or behind, and every check on it passing, including workflows and checks the collector does not look at.
+  - `ci.conclusion == "success"` and `ci.sha` is the PR head (`pr.headRefOid` starts with it), so the collector's CI run finished green on the commit that would merge, not on an earlier push.
+
+On the no-review branch green checks stand in for the approval, which is why it asks for more than the approved branch does. A PR that misses a condition falls through: to **wait-ci** while CI is running, otherwise to **wait**. Babysit therefore never merges a PR on a base branch that has neither required reviews nor CI; merge that by hand, or through `/work-issue --merge`, which verifies locally before it merges.
+
+`REVIEW_REQUIRED` and `CHANGES_REQUESTED` are never review-clear, and neither is a draft, with or without `--merge`.
 
 Replies to humans are always code-backed: a pushed commit plus a comment naming it. The loop never argues a review point in prose; that is a NEEDS YOU.
 

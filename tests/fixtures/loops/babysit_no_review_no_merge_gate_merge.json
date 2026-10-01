@@ -1,0 +1,1 @@
+{"observation": {"pr": {"state": "OPEN", "isDraft": false, "mergeable": "MERGEABLE", "reviewDecision": ""}, "ci": {"status": "completed", "conclusion": "success", "sha": "ea916ef"}, "review": {"threads": []}}, "merge": true, "expected": "wait:idle"}
