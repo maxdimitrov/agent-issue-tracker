@@ -28,6 +28,29 @@ def change_requested(reviews):
     return "CHANGES_REQUESTED" in verdict.values()
 
 
+RUNNING = ("queued", "in_progress", "requested", "waiting", "pending")
+
+
+def head_runs(ci, head):
+    """The runs the collector saw on the PR head: `ci` itself and `ci.all_workflows`."""
+    runs = [ci] + (ci.get("all_workflows") or [])
+    return [r for r in runs if (r.get("sha") or "") != "" and head.startswith(r["sha"])]
+
+
+def succeeded_on_head(ci, head):
+    """True when the collector's runs on the PR head are finished and one is green.
+
+    Any workflow counts, not only the primary one: a path-filtered primary
+    workflow does not run on every push. A run still going on the head means
+    not yet, even if GitHub already reports the PR clean.
+    """
+    runs = head_runs(ci, head)
+    return (
+        any(r.get("conclusion") == "success" for r in runs)
+        and all(r.get("status") in (None, "completed") for r in runs)
+    )
+
+
 def review_clear(pr, ci):
     """The "Review-clear" definition under the babysit table."""
     head = pr.get("headRefOid") or ""
@@ -36,14 +59,21 @@ def review_clear(pr, ci):
     if pr.get("reviewDecision") == "APPROVED":
         return True
     # No review required: nobody approves, so the PR has to be green on its
-    # head by GitHub's own verdict and by the CI run the collector saw.
-    sha = ci.get("sha") or ""
+    # head by GitHub's own verdict and by a CI run the collector saw.
     return (
         pr.get("reviewDecision") == ""  # present and empty; null or absent is not
         and not change_requested(pr.get("reviews"))
         and pr.get("mergeStateStatus") in ("CLEAN", "HAS_HOOKS")
-        and ci.get("conclusion") == "success"
-        and sha != "" and head.startswith(sha)
+        and succeeded_on_head(ci, head)
+    )
+
+
+def behind_base(pr):
+    """The BEHIND row: an unreviewed, non-draft PR the base branch wants updated."""
+    return (
+        pr.get("mergeStateStatus") == "BEHIND"
+        and pr.get("reviewDecision") == ""
+        and not pr.get("isDraft")
     )
 
 
@@ -56,6 +86,8 @@ def decide_babysit(obs, merge=False):
         return "stop:done"
     if pr.get("mergeable") == "CONFLICTING":
         return "rebase"
+    if behind_base(pr):
+        return "update-branch"
     if ci.get("conclusion") == "failure":
         return "fix-ci"
     if any(t.get("kind") == "code" for t in awaiting):
@@ -64,7 +96,8 @@ def decide_babysit(obs, merge=False):
         return "stop:needs-you"
     if review_clear(pr, ci):
         return "merge" if merge else "stop:ready-to-merge"
-    if ci.get("status") in ("queued", "in_progress", "waiting", "pending"):
+    on_head = head_runs(ci, pr.get("headRefOid") or "")
+    if ci.get("status") in RUNNING or any(r.get("status") in RUNNING for r in on_head):
         return "wait:ci"
     return "wait:idle"
 
@@ -114,12 +147,42 @@ def test_no_review_path_needs_every_condition(field, value):
     {"status": "completed", "conclusion": "cancelled", "sha": "ea916ef"},
     {"status": "completed", "conclusion": "success", "sha": "cb1e777"},
     {"status": "completed", "conclusion": "success"},
+    {"status": "completed", "conclusion": "success", "sha": "cb1e777",
+     "all_workflows": [{"conclusion": "success", "sha": "cb1e777"}]},
+    {"status": "completed", "conclusion": "success", "sha": "cb1e777",
+     "all_workflows": [{"conclusion": "skipped", "sha": "ea916ef"}, {"conclusion": "success"}]},
+    {"status": "completed", "conclusion": "success", "sha": "ea916ef",
+     "all_workflows": [{"status": "in_progress", "conclusion": None, "sha": "ea916ef"}]},
+    {"status": "completed", "conclusion": "success", "sha": "ea916ef",
+     "all_workflows": [{"status": "requested", "conclusion": None, "sha": "ea916ef"}]},
 ])
 def test_no_review_path_needs_green_ci_on_the_head(ci):
     assert not review_clear(GREEN_NO_REVIEW["pr"], ci)
 
 
+def test_no_review_path_accepts_any_workflow_green_on_the_head():
+    # #158: the primary workflow is path-filtered and did not run on the head.
+    ci = {"status": "completed", "conclusion": "success", "sha": "cb1e777",
+          "all_workflows": [{"conclusion": "success", "sha": "cb1e777"},
+                            {"conclusion": "success", "sha": "ea916ef"}]}
+    assert review_clear(GREEN_NO_REVIEW["pr"], ci)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("reviewDecision", "REVIEW_REQUIRED"),
+    ("reviewDecision", "APPROVED"),
+    ("reviewDecision", None),
+    ("isDraft", True),
+    ("mergeStateStatus", "CLEAN"),
+    ("mergeStateStatus", None),
+])
+def test_behind_row_is_for_unreviewed_non_draft_prs(field, value):
+    behind = dict(GREEN_NO_REVIEW["pr"], mergeStateStatus="BEHIND")
+    assert behind_base(behind)
+    assert not behind_base(dict(behind, **{field: value}))
+
+
 def test_fixture_set_covers_every_row():
     expected = {json.loads(f.read_text())["expected"] for f in FIXTURES}
-    assert expected == {"stop:done", "rebase", "fix-ci", "address-review", "stop:needs-you",
+    assert expected == {"stop:done", "rebase", "update-branch", "fix-ci", "address-review", "stop:needs-you",
                         "merge", "stop:ready-to-merge", "wait:ci", "wait:idle"}
