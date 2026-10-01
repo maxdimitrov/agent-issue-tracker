@@ -195,6 +195,47 @@ ait_worktree_for_branch() {
   printf '%s' "$p"
 }
 
+# ait_commit_in_tag <sha> <tag> [<dir>] - is commit <sha> contained in <tag>?
+# Three answers, so unlike the rest of this file it always prints, as
+# `<verdict> <how>`, and returns 0 / 1 / 2:
+#   contained git      | contained host      -> 0
+#   not-contained git  | not-contained host  -> 1
+#   unknown no-tag | unknown shallow | unknown no-commit | unknown usage -> 2
+#
+# `git merge-base --is-ancestor` answers from the local history graph. A yes
+# is always true. A no is only trusted in a full clone: in a shallow clone a
+# released commit behind the graft exits 1 exactly like an unreleased one
+# (and its object may even be present). So when git cannot say yes and the
+# clone is shallow, or git cannot find the commit at all, the git host is
+# asked (GitHub compare API: is <tag> ahead of or identical to <sha>?). No
+# usable host answer -> unknown, never not-contained. The clone is never
+# deepened here: that rewrites the operator's repo and can be a large fetch.
+ait_commit_in_tag() {
+  local sha="${1-}" tag="${2-}" d="${3:-.}" rc shallow status
+  [ -n "$sha" ] && [ -n "$tag" ] || { printf 'unknown usage'; return 2; }
+  git -C "$d" rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null 2>&1 \
+    || { printf 'unknown no-tag'; return 2; }
+  git -C "$d" merge-base --is-ancestor "$sha" "refs/tags/$tag" 2>/dev/null
+  rc=$?
+  [ "$rc" -eq 0 ] && { printf 'contained git'; return 0; }
+  shallow="$(git -C "$d" rev-parse --is-shallow-repository 2>/dev/null)"
+  if [ "$rc" -eq 1 ] && [ "$shallow" != "true" ]; then
+    printf 'not-contained git'
+    return 1
+  fi
+  status=""
+  if command -v gh >/dev/null 2>&1; then
+    status="$(cd "$d" 2>/dev/null \
+      && ait_gh_out 20 gh api "repos/{owner}/{repo}/compare/$sha...$tag" --jq .status)"
+  fi
+  case "$status" in
+    ahead | identical) printf 'contained host'; return 0 ;;
+    behind | diverged) printf 'not-contained host'; return 1 ;;
+  esac
+  if [ "$shallow" = "true" ]; then printf 'unknown shallow'; else printf 'unknown no-commit'; fi
+  return 2
+}
+
 # ait_project_key [<dir>] - <basename>-<sha256(main repo path)[0:8]>.
 ait_project_key() {
   local d="${1:-.}" root name h

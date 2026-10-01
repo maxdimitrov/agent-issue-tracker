@@ -1,13 +1,15 @@
 """Unit tests for scripts/lib/common.sh, run through bash."""
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
 
 import pytest
 
-from shell_helpers import REPO_ROOT, git, init_repo, run_lib
+from shell_helpers import (REPO_ROOT, env_with_path, env_without_command, git, init_repo,
+                           isolated_env, make_stub, run_lib)
 
 CONFIG = """schema_version: 1
 backend: github   # trailing comment
@@ -343,3 +345,130 @@ def test_issue_url_from_pre_resolved_text():
     assert run_lib(snippet, env=env).stdout == "https://example.atlassian.net/browse/PROJ-9"
     r = run_lib(snippet, env=dict(os.environ, Y="schema_version: 1\n", R="#1"))
     assert r.returncode == 1 and r.stdout == ""
+
+
+# --- ait_commit_in_tag (#149): is a merge commit contained in a release tag? ---
+
+# gh stub: answers the compare API with $GH_COMPARE_STATUS and logs every call.
+GH_COMPARE_STUB = r'''
+printf '%s\n' "$*" >> "$GH_LOG"
+case "$*" in
+  *"/compare/"*) [ -n "${GH_COMPARE_STATUS:-}" ] || exit 1; printf '%s\n' "$GH_COMPARE_STATUS" ;;
+  *) exit 1 ;;
+esac
+'''
+
+
+def _rev(repo, rev):
+    return subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", rev], check=True, capture_output=True,
+        text=True, stdin=subprocess.DEVNULL,
+    ).stdout.strip()
+
+
+@pytest.fixture
+def released(tmp_path):
+    """origin: old merge commit -> one more commit, tagged v1 -> one commit after the tag."""
+    origin = init_repo(tmp_path / "origin")
+    git(origin, "commit", "--allow-empty", "-m", "the merge")
+    merge = _rev(origin, "HEAD")
+    git(origin, "commit", "--allow-empty", "-m", "release prep")
+    git(origin, "tag", "v1")
+    git(origin, "commit", "--allow-empty", "-m", "after the release")
+    # Lets a shallow clone fetch one old commit by sha, as a deepen/prune leaves it.
+    git(origin, "config", "uploadpack.allowAnySHA1InWant", "true")
+    return {"origin": origin, "merge": merge, "after": _rev(origin, "HEAD")}
+
+
+def _shallow_clone(tmp_path, origin, name="shallow"):
+    clone = tmp_path / name
+    git(tmp_path, "clone", "-q", "--depth", "1", "--branch", "v1", origin.as_uri(), str(clone))
+    return clone
+
+
+def _gh_env(tmp_path, status=None):
+    stub = make_stub(tmp_path / "bin", "gh", GH_COMPARE_STUB)
+    env = env_with_path(isolated_env(tmp_path), stub)
+    env["GH_LOG"] = (tmp_path / "gh.log").as_posix()
+    if status is not None:
+        env["GH_COMPARE_STATUS"] = status
+    return env
+
+
+def _in_tag(repo, sha, tag, env):
+    r = run_lib(f'ait_commit_in_tag "{sha}" "{tag}"', env=env, cwd=str(repo))
+    return r.returncode, r.stdout
+
+
+def _gh_calls(tmp_path):
+    log = tmp_path / "gh.log"
+    return log.read_text().splitlines() if log.exists() else []
+
+
+def test_commit_in_tag_full_clone_trusts_git_both_ways(released, tmp_path):
+    env = _gh_env(tmp_path, status="behind")  # a wrong host answer must not be consulted
+    origin = released["origin"]
+    assert _in_tag(origin, released["merge"], "v1", env) == (0, "contained git")
+    assert _in_tag(origin, released["after"], "v1", env) == (1, "not-contained git")
+    assert _gh_calls(tmp_path) == []
+
+
+def test_commit_in_tag_unknown_tag(released, tmp_path):
+    env = _gh_env(tmp_path, status="ahead")
+    assert _in_tag(released["origin"], released["merge"], "v9", env) == (2, "unknown no-tag")
+    assert _gh_calls(tmp_path) == []
+
+
+def test_commit_in_tag_shallow_clone_asks_the_host(released, tmp_path):
+    clone = _shallow_clone(tmp_path, released["origin"])
+    merge = released["merge"]
+    # The released merge is behind the graft: git alone cannot say yes.
+    plain = subprocess.run(["git", "-C", str(clone), "merge-base", "--is-ancestor", merge, "v1"],
+                           capture_output=True, stdin=subprocess.DEVNULL)
+    assert plain.returncode != 0
+    assert _in_tag(clone, merge, "v1", _gh_env(tmp_path, status="ahead")) == (0, "contained host")
+    assert _gh_calls(tmp_path) == [f"api repos/{{owner}}/{{repo}}/compare/{merge}...v1 --jq .status"]
+    assert _in_tag(clone, merge, "v1", _gh_env(tmp_path, status="identical")) == (0, "contained host")
+    assert _in_tag(clone, merge, "v1", _gh_env(tmp_path, status="behind")) == (1, "not-contained host")
+    assert _in_tag(clone, merge, "v1", _gh_env(tmp_path, status="diverged")) == (1, "not-contained host")
+
+
+def test_commit_in_tag_shallow_clone_with_the_commit_object_present(released, tmp_path):
+    # The case from the report: the commit object is there, the history between
+    # it and the tag is not, so `is-ancestor` exits 1 exactly as for an
+    # unreleased commit.
+    clone = _shallow_clone(tmp_path, released["origin"])
+    merge = released["merge"]
+    git(clone, "fetch", "-q", "--depth", "1", "origin", merge)
+    plain = subprocess.run(["git", "-C", str(clone), "merge-base", "--is-ancestor", merge, "v1"],
+                           capture_output=True, stdin=subprocess.DEVNULL)
+    assert plain.returncode == 1
+    assert _in_tag(clone, merge, "v1", _gh_env(tmp_path, status="ahead")) == (0, "contained host")
+
+
+def test_commit_in_tag_shallow_clone_without_a_host_answer_is_unknown(released, tmp_path):
+    clone = _shallow_clone(tmp_path, released["origin"])
+    merge = released["merge"]
+    # gh fails (no status configured in the stub): never "not contained".
+    assert _in_tag(clone, merge, "v1", _gh_env(tmp_path)) == (2, "unknown shallow")
+    # No gh at all.
+    env = env_without_command(isolated_env(tmp_path), tmp_path, "gh")
+    assert _in_tag(clone, merge, "v1", env) == (2, "unknown shallow")
+
+
+def test_commit_in_tag_full_clone_without_the_commit_asks_the_host(released, tmp_path):
+    # A stale full clone that never fetched the merge commit: git cannot answer
+    # (exit 128), which is not a "no" either.
+    missing = "0123456789abcdef0123456789abcdef01234567"
+    origin = released["origin"]
+    assert _in_tag(origin, missing, "v1", _gh_env(tmp_path, status="ahead")) == (0, "contained host")
+    assert _in_tag(origin, missing, "v1", _gh_env(tmp_path)) == (2, "unknown no-commit")
+    assert _in_tag(origin, "", "v1", _gh_env(tmp_path)) == (2, "unknown usage")
+
+
+def test_commit_in_tag_shallow_clone_still_trusts_a_yes_from_git(released, tmp_path):
+    # v1's own commit is in the shallow history: no host call needed.
+    clone = _shallow_clone(tmp_path, released["origin"])
+    tip = _rev(clone, "v1^{commit}")
+    assert _in_tag(clone, tip, "v1", _gh_env(tmp_path, status="behind")) == (0, "contained git")
+    assert _gh_calls(tmp_path) == []

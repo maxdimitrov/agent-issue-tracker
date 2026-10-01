@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`--finish --released` in a shallow clone** (#149). The release check ran
+  `git merge-base --is-ancestor <merge sha> <tag>`, which in a shallow clone
+  exits 1 for a released commit behind the graft, the same as for an
+  unreleased one. `/work-issue --finish --released <tag>` then warned
+  "not in `<tag>`" and left the ticket in the merged status. The check is
+  now `ait_commit_in_tag` in `scripts/lib/common.sh`: a yes from git is
+  trusted, a no only in a full clone; otherwise it asks the git host
+  (GitHub compare API). With no host answer the warning says the clone is
+  shallow and names `git fetch --unshallow`; the clone is never deepened
+  automatically. Full clones behave as before.
 - **Drift report on legacy epics covers stale checkboxes and counts**
   (#150). `/resume-initiative` only compared a legacy epic's `## Children`
   mirror with the tracker for membership, so an index whose children were

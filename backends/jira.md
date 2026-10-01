@@ -420,11 +420,16 @@ transitionJiraIssue({cloudId, issueIdOrKey: <ref>, transition: {id: <id>}})
   are named differently, merged children with checked lines are reported as
   status drift.
 - **`--finish --released <tag>`** — only when `merged_transition` is set. The
-  driver checks `git merge-base --is-ancestor <merge sha> <tag>`; if true it
-  calls the contract's `close_issue` with `reason: completed` and a comment
-  naming the tag (which applies `done_transition`, above); if false it WARNs and
-  applies nothing. One ref per invocation — sweeping every ticket a tag
-  released is out of scope.
+  driver asks whether the merge commit is in the tag (`ait_commit_in_tag` in
+  `scripts/lib/common.sh`; `commands/work-issue.md` Step 8 has the verdicts);
+  if it is, the driver calls the contract's `close_issue` with
+  `reason: completed` and a comment naming the tag (which applies
+  `done_transition`, above); if it is not, or the question cannot be
+  answered, it WARNs and applies nothing. In a shallow clone git alone cannot
+  answer for a commit behind the graft, so the helper asks the git host
+  instead of reporting a released merge as "not in `<tag>`"; with no host
+  answer the WARN says the clone is shallow. One ref per invocation —
+  sweeping every ticket a tag released is out of scope.
 - **Evidence comment on the other fixed tickets.** For each ref other than
   `<ref>` that the PR body names, the driver also leaves
   `Merged in <PR url> (<merge sha>)` via `upsert_comment` with marker
