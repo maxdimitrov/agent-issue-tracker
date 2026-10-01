@@ -212,9 +212,14 @@ ait_worktree_for_branch() {
 # deepened here: that rewrites the operator's repo and can be a large fetch.
 ait_commit_in_tag() {
   local sha="${1-}" tag="${2-}" d="${3:-.}" rc shallow status
-  [ -n "$sha" ] && [ -n "$tag" ] || { printf 'unknown usage'; return 2; }
-  git -C "$d" rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null 2>&1 \
-    || { printf 'unknown no-tag'; return 2; }
+  if [ -z "$sha" ] || [ -z "$tag" ]; then
+    printf 'unknown usage'
+    return 2
+  fi
+  if ! git -C "$d" rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null 2>&1; then
+    printf 'unknown no-tag'
+    return 2
+  fi
   git -C "$d" merge-base --is-ancestor "$sha" "refs/tags/$tag" 2>/dev/null
   rc=$?
   [ "$rc" -eq 0 ] && { printf 'contained git'; return 0; }
