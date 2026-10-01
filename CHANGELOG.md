@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Worktree lookups by branch, not by directory name** (#155). `/work-issue`
+  (Step 3 idempotency, `--finish` cleanup), `/tracker-loop` (babysit, poll
+  claims) and `/resume-initiative --start` looked for a branch's worktree only
+  at `.claude/worktrees/<branch-with-slash-as-plus>`. A worktree created under
+  a bare slug and then renamed to `fix/<slug>` was never found: `--finish`
+  refused its cleanup, a second `/work-issue` made a duplicate, and babysit
+  collected from the primary checkout. The lookup is now
+  `git worktree list --porcelain` matched on the branch, still gated to
+  `.claude/worktrees/`, stated once in `/work-issue` Step 3 and available as
+  `ait_worktree_for_branch` in `scripts/lib/common.sh`.
 - **Signing fallback vs. an empty `.sig`** (#151). When the 1Password desktop
   signer failed with "failed to fill whole buffer" it left a zero-byte
   `<buffer>.sig` behind; the fallback `ssh-keygen -Y sign` in

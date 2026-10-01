@@ -79,7 +79,7 @@ You can also skip Mode 2 by passing `--start`:
 The command:
 
 1. Re-runs Mode 2 to identify the next-up leaf (`#203`) — its drift report and comment surfacing print as part of this run; a follow-up offer, if any, is asked once before entering the worktree.
-2. Checks for an existing worktree at `.claude/worktrees/<branch-slug>`. If absent:
+2. Checks whether a worktree under `.claude/worktrees/` already has the child's branch checked out (`git worktree list --porcelain`, so the directory name does not matter). If none does:
 3. Creates a worktree via the `superpowers:using-git-worktrees` skill (or the native `EnterWorktree` tool). Branch name inferred from the child issue body's `Branch:` line, else from the type label (`feat/<short-slug>` for enhancements, `fix/<short-slug>` for bugs).
 4. After `EnterWorktree`, renames the branch from the tool's default `worktree-<sanitized>` shape to the conventional `feat/<slug>`.
 5. Reports the new worktree path — the session's CWD already switched into it. Then marks `#203` in progress via the backend's configured affordance (`skills/initiative-tracking/SKILL.md` "In-progress status (optional affordances)"): `github.project` set → board item Status `In Progress`; `jira.in_progress_transition` set → that workflow transition fires; neither configured → no board/Jira write. Best-effort — a failure WARNs and does NOT abort the handoff.

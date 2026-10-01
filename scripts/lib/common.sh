@@ -159,6 +159,42 @@ ait_main_repo() {
   printf '%s' "${gcd%/*}"
 }
 
+# ait_worktree_for_branch <branch> [<dir>] - path of the worktree that has
+# <branch> checked out, read from `git worktree list --porcelain`, so the
+# directory name plays no part (`fix+slug`, a bare `slug`, anything).
+# Provenance gate: only an existing directory under the main checkout's
+# .claude/worktrees/ is returned; the primary checkout, a worktree kept
+# anywhere else and a branch no worktree holds all print nothing and return 1.
+#
+#
+# The main checkout's path is taken from the same listing (git prints the main
+# worktree first), not from ait_main_repo: git lists real paths, while
+# ait_main_repo keeps the shell's logical cwd, so a repo reached through a
+# symlink would never pass the prefix test. That test ignores case under
+# MSYS/Cygwin only: `pwd -W` keeps a path's case as it was typed, so two
+# spellings of one Windows directory can differ.
+ait_worktree_for_branch() {
+  local branch="${1-}" d="${2:-.}" sep=$'\037' out main p nocase="" hit=""
+  [ -n "$branch" ] || return 1
+  out="$(git -C "$d" worktree list --porcelain 2>/dev/null \
+    | awk -v want="branch refs/heads/$branch" -v sep="$sep" '
+        /^worktree / { p = substr($0, 10); if (m == "") m = p }
+        $0 == want   { print m sep p; exit }')"
+  [ -n "$out" ] || return 1
+  main="${out%%"$sep"*}"
+  p="${out#*"$sep"}"
+  [ -d "$p" ] || return 1
+  main="$(ait_norm_path "$main")"
+  p="$(ait_norm_path "$p")"
+  case "${OSTYPE:-}" in
+    msys* | cygwin*) shopt -q nocasematch || { shopt -s nocasematch; nocase=1; } ;;
+  esac
+  case "$p" in "$main/.claude/worktrees/"?*) hit=1 ;; esac
+  [ -n "$nocase" ] && shopt -u nocasematch
+  [ -n "$hit" ] || return 1
+  printf '%s' "$p"
+}
+
 # ait_project_key [<dir>] - <basename>-<sha256(main repo path)[0:8]>.
 ait_project_key() {
   local d="${1:-.}" root name h

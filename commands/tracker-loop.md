@@ -81,7 +81,7 @@ All bookkeeping goes through `"${CLAUDE_PLUGIN_ROOT}/scripts/loop-record.sh"` (`
 Work source, by case:
 
 - **The current branch has a PR** → `SB.pr`.
-- **The ref is a PR number** (step 2's normalised `#<n>` that `gh pr view` resolved) → `gh pr view <n> --repo <nwo> --json headRefName` gives the branch; enter `.claude/worktrees/<branch-with-slash-as-plus>` when it exists, else operate from the primary checkout, and collect `SB` there.
+- **The ref is a PR number** (step 2's normalised `#<n>` that `gh pr view` resolved) → `gh pr view <n> --repo <nwo> --json headRefName` gives the branch; enter the worktree `/work-issue` Step 3's worktree lookup returns for it (`ait_worktree_for_branch <branch>`: whichever directory under `.claude/worktrees/` has the branch checked out) when there is one, else operate from the primary checkout, and collect `SB` there.
 - **The ref is an issue ref** → derive its branch with `/work-issue` Step 3's naming, then `gh pr list --repo <nwo> --head <branch>` finds the PR; enter that branch's worktree as above.
 
 **gh must have answered before the table is read.** Whenever `SB.repo.gh_ok` is false or `SB.errors[]` names a failed gh step (for example `gh api user failed (auth?)`, `gh pr view failed`, `gh graphql review threads failed`), the iteration's action is **wait** (hint: 5m), recorded with `--noop`, regardless of `SB.pr`, `SB.ci` or `SB.review`: the table's inputs are then untrustworthy (with no viewer, no thread is marked `awaiting_you`, so an open change request would be invisible to the merge rows). A gh outage that never clears still ends the loop through `idle_stop_after`. The table below is consulted only when the collector reports no gh errors; only then does a null `SB.pr` mean the branch has no PR (see Failure modes).
@@ -125,7 +125,7 @@ Work source: `list_open_issues({label: <poll_label>})` through the configured ba
 
 **Claimed** issues are skipped. An issue is claimed when any of:
 
-- a worktree for its ref exists (`.claude/worktrees/` naming from `/work-issue` Step 3, or a `worktrees[]` entry in `tracker-brief-collect.sh` output whose `ref` matches),
+- a worktree for its ref exists (the branch `/work-issue` Step 3's naming derives is checked out in any worktree: a `branch refs/heads/<branch>` line in `git worktree list --porcelain`, with no `.claude/worktrees/` gate, since a branch checked out anywhere is a claim; or a `worktrees[]` entry in `tracker-brief-collect.sh` output whose `ref` matches),
 - an open PR in this repo references it (`gh pr list --repo <nwo> --state open --search "<ref>"`),
 - another live loop record names it (`LR list`): its `ref` equals the issue ref, or one of its `prs_opened` PRs has the issue ref in its body (`gh pr view <n> --repo <nwo> --json body`),
 - it carries `loops.claim_label`, when that key is set.
