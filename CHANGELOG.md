@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no longer retries a merge GitHub refuses. `REVIEW_REQUIRED` and
   `CHANGES_REQUESTED` never merge. `/session-brief` lists the no-review case
   under NEEDS YOU.
+- **Two babysit stalls on the no-review path** (#158). A PR whose primary CI
+  workflow is path-filtered, and so did not run on the head commit, was
+  never review-clear even though GitHub reported it `CLEAN`: any workflow
+  run that succeeded on the head now counts. A PR that is behind a base
+  branch requiring an up-to-date head (`mergeStateStatus` `BEHIND`) fell to
+  `wait`; it now gets the rebase row, when its review decision is empty and
+  it is not a draft. Both used to idle until `idle_stop_after` ended the
+  loop.
 - **Worktree lookups by branch, not by directory name** (#155). `/work-issue`
   (Step 3 idempotency, `--finish` cleanup), `/tracker-loop` (babysit, poll
   claims) and `/resume-initiative --start` looked for a branch's worktree only

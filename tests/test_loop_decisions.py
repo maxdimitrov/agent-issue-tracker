@@ -28,6 +28,19 @@ def change_requested(reviews):
     return "CHANGES_REQUESTED" in verdict.values()
 
 
+def succeeded_on_head(ci, head):
+    """True when a run the collector saw finished green on the PR head.
+
+    The primary run (`ci` itself) or any `ci.all_workflows` entry counts: a
+    path-filtered primary workflow does not run on every push.
+    """
+    runs = [ci] + (ci.get("all_workflows") or [])
+    return any(
+        r.get("conclusion") == "success" and (r.get("sha") or "") != "" and head.startswith(r["sha"])
+        for r in runs
+    )
+
+
 def review_clear(pr, ci):
     """The "Review-clear" definition under the babysit table."""
     head = pr.get("headRefOid") or ""
@@ -36,14 +49,21 @@ def review_clear(pr, ci):
     if pr.get("reviewDecision") == "APPROVED":
         return True
     # No review required: nobody approves, so the PR has to be green on its
-    # head by GitHub's own verdict and by the CI run the collector saw.
-    sha = ci.get("sha") or ""
+    # head by GitHub's own verdict and by a CI run the collector saw.
     return (
         pr.get("reviewDecision") == ""  # present and empty; null or absent is not
         and not change_requested(pr.get("reviews"))
         and pr.get("mergeStateStatus") in ("CLEAN", "HAS_HOOKS")
-        and ci.get("conclusion") == "success"
-        and sha != "" and head.startswith(sha)
+        and succeeded_on_head(ci, head)
+    )
+
+
+def behind_base(pr):
+    """The BEHIND row: an unreviewed, non-draft PR the base branch wants updated."""
+    return (
+        pr.get("mergeStateStatus") == "BEHIND"
+        and pr.get("reviewDecision") == ""
+        and not pr.get("isDraft")
     )
 
 
@@ -54,7 +74,7 @@ def decide_babysit(obs, merge=False):
     awaiting = [t for t in threads if t.get("awaiting_you")]
     if pr.get("state") in ("MERGED", "CLOSED"):
         return "stop:done"
-    if pr.get("mergeable") == "CONFLICTING":
+    if pr.get("mergeable") == "CONFLICTING" or behind_base(pr):
         return "rebase"
     if ci.get("conclusion") == "failure":
         return "fix-ci"
@@ -114,9 +134,35 @@ def test_no_review_path_needs_every_condition(field, value):
     {"status": "completed", "conclusion": "cancelled", "sha": "ea916ef"},
     {"status": "completed", "conclusion": "success", "sha": "cb1e777"},
     {"status": "completed", "conclusion": "success"},
+    {"status": "completed", "conclusion": "success", "sha": "cb1e777",
+     "all_workflows": [{"conclusion": "success", "sha": "cb1e777"}]},
+    {"status": "completed", "conclusion": "success", "sha": "cb1e777",
+     "all_workflows": [{"conclusion": "skipped", "sha": "ea916ef"}, {"conclusion": "success"}]},
 ])
 def test_no_review_path_needs_green_ci_on_the_head(ci):
     assert not review_clear(GREEN_NO_REVIEW["pr"], ci)
+
+
+def test_no_review_path_accepts_any_workflow_green_on_the_head():
+    # #158: the primary workflow is path-filtered and did not run on the head.
+    ci = {"status": "completed", "conclusion": "success", "sha": "cb1e777",
+          "all_workflows": [{"conclusion": "success", "sha": "cb1e777"},
+                            {"conclusion": "success", "sha": "ea916ef"}]}
+    assert review_clear(GREEN_NO_REVIEW["pr"], ci)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("reviewDecision", "REVIEW_REQUIRED"),
+    ("reviewDecision", "APPROVED"),
+    ("reviewDecision", None),
+    ("isDraft", True),
+    ("mergeStateStatus", "CLEAN"),
+    ("mergeStateStatus", None),
+])
+def test_behind_row_is_for_unreviewed_non_draft_prs(field, value):
+    behind = dict(GREEN_NO_REVIEW["pr"], mergeStateStatus="BEHIND")
+    assert behind_base(behind)
+    assert not behind_base(dict(behind, **{field: value}))
 
 
 def test_fixture_set_covers_every_row():
