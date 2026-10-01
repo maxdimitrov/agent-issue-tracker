@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-01
+
 ### Added
 
 - **`/new-tab <prompt>`**. Opens a new Claude Code tab in VS Code with the
@@ -109,6 +111,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The prose readers (`/work-issue`, `/resume-initiative`, `/tracker-init`,
   `/tracker-doctor` and the issue-shape skills) state the rule, and
   `/tracker-doctor` Phase 1 prints the path it resolved.
+
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", run 2026-10-01 against the release
+branch (PR #170) before tagging.
+
+- **1. GitHub backend smoke — PASS.** Filed bug (#164), feature (#165),
+  followup (#166), and an **evergreen** epic (#167) with a phased sub-issue
+  (#168) against this repo. Verified labels (`bug`; `enhancement`;
+  `enhancement`+`followup`; `epic`; `enhancement`), `edit_body` (#168's
+  `## Parent epic` placeholder → `#167` rewrite), native sub-issue linkage
+  #167 → {#168} via the typed-integer `sub_issues` API confirmed by GET, and
+  the machine-block comment via **`upsert_comment` create + replace** (same
+  comment id 5926290386 across three writes; author association OWNER). All
+  closed after verification.
+- **2. Jira backend smoke — DEFERRED.** Atlassian connector not configured
+  this session. New on the Jira surface this release: the `status_category`
+  mapping read by the status-drift check (#150) and `--finish`'s `Phase`
+  recount, and the merged-status comparison. Their live checks are added to
+  #109's write pass.
+- **3. `/tracker-init` from blank state — PASS (GitHub static slice).**
+  `examples/issue-tracker.yaml.example` parses (PyYAML 6.0.3) with the
+  expected top-level keys and `loops:` block. Config layers (#7), run live
+  through `scripts/config-resolve.sh --provenance` in a scratch `$HOME`: a
+  global file supplied `loops` and `merge_method`, the project file the
+  rest, `TRACKER_GITHUB_REPO_OVERRIDE` showed as `env:` for `github.repo`,
+  and a global file with no project file exited 1 (not configured).
+  Interactive Jira scaffold deferred with smoke 2.
+- **4. `/tracker-doctor` — PASS.** Valid config → Phase 1 parses; Phase 2
+  live (`gh auth status` → maxdimitrov, keyring, `gho_`; `gh repo view`;
+  `hasIssuesEnabled` true; write probe `POST /issues` with an empty body →
+  422 `"title" wasn't supplied`, newest issue unchanged (#169 before and
+  after); `view_issue(#1)` structured). WARN path: an `areas:` entry
+  (`dashboard`) with no label on the tracker → a `[WARN]` line naming the
+  missing area label. FAIL path: malformed YAML → parse error at 5:6.
+  Phase 4: `jq` found; every commit on the release branch is signed
+  (`%G?` = `G`) through the `git-sign.sh` wrapper.
+- **5. `/resume-initiative` against both epic shapes — PASS, on live data.**
+  Evergreen (#167): live comments and `sub_issues` fed through the
+  executable spec (`tests/test_evergreen_fixtures.py`): the trusted machine
+  block selected, two phase lines parsed, #168 an ordinary child, #165
+  `unlinked` (in the phase map, live, not natively linked), #166 `unphased`
+  (natively linked, not in the map), `#99999` a dead phase-map ref, next-up
+  #168. Legacy (#169, body `## Status block` + `## Children` mirror, two
+  native children, one mirror-only): fed through
+  `tests/test_drift_fixtures.py`, the new #150 findings fire on real tracker
+  state: status drift for #164 (`[ ]`, closed) and #165 (`[x]`, open), and
+  stale count `2/3` stored against `1/3` live. The mirror-only child's
+  `view_issue` state arrives upper-case (`OPEN`) and is read correctly.
+- **6. Install path — PASS (isolated-config-dir variant, HTTPS URL).** Bare
+  `CLAUDE_CONFIG_DIR`: `claude plugin marketplace add
+  https://github.com/maxdimitrov/agent-issue-tracker.git#chore/release-1.11.0`
+  and `claude plugin install agent-issue-tracker` both exit 0;
+  `installed_plugins.json` records version **1.11.0** at commit 217db3f. The
+  `owner/repo` shorthand clones over SSH, which this headless session could
+  not authenticate (1Password SSH agent unavailable); that is the session's
+  credentials, not the manifest.
+- **7. Plugin loads enabled post-install — PASS.** Same dir: without
+  `superpowers` the plugin reports `failed to load`; after installing it
+  from `claude-plugins-official`, `claude plugin list` shows `enabled` at
+  1.11.0 and `claude plugin details` inventories Skills (19) (6 skills + 13
+  commands, `/new-tab` among them) and the SessionStart hook.
+- **8. Session-title hook — PASS.** The hook suite on the release branch is
+  green in the full run below and in CI's Python-tests job on PR #170.
+- **9. Briefs — PASS.** `/session-brief` collector on `chore/release-1.11.0`
+  (open PR #170): PR and CI line rendered (`OPEN` · CI `success` on
+  217db3f), `ticket: null` on a release branch as specified, resume note
+  written under the cache dir and reported back (`handoff.exists: true`).
+  `/tracker-brief` collector run twice against an isolated state dir: the
+  second run's window started exactly at the first run's committed stamp
+  (`2026-10-01T06:58:12Z`). Collector `errors[]` empty throughout; 36
+  ledger rows, none actionable.
+- **10. Babysit loop — PASS, on the new decision table.** Draft PR #171
+  with a deliberately failing test, driven with the release branch's
+  `loop-record.sh`, collector and `decide_babysit`. Iteration 1 saw
+  `ci.conclusion == "failure"` (`Python tests` in `failed_jobs`), took
+  **fix-ci** and pushed ba70d05; iteration 2 was **wait-ci** while CI ran;
+  iteration 3, CI green on a draft, was the idle **wait**
+  (`trailing_noops: 1`): GitHub reported the draft `CLEAN`, and the #154
+  rule's draft exclusion is what kept it from being review-clear. Marked
+  ready for review, the same PR read review-clear (empty decision,
+  `mergeStateStatus` `CLEAN`, CI success on the head): `stop:
+  ready-to-merge` without `--merge`, `merge` with it (decision only, not
+  acted on). `/tracker-loop stop` marked the record stopped; the next fire
+  found no live record and `check` returned `stopped: operator stop`;
+  `--restart` created a fresh record. PR closed unmerged, branch deleted.
+
+Full local suite on the release branch: `python -m pytest -q` → **400 passed, 1 skipped** (2026-10-01, Windows, Git Bash; the skip is the symlinked-checkout test, which runs on Linux in CI). Session-title hook suite alone: 51 passed.
 
 ## [1.10.0] - 2026-09-25
 
