@@ -480,15 +480,22 @@ union derivation in `/resume-initiative`'s "Deriving child state"
 (native `list_child_issues` ∪ the machine block's `## Phases` map)
 already produces `unlinked` (live, phase-mapped, not natively
 linked) and dead-phase-map-ref findings as a side effect of
-computing membership. Legacy nodes still run an explicit
-mirror-vs-native diff, unchanged from before this shape existed:
+computing membership. Legacy nodes run an explicit
+mirror-vs-native diff:
 `/resume-initiative` always diffs each node's `## Children` mirror
 against the backend's `list_child_issues` — the tracker's native
 linkage is authoritative for *membership*, the mirror is the
-traversal index. Either way, drift is **reported, never
-auto-repaired** — resume stays read-only; the repair path is
-`link_sub_issue` / editing the machine block's `## Phases` section
-directly (evergreen) or this skill's adoption procedure (legacy). A
+traversal index. Because a legacy node also stores a checkbox per
+child and a `Phase` count, resume checks those against each child's
+live state too: a `[ ]` line on a settled child (closed; on Jira,
+Done or in the merged status), an `[x]` line on a child that is not
+settled, and a stored count that no longer matches each render a
+finding (`status drift`, `stale count`). Either way, drift is
+**reported, never auto-repaired** — resume stays read-only; the
+repair path is `link_sub_issue` / editing the machine block's
+`## Phases` section directly (evergreen), or for a legacy node this
+skill's adoption procedure (membership findings) and the legacy
+ritual under "Maintenance" below (status drift, stale count). A
 live phase-map or mirror entry without a native link is NOT drift by
 itself (invariant 6: native linkage is best-effort — cross-repo
 children and children past a backend's ceiling legitimately live in
@@ -643,9 +650,15 @@ never walking the ancestor chain re-rolling totals
 time regardless of shape). A sub-epic's last direct child closing
 makes the sub-epic itself eligible to close (see "Epic lifecycle");
 closing it is then a child-close from *its* parent's perspective, so
-the ritual runs once more, on the grandparent. Adopting the epic
-(`/resume-initiative --adopt`) removes this ritual entirely by
-converting it to the evergreen shape above.
+the ritual runs once more, on the grandparent. The same ritual
+repairs what `/resume-initiative` reports as `status drift` or a
+`stale count` on a legacy node, in whichever direction the tracker
+says: check the line of a child that is settled, uncheck the line of
+one that was reopened, then recount `Phase` and reset `Next up`. If
+the line is right and the ticket is the stale side (its PR merged
+but nothing closed it), close or transition the ticket instead.
+Adopting the epic (`/resume-initiative --adopt`) removes this ritual
+entirely by converting it to the evergreen shape above.
 
 **The driver is `/work-issue <ref> --finish`.** Run after a child's
 PR merges, it performs the one-hop ritual above on a legacy parent

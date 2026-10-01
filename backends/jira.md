@@ -130,7 +130,9 @@ searchJiraIssuesUsingJql({
 })
 ```
 
-**Field mapping:** `parent_ref` → the JQL `parent = "<ref>"` clause. Note there is deliberately **no** `statusCategory != Done` filter — unlike `list_open_issues`, this op returns closed children too, because adoption needs them to render `[x] … — closed` mirror lines. Translate each returned issue to `{ref: key, title: summary, status: status.name}`.
+**Field mapping:** `parent_ref` → the JQL `parent = "<ref>"` clause. Note there is deliberately **no** `statusCategory != Done` filter — unlike `list_open_issues`, this op returns closed children too, because adoption needs them to render `[x] … — closed` mirror lines. Translate each returned issue to `{ref: key, title: summary, status: status.name, status_category: status.statusCategory.key}`.
+
+**Status category:** `status` is the workflow status name, which says nothing about open versus closed on its own (`Ready for Release`, `In Code Review`). Jira's status object also carries its category, `fields.status.statusCategory.key`: `new`, `indeterminate` or `done` — the same category the `statusCategory != Done` filter in `list_open_issues` tests. Keep it on the record as `status_category`: a Jira-side extra beside the contract's `{ref, title, status}`, not a contract field, and absent when the response does not carry it. `/resume-initiative`'s status-drift check and `/work-issue --finish`'s `Phase` recount read `done` from it for a legacy epic's children (`commands/resume-initiative.md` "Part 1", "Settled"); a record without it leaves the child's state unknown to them, and they never guess from the name. `view_issue` maps the same field. Not yet observed live through the MCP (tracked with the other live-verify items in #109).
 
 **Return order:** `ORDER BY Rank ASC` returns the epic's rank order, which is the native child order `/resume-initiative` uses for unphased/flat ordering (Fork #4 of `docs/superpowers/specs/2026-07-27-evergreen-epics-design.md`).
 
@@ -181,6 +183,7 @@ getJiraIssue({cloudId, issueIdOrKey: <ref>})
 - `fields.summary` → `title`
 - `fields.description` → `body` (ADF-translated to markdown by the MCP)
 - `fields.status.name` → `status`
+- `fields.status.statusCategory.key` → `status_category` (`new` / `indeterminate` / `done`; a Jira-side extra beside the contract's fields, absent when the response does not carry it; see `list_child_issues` "Status category")
 - `fields.labels[]` → `labels`
 - `fields.parent?.key` → `parent` (present only for sub-issues / children)
 
@@ -409,6 +412,13 @@ transitionJiraIssue({cloudId, issueIdOrKey: <ref>, transition: {id: <id>}})
 - **Merged is not done.** When `merged_transition` is set, `done_transition` is
   **never** applied on merge; it stays the release / close step, reached only
   through `close_issue`.
+- **The status name is expected to equal the transition name.** A legacy
+  epic's `[x]` mirror line counts a child in the merged status as settled, and
+  `/resume-initiative` recognises that status by comparing the child's status
+  name with `jira.merged_transition` (`commands/resume-initiative.md`
+  "Settled"). In a workflow where the transition and the status it leads to
+  are named differently, merged children with checked lines are reported as
+  status drift.
 - **`--finish --released <tag>`** — only when `merged_transition` is set. The
   driver checks `git merge-base --is-ancestor <merge sha> <tag>`; if true it
   calls the contract's `close_issue` with `reason: completed` and a comment
