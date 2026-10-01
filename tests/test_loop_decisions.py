@@ -4,8 +4,8 @@
 The observation is the /session-brief collector JSON plus what the command
 adds before consulting the table: a `kind` on each awaiting review thread,
 `code` (a concrete change request) or `judgement` (a question needing a
-human answer), and the merge gate on `pr` (`headRefOid`, `mergeStateStatus`,
-`latestReviews`)."""
+human answer), and the merge-readiness fields on `pr` (`headRefOid`,
+`mergeStateStatus`, `reviews`)."""
 import json
 from pathlib import Path
 
@@ -14,10 +14,24 @@ import pytest
 FIXTURES = sorted((Path(__file__).parent / "fixtures" / "loops").glob("babysit_*.json"))
 
 
+def change_requested(reviews):
+    """True when some reviewer's standing verdict is CHANGES_REQUESTED.
+
+    A reviewer's verdict is their newest APPROVED, CHANGES_REQUESTED or
+    DISMISSED review; a later COMMENTED review (a thread reply creates one)
+    does not withdraw a change request.
+    """
+    verdict = {}
+    for r in sorted(reviews or [], key=lambda r: r.get("submittedAt") or ""):
+        if r.get("state") in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+            verdict[(r.get("author") or {}).get("login")] = r["state"]
+    return "CHANGES_REQUESTED" in verdict.values()
+
+
 def review_clear(pr, ci):
     """The "Review-clear" definition under the babysit table."""
     head = pr.get("headRefOid") or ""
-    if not head or pr.get("isDraft"):  # no merge gate read, or a draft
+    if not head or pr.get("isDraft"):  # merge readiness not read, or a draft
         return False
     if pr.get("reviewDecision") == "APPROVED":
         return True
@@ -26,7 +40,7 @@ def review_clear(pr, ci):
     sha = ci.get("sha") or ""
     return (
         pr.get("reviewDecision") == ""  # present and empty; null or absent is not
-        and not any(r.get("state") == "CHANGES_REQUESTED" for r in pr.get("latestReviews") or [])
+        and not change_requested(pr.get("reviews"))
         and pr.get("mergeStateStatus") in ("CLEAN", "HAS_HOOKS")
         and ci.get("conclusion") == "success"
         and sha != "" and head.startswith(sha)
@@ -79,7 +93,7 @@ GREEN_NO_REVIEW = json.loads(
     ("isDraft", True),
     ("reviewDecision", None),
     ("reviewDecision", "REVIEW_REQUIRED"),
-    ("latestReviews", [{"state": "CHANGES_REQUESTED"}]),
+    ("reviews", [{"author": {"login": "r"}, "state": "CHANGES_REQUESTED"}]),
     ("mergeStateStatus", "UNSTABLE"),
     ("mergeStateStatus", "BLOCKED"),
     ("mergeStateStatus", None),

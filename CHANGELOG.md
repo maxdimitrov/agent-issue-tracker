@@ -36,9 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--merge` loop idled on a green PR until `idle_stop_after` ended it. The
   two review rows now fire when the PR is *review-clear*: approved, or an
   empty decision on a PR that is green on its head (`mergeStateStatus`
-  `CLEAN`, the CI run a success on the head commit, no changes-requested
-  review). Babysit reads those fields itself before the table
-  (`gh pr view --json headRefOid,mergeStateStatus,latestReviews`). With CI
+  `CLEAN`, the CI run a success on the head commit, no reviewer's standing
+  verdict a change request). Babysit reads those fields itself before the
+  table (`gh pr view --json headRefOid,mergeStateStatus,reviews`). With CI
   still running such a PR waits for it, and with no CI at all babysit still
   does not merge. A draft is never review-clear, approved or not, so a loop
   no longer retries a merge GitHub refuses. `REVIEW_REQUIRED` and

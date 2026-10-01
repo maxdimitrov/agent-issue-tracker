@@ -88,7 +88,7 @@ Work source, by case:
 
 Before the table, classify every `SB.review.threads[]` with `awaiting_you == true` as `code` (a concrete, actionable change request: rename, split, add a test, handle a case) or `judgement` (a question, a design objection, or anything a reasonable engineer would want the author to answer in prose).
 
-Also before the table, when `pr.state` is `OPEN`, read the **merge gate** and attach its three fields to `pr`: `gh pr view <pr.number> --repo <nwo> --json headRefOid,mergeStateStatus,latestReviews`. The collector does not carry them, and the merge rows cannot be decided without them. If the call fails, leave the fields absent: the PR is then not review-clear this iteration, every other row still applies, and the iteration's detail says the merge gate could not be read.
+Also before the table, when `pr.state` is `OPEN`, read the **merge-readiness fields** and attach them to `pr`: `gh pr view <pr.number> --repo <nwo> --json headRefOid,mergeStateStatus,reviews`. The collector does not carry them, and the merge rows cannot be decided without them. This read is the command's own, not a collector step in `SB.errors`: if it fails, leave the fields absent rather than waiting out the iteration. The PR is then not review-clear this iteration, every other row still applies, and the iteration's detail says merge readiness could not be read.
 
 | Observation (first match wins) | Action |
 |---|---|
@@ -102,12 +102,12 @@ Also before the table, when `pr.state` is `OPEN`, read the **merge gate** and at
 | `ci.status` is `queued`, `in_progress`, `waiting` or `pending` | **wait-ci** (hint: CI in progress) — recorded without `--noop`; does not count toward `idle_stop_after` |
 | anything else | **wait** (hint: idle, see Pacing hint) — recorded with `--noop`; counts toward `idle_stop_after` |
 
-**Review-clear** means the merge gate was read (`pr.headRefOid` is set), the PR is not a draft (`pr.isDraft` is false), and one of:
+**Review-clear** means the merge-readiness fields were read (`pr.headRefOid` is set), the PR is not a draft (`pr.isDraft` is false), and one of:
 
 - **Approved:** `pr.reviewDecision == "APPROVED"`.
 - **No review required, and green on its head.** All of:
   - `pr.reviewDecision` is present and empty (`""`). GitHub returns that when the base branch requires no review, so nobody will ever approve the PR. A null or absent decision is not empty; do not coerce one into `""`.
-  - no entry in `pr.latestReviews` has `state == "CHANGES_REQUESTED"`. Without required reviews the decision can stay empty after someone requests changes, and a review with only a top-level body opens no thread for the rows above to catch.
+  - no reviewer's standing verdict in `pr.reviews` is `CHANGES_REQUESTED`. A reviewer's standing verdict is their newest review (by `submittedAt`) whose state is `APPROVED`, `CHANGES_REQUESTED` or `DISMISSED`; a later `COMMENTED` review, which every thread reply creates, does not withdraw a change request. Without required reviews the decision can stay empty after someone requests changes, and a review with only a top-level body opens no thread for the rows above to catch.
   - `pr.mergeStateStatus` is `CLEAN` (or `HAS_HOOKS`). That is GitHub's own verdict for the current head: no conflict, not blocked or behind, and every check on it passing, including workflows and checks the collector does not look at.
   - `ci.conclusion == "success"` and `ci.sha` is the PR head (`pr.headRefOid` starts with it), so the collector's CI run finished green on the commit that would merge, not on an earlier push.
 
