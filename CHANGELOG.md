@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`/new-tab` with no prompt** takes the next step the session itself
+  named (a `/work-issue <ref>` it said is workable here, a resume note it
+  wrote) instead of asking. It still asks when the session named several
+  steps or none, drops a step the session said must run from another
+  repository, and opens one tab.
+
 ## [1.11.0] - 2026-10-01
 
 ### Added
