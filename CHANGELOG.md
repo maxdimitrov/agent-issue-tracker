@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Jira checkboxes that stayed literal `[ ]`**. Descriptions written by
+  earlier Atlassian MCP revisions stored `- [ ]` / `- [x]` lines as plain
+  bullets with literal brackets, so Jira showed a bullet and `[ ]` instead
+  of a checkbox. They read back escaped (`* \[ \] <text>`), and every
+  read-modify-write stored them that way again, so they never healed.
+  The legacy `## Children` mirror grammar also skipped them, so
+  `/resume-initiative` missed those children. The Jira backend's
+  `view_issue` now rewrites escaped checkbox lines to `- [ ]` / `- [x]`
+  (outside code fences) and `edit_body` writes from that normalized body,
+  so an affected issue gets real checkboxes on its next edit. The MCP
+  already stores new `- [ ]` lines as real checkboxes, so the templates are
+  unchanged. New `tests/test_jira_checkbox_normalization.py` pins the
+  documented pattern against an escaped fixture.
+
 ## [1.11.0] - 2026-10-01
 
 ### Added
