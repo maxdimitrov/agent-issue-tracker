@@ -25,6 +25,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged. New `tests/test_jira_checkbox_normalization.py` pins the
   documented pattern against an escaped fixture.
 
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", run 2026-10-08 against the release
+branch before tagging. As in 1.0.2, a patch release re-runs the smokes for
+the surface it changes plus the install pair; the rest carry forward.
+
+- **1. GitHub backend smoke — CARRIED FORWARD from 1.11.0.**
+  `backends/github.md` and the skills that dispatch to it are unchanged.
+- **2. Jira backend smoke — PASS (read half); write half DEFERRED.** Read: a
+  live legacy epic, last written after the MCP began storing real task
+  lists, still carried 31 escaped `* \[x\]` / `* \[ \]` mirror lines. The
+  documented `view_issue` normalization rewrote 34 escaped lines (line
+  count unchanged, none left), and the `## Children` mirror grammar then
+  matched 32 children, against 1 before. Write: the round trip on a scratch
+  issue (write `* \[ \]`, read it back escaped, normalize, write, read back
+  as an ADF `taskList`) was blocked by the release session's permission
+  classifier and not retried. It needs a session allowed to write to Jira.
+- **3. `/tracker-init` from blank state — CARRIED FORWARD.** Unchanged.
+- **4. `/tracker-doctor` — CARRIED FORWARD.** Unchanged.
+- **5. `/resume-initiative` against both epic shapes — PASS (legacy, live
+  Jira data); evergreen CARRIED FORWARD.** On the same epic, before
+  normalization the only unchecked child the mirror grammar saw was a
+  last-phase child, so next-up skipped every open earlier-phase child.
+  After it, all 11 unchecked children parse in order and next-up resolves
+  to the open Phase 0 child.
+- **6. Install path — PASS (isolated config dir, release branch).** Bare
+  `CLAUDE_CONFIG_DIR`: `claude plugin marketplace add <fork>.git#<release
+  branch>` and `claude plugin install agent-issue-tracker` both exit 0;
+  `installed_plugins.json` records **1.11.1** at c29a2d8. Installed from a
+  fork of this repo because the release session could not push here; the
+  manifests are the same files.
+- **7. Plugin loads enabled post-install — PASS.** Same dir: `failed to
+  load` until `superpowers` is installed. On CLI 2.1.294 a bare config dir
+  knows only `anthropic-plugin-directory`, so `claude-plugins-official` had
+  to be added first (`claude plugin marketplace add
+  https://github.com/anthropics/claude-plugins-official.git`); then
+  `superpowers@claude-plugins-official` 6.4.1 installed, `claude plugin
+  list` shows `enabled` at 1.11.1, and `claude plugin details` inventories
+  Skills (19) (6 skills + 13 commands) and the SessionStart hook.
+- **8. Session-title hook — CARRIED FORWARD.** Hook unchanged.
+- **9. Briefs — CARRIED FORWARD.** Unchanged.
+- **10. Babysit loop — CARRIED FORWARD.** Unchanged.
+- **Automated.** `pytest -q`: 376 passed, 31 failed. Unmodified v1.11.0
+  fails the identical 31 on the same machine (370 passed). They come from
+  config-resolution tests picking up a machine-local config layer. The 6
+  new normalization tests pass, and CI's Python-tests job on the PR is the
+  clean-environment run. `markdownlint-cli2` on the CI globs: 0 issues.
+
 ## [1.11.0] - 2026-10-01
 
 ### Added
