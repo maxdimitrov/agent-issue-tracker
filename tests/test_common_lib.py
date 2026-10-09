@@ -1,4 +1,5 @@
 """Unit tests for scripts/lib/common.sh, run through bash."""
+import json
 import os
 import shutil
 import subprocess
@@ -556,6 +557,34 @@ def test_branch_epic_empty_branch_returns_1(tmp_path):
     r = run_lib(f'ait_branch_epic "{cwd}" "" "{cwd}"; echo "rc=$?"', env=env)
     assert r.stdout.strip() == "rc=1"
     assert not calls.exists()
+
+
+def test_branch_epic_concurrent_callers_both_see_machine_block_epic(tmp_path):
+    """A second caller arriving during the first one's slow machine-block pass
+    must not read a half-written (empty) cache file as a negative entry."""
+    env = isolated_env(tmp_path)
+    env["XDG_CACHE_HOME"] = (tmp_path / "cache").as_posix()
+    lst = tmp_path / "list.json"
+    lst.write_text(json.dumps([{"number": 7, "title": "Obs rollout", "body": "x"}]))
+    com = tmp_path / "comments.json"
+    com.write_text(json.dumps({"comments": [{
+        "authorAssociation": "OWNER",
+        "body": "<!-- agent-issue-tracker:machine-block -->\n## Phases\n- #13\n"
+                "## Current branch\n- feat/obs\n"}]}))
+    body = (f'case "$*" in\n'
+            f'  *"issue list"*) cat "{lst.as_posix()}" ;;\n'
+            f'  *"--json comments"*) sleep 2; cat "{com.as_posix()}" ;;\n'
+            f'  *"--json state"*) echo OPEN ;;\n'
+            f'  *) exit 1 ;;\nesac')
+    env = env_with_path(env, make_stub(tmp_path / "bin", "gh", body))
+    cwd = tmp_path.as_posix()
+    a, b = (tmp_path / "a.out").as_posix(), (tmp_path / "b.out").as_posix()
+    call = f'ait_branch_epic "{cwd}" feat/obs "{cwd}"'
+    r = run_lib(f'( {call} >"{a}" ) & sleep 1; ( {call} >"{b}" ) & wait', env=env)
+    assert r.returncode == 0, r.stderr
+    for out in (a, b):
+        assert Path(out).read_text().startswith("#7\tObs rollout"), out
+
 
 # --- branch-epic breadcrumb ---------------------------------------------------
 

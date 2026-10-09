@@ -255,7 +255,7 @@ _ait_machine_block_epic_line() {
 # nothing and returns 1 when nothing matches.
 ait_branch_epic() {
   local cwd="$1" branch="$2" toplevel="${3:-}" cache_dir key cache_file
-  local fresh="" cm epics_json="" mb_line=""
+  local fresh="" cm epics_json="" result="" tmp_file
   [ -n "$branch" ] || return 1
   command -v gh >/dev/null 2>&1 || return 1
   cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/agent-issue-tracker/session-titles/epic-cache"
@@ -270,18 +270,24 @@ ait_branch_epic() {
   if [ -z "$fresh" ]; then
     epics_json="$(cd "$cwd" && ait_run_capped 5 gh issue list --label epic --state open \
       --json number,title,body --limit 50 2>/dev/null)" || epics_json=""
+    # Computed fully, then moved into place: a parallel caller must never see
+    # a half-written (empty = negative) cache file.
+    result=""
     if [ -n "$epics_json" ]; then
-      printf '%s' "$epics_json" | jq -r --arg b "$branch" '
+      result="$(printf '%s' "$epics_json" | jq -r --arg b "$branch" '
         [.[] | select(any(.body | split("\n")[]; rtrimstr("\r") == ("- **Current branch:** " + $b)))][0] // empty
         | [("#" + (.number | tostring)), .title,
            ((.body | capture("- \\*\\*Next up:\\*\\* (?<n>[^\n]+)").n) // "")]
-        | @tsv' >"$cache_file" 2>/dev/null || : >"$cache_file"
-    else
-      : >"$cache_file"
+        | @tsv' 2>/dev/null)" || result=""
+      if [ -z "$result" ]; then
+        result="$(_ait_machine_block_epic_line "$epics_json" "$branch" "$cwd")" || result=""
+      fi
     fi
-    if [ ! -s "$cache_file" ] && [ -n "$epics_json" ]; then
-      mb_line="$(_ait_machine_block_epic_line "$epics_json" "$branch" "$cwd")" || mb_line=""
-      [ -n "$mb_line" ] && printf '%s' "$mb_line" >"$cache_file" 2>/dev/null
+    tmp_file="$cache_file.tmp.$$"
+    if { [ -z "$result" ] || printf '%s\n' "$result"; } >"$tmp_file" 2>/dev/null; then
+      mv -f "$tmp_file" "$cache_file" 2>/dev/null || rm -f "$tmp_file" 2>/dev/null
+    else
+      rm -f "$tmp_file" 2>/dev/null
     fi
   fi
   [ -s "$cache_file" ] || return 1
