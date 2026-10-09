@@ -239,7 +239,7 @@ A GitLab backend is filed as [#4](https://github.com/maxdimitrov/agent-issue-tra
 
 The current release is the top entry in [CHANGELOG.md](CHANGELOG.md); every shipped capability is recorded there with its issue and PR numbers. Open work, in priority order, lives in [the issues list](https://github.com/maxdimitrov/agent-issue-tracker/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement):
 
-- **More nudges** — model-facing deferral nudge, missing in-progress signal, stale initiative, desktop banner (followups of #114).
+- **More nudges** — model-facing deferral nudge ([#174](https://github.com/maxdimitrov/agent-issue-tracker/issues/174)), missing in-progress signal ([#175](https://github.com/maxdimitrov/agent-issue-tracker/issues/175)), stale initiative ([#176](https://github.com/maxdimitrov/agent-issue-tracker/issues/176)), desktop banner ([#177](https://github.com/maxdimitrov/agent-issue-tracker/issues/177)).
 
 ## License
 
