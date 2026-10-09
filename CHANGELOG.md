@@ -23,6 +23,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/lib/common.sh` (`ait_branch_epic`), and its cache is now
   written atomically, so the two hooks can read it in parallel on resume.
 
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", run 2026-10-09 against the release
+branch before tagging. As in 1.11.1, the smokes for the surface this release
+changes are re-run, plus the install pair; the rest carry forward.
+
+- **1. GitHub backend smoke — CARRIED FORWARD from 1.11.1.** `backends/github.md`
+  and the issue-shape skills are unchanged.
+- **2. Jira backend smoke — CARRIED FORWARD / DEFERRED.** The Jira backend is
+  unchanged, and the release session has no Atlassian connector.
+- **3. `/tracker-init` from blank state — CARRIED FORWARD.** Unchanged.
+- **4. `/tracker-doctor` — CARRIED FORWARD.** Only Phase 4 wording changed
+  (the `jq` WARN names both hooks; a `nudges: false` note).
+- **5. `/resume-initiative` against both epic shapes — CARRIED FORWARD.**
+  Next-up resolution is unchanged; Mode 3 only gained the breadcrumb write.
+- **6. Install path — PASS (isolated config dir, release branch).** Bare
+  `CLAUDE_CONFIG_DIR`: `claude plugin marketplace add
+  https://github.com/maxdimitrov/agent-issue-tracker.git#chore/release-1.12.0`
+  and `claude plugin install agent-issue-tracker` both exit 0;
+  `installed_plugins.json` records **1.12.0** at bfe0f01. The config dir had
+  to live at a short path: under a long scratch path git failed the
+  marketplace clone with `Filename too long`.
+- **7. Plugin loads enabled post-install — PASS.** After adding
+  `claude-plugins-official` and installing `superpowers` 6.4.1 (as in
+  1.11.1), `claude plugin list` shows `enabled` at 1.12.0, and
+  `claude plugin details` inventories Skills (19) and Hooks (2): SessionStart
+  and Stop. The description names both hooks.
+- **8. Session-title hook — PASS (installed 1.12.0 hook, payload-driven).**
+  A scratch repo whose `origin` is this repository, on branch
+  `feat/114-tracker-nudges`, with real `gh`: a `resume` payload yields the
+  title `#114 tracker-nudges` after the live epic query (moved into
+  `ait_branch_epic`). A second `resume` carrying a manual `session_title`
+  emits nothing and pins the session. Driven by stdin payloads, not a live
+  VS Code resume. The smoke also found
+  [#179](https://github.com/maxdimitrov/agent-issue-tracker/issues/179): live
+  evergreen epics store `## Current branch` as a bare branch name, which the
+  lookup (unchanged from stage 6) never matches. That bug predates this
+  release; the breadcrumb path is unaffected.
+- **Tracker nudges (new) — PASS (installed 1.12.0 hook, payload-driven).**
+  Same scratch repo:
+  - A `resume` with no breadcrumb and no matching epic is silent.
+  - After `ait_branch_epic_put` (installed `common.sh`), `resume` prints
+    `[tracker] Resuming #114 on epic #59 "...". /session-brief for the full
+    picture.` once, and is silent on the repeat.
+  - A `Stop` with "out of scope for this PR", after a `git -C … commit` in
+    the transcript, prints the deferral nudge once, and is silent on the
+    repeat.
+  - A `Stop` with no deferral phrasing is silent in 282 ms.
+
+  Not yet seen in a live Claude Code session.
+- **9. Briefs — CARRIED FORWARD.** Unchanged.
+- **10. Babysit loop — CARRIED FORWARD.** Unchanged.
+- **Automated.** Full `pytest -q` on Windows (Git Bash) at the merge of #178:
+  467 passed, 1 skipped. CI on #178 passed every job, including Shellcheck,
+  Python tests, Markdown lint, YAML validate and Backend contract.
+
 ## [1.11.1] - 2026-10-08
 
 ### Fixed
