@@ -510,3 +510,49 @@ def test_commit_in_tag_shallow_clone_still_trusts_a_yes_from_git(released, tmp_p
     tip = _rev(clone, "v1^{commit}")
     assert _in_tag(clone, tip, "v1", _gh_env(tmp_path, status="behind")) == (0, "contained git")
     assert _gh_calls(tmp_path) == []
+
+
+# --- ait_branch_epic (stage 6 of session-title.sh, shared with nudge.sh) ----
+
+EPIC_LIST = (
+    '[{"number": 42, "title": "epic: board support", "body": '
+    '"- **Next up:** #61 - webhook retries\\n- **Current branch:** feat/board-support\\n"}]'
+)
+
+
+def _epic_env(tmp_path):
+    env = isolated_env(tmp_path)
+    env["XDG_CACHE_HOME"] = (tmp_path / "cache").as_posix()
+    calls = tmp_path / "gh-calls"
+    data = tmp_path / "gh.json"
+    data.write_text(EPIC_LIST)
+    bin_dir = make_stub(tmp_path / "bin", "gh",
+                        f'echo "$@" >> "{calls.as_posix()}"\ncat "{data.as_posix()}"')
+    return env_with_path(env, bin_dir), calls
+
+
+def test_branch_epic_matches_and_caches(tmp_path):
+    env, calls = _epic_env(tmp_path)
+    cwd = tmp_path.as_posix()
+    snippet = f'ait_branch_epic "{cwd}" feat/board-support "{cwd}"'
+    r1 = run_lib(snippet, env=env)
+    r2 = run_lib(snippet, env=env)
+    assert r1.returncode == 0, r1.stderr
+    assert r1.stdout.strip().split("\t") == ["#42", "epic: board support", "#61 - webhook retries"]
+    assert r2.stdout == r1.stdout
+    assert len(calls.read_text().splitlines()) == 1
+
+
+def test_branch_epic_no_match_returns_1(tmp_path):
+    env, _ = _epic_env(tmp_path)
+    cwd = tmp_path.as_posix()
+    r = run_lib(f'ait_branch_epic "{cwd}" feat/other "{cwd}"; echo "rc=$?"', env=env)
+    assert r.stdout.strip() == "rc=1"
+
+
+def test_branch_epic_empty_branch_returns_1(tmp_path):
+    env, calls = _epic_env(tmp_path)
+    cwd = tmp_path.as_posix()
+    r = run_lib(f'ait_branch_epic "{cwd}" "" "{cwd}"; echo "rc=$?"', env=env)
+    assert r.stdout.strip() == "rc=1"
+    assert not calls.exists()
