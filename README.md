@@ -1,6 +1,6 @@
 # agent-issue-tracker
 
-Portable issue-tracking skills + slash commands for Claude Code. Six skills, thirteen slash commands, one session-title hook, two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
+Portable issue-tracking skills + slash commands for Claude Code. Six skills, thirteen slash commands, two hooks (session titles and tracker nudges), two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
 
 ## What this is
 
@@ -132,6 +132,23 @@ only at start/resume — mid-session focus shifts get a paste-ready `/rename`
 suggestion from the `initiative-tracking` skill instead. Jira projects get
 branch refs + AI summaries but no epic enrichment (hooks cannot reach MCP).
 
+## Tracker nudges
+
+In a configured project, `hooks/nudge.sh` shows at most one short
+`[tracker]` line to you (never to the model) at two moments:
+
+- **On resume**, when the branch works under an open epic:
+  `[tracker] Resuming #12 on epic #7 "Obs rollout" -- next up: #13. /session-brief for the full picture.`
+  The epic comes from a breadcrumb `/work-issue` and `/resume-initiative --start`
+  leave (any backend), else, on GitHub, from the same cached lookup the title uses.
+- **After a turn that deferred scope** ("out of scope for this PR", "in a
+  separate PR", "later phase", ...) in a session that committed or opened a PR
+  and filed nothing: `[tracker] Scope was deferred this turn and nothing was filed -- /file-followup?`
+
+Each nudge shows once per session. Turn them off with `AIT_NUDGES=0`, per kind
+with `AIT_NUDGES_OFF=resume,deferral`, or per project with `nudges: false`.
+Fail-open like the title hook: any failure means no message.
+
 ## Briefs and loops
 
 Two briefs and one loop runtime, all backed by scripts that always exit 0 and print JSON, with state under `${XDG_CACHE_HOME:-~/.cache}/agent-issue-tracker/<project-key>/` and never inside a repo.
@@ -220,7 +237,7 @@ A GitLab backend is filed as [#4](https://github.com/maxdimitrov/agent-issue-tra
 
 The current release is the top entry in [CHANGELOG.md](CHANGELOG.md); every shipped capability is recorded there with its issue and PR numbers. Open work, in priority order, lives in [the issues list](https://github.com/maxdimitrov/agent-issue-tracker/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement):
 
-- **Session-boundary nudges** via hook `systemMessage` (#114, needs a design pass).
+- **More nudges** — model-facing deferral nudge, missing in-progress signal, stale initiative, desktop banner (followups of #114).
 
 ## License
 

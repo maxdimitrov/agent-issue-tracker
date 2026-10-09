@@ -235,9 +235,9 @@ Two checks, numbered:
 
 ### Phase 4 — local prerequisites (WARN-only)
 
-Machine-local setup the plugin leans on but never needs: the SessionStart session-title hook (cosmetic) and a commit signer that works unattended. Nothing here may FAIL.
+Machine-local setup the plugin leans on but never needs: the session-title and nudge hooks (cosmetic) and a commit signer that works unattended. Nothing here may FAIL.
 
-1. `jq` on PATH → `[PASS] jq found`. Missing → `[WARN] session-title hook
+1. `jq` on PATH → `[PASS] jq found`. Missing → `[WARN] session-title and nudge hooks
    inactive: jq not found` + install hint (`brew install jq` / `apt install jq`).
 2. State dir `${XDG_CACHE_HOME:-$HOME/.cache}/agent-issue-tracker/session-titles/`
    creatable/writable → `[PASS]`; else `[WARN]` with the path.

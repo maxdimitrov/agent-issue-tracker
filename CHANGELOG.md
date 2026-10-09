@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Tracker nudges** (#114). A new `hooks/nudge.sh` shows one-line,
+  user-only `[tracker]` messages through the hook `systemMessage` field: on
+  resume, which epic the branch works under and its next-up; after a turn
+  that deferred scope in a session that committed or opened a PR and filed
+  nothing, a pointer to `/file-followup`. Each shows once per session.
+  `AIT_NUDGES=0`, `AIT_NUDGES_OFF=resume,deferral` and `nudges: false` turn
+  them off. `/work-issue` and `/resume-initiative --start` now leave a local
+  branch-to-epic breadcrumb so the resume nudge works on Jira too; the
+  branch-to-epic lookup moved from `hooks/session-title.sh` into
+  `scripts/lib/common.sh` (`ait_branch_epic`), unchanged.
+
 ## [1.11.1] - 2026-10-08
 
 ### Fixed
