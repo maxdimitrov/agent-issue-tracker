@@ -288,6 +288,55 @@ ait_branch_epic() {
   head -1 "$cache_file"
 }
 
+# Breadcrumb: which epic a branch works under, written by /work-issue Step 3
+# and /resume-initiative --start (they hold the backend, MCP included) and
+# read by hooks/nudge.sh, which cannot reach an MCP. Keyed by branch under
+# the per-project state dir, so every worktree of a repo shares it.
+_ait_branch_epic_file() {
+  local dir
+  dir="$(ait_state_dir "${2:-.}")" || return 1
+  printf '%s/branch-epic/%s' "$dir" "$(printf '%s' "$1" | ait_hash | cut -c1-16)"
+}
+
+# ait_branch_epic_put <branch> <child> <epic> <title> [<dir>] - record that
+# <branch> works <child> (may be empty) under <epic>. 1 on a failed write.
+ait_branch_epic_put() {
+  local branch="${1-}" child="${2-}" epic="${3-}" title="${4-}" f tmp
+  [ -n "$branch" ] && [ -n "$epic" ] || return 1
+  f="$(_ait_branch_epic_file "$branch" "${5:-.}")" || return 1
+  mkdir -p "${f%/*}" 2>/dev/null || return 1
+  title="$(printf '%s' "$title" | tr '\t\r\n' '   ')"
+  tmp="$f.tmp.$$"
+  if printf '%s\t%s\t%s\n' "$child" "$epic" "$title" >"$tmp" 2>/dev/null \
+    && mv -f "$tmp" "$f" 2>/dev/null; then
+    return 0
+  fi
+  rm -f "$tmp" 2>/dev/null
+  return 1
+}
+
+# ait_branch_epic_get <branch> [<dir>] - "<child>\t<epic>\t<title>" when a
+# breadcrumb at most 30 days old exists; nothing and 1 otherwise.
+ait_branch_epic_get() {
+  local f m
+  [ -n "${1-}" ] || return 1
+  f="$(_ait_branch_epic_file "$1" "${2:-.}")" || return 1
+  [ -s "$f" ] || return 1
+  m="$(ait_file_mtime "$f")" || return 1
+  case "$m" in '' | *[!0-9]*) return 1 ;; esac
+  [ $(($(date +%s) - m)) -le 2592000 ] || return 1
+  head -1 "$f"
+}
+
+# ait_branch_epic_drop <branch> [<dir>] - forget the breadcrumb (0 if absent).
+ait_branch_epic_drop() {
+  local f
+  [ -n "${1-}" ] || return 0
+  f="$(_ait_branch_epic_file "$1" "${2:-.}")" || return 0
+  rm -f "$f" 2>/dev/null
+  return 0
+}
+
 # ait_commit_in_tag <sha> <tag> [<dir>] [<owner/repo>] - is commit <sha>
 # contained in <tag>? Three answers, so unlike the rest of this file it always
 # prints, as `<verdict> <how>`, and returns 0 / 1 / 2:

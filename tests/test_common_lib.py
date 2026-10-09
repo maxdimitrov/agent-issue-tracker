@@ -556,3 +556,61 @@ def test_branch_epic_empty_branch_returns_1(tmp_path):
     r = run_lib(f'ait_branch_epic "{cwd}" "" "{cwd}"; echo "rc=$?"', env=env)
     assert r.stdout.strip() == "rc=1"
     assert not calls.exists()
+
+# --- branch-epic breadcrumb ---------------------------------------------------
+
+def test_branch_epic_put_get_drop_round_trip(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    env = isolated_env(tmp_path)
+    r = run_lib('ait_branch_epic_put feat/x PROJ-12 PROJ-7 "Obs rollout" && '
+                'ait_branch_epic_get feat/x', env=env, cwd=repo)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == "PROJ-12\tPROJ-7\tObs rollout\n"
+    r = run_lib('ait_branch_epic_drop feat/x && ait_branch_epic_get feat/x; echo "rc=$?"',
+                env=env, cwd=repo)
+    assert r.stdout.strip() == "rc=1"
+
+
+def test_branch_epic_put_sanitises_title(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    env = isolated_env(tmp_path)
+    r = run_lib("ait_branch_epic_put feat/x '#3' '#1' \"$(printf 'a\\tb\\nc')\" && "
+                "ait_branch_epic_get feat/x", env=env, cwd=repo)
+    assert r.stdout == "#3\t#1\ta b c\n"
+
+
+def test_branch_epic_put_get_empty_child(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    env = isolated_env(tmp_path)
+    r = run_lib("ait_branch_epic_put feat/x '' '#1' Epic && ait_branch_epic_get feat/x | cut -f2",
+                env=env, cwd=repo)
+    assert r.stdout.strip() == "#1"
+
+
+def test_branch_epic_put_requires_epic(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    env = isolated_env(tmp_path)
+    r = run_lib("ait_branch_epic_put feat/x '#3' '' t; echo \"rc=$?\"", env=env, cwd=repo)
+    assert r.stdout.strip() == "rc=1"
+
+
+def test_branch_epic_get_ignores_old_breadcrumb(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    env = isolated_env(tmp_path)
+    run_lib("ait_branch_epic_put feat/x '#3' '#1' t", env=env, cwd=repo)
+    files = list((tmp_path / "state").rglob("branch-epic/*"))
+    assert len(files) == 1
+    old = time.time() - 31 * 86400
+    os.utime(files[0], (old, old))
+    r = run_lib('ait_branch_epic_get feat/x; echo "rc=$?"', env=env, cwd=repo)
+    assert r.stdout.strip() == "rc=1"
+
+
+def test_branch_epic_shared_across_worktrees(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    wt = tmp_path / "wt"
+    git(repo, "worktree", "add", "-q", "-b", "feat/x", str(wt))
+    env = isolated_env(tmp_path)
+    run_lib("ait_branch_epic_put feat/x '#3' '#1' t", env=env, cwd=wt)
+    r = run_lib("ait_branch_epic_get feat/x", env=env, cwd=repo)
+    assert r.stdout == "#3\t#1\tt\n"
