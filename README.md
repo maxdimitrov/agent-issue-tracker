@@ -138,8 +138,10 @@ In a configured project, `hooks/nudge.sh` shows at most one short
 `[tracker]` line to you (never to the model) at two moments:
 
 - **On resume**, when the branch works under an open epic:
-  `[tracker] Resuming #12 on epic #7 "Obs rollout" -- next up: #13. /session-brief for the full picture.`
-  The epic comes from a breadcrumb `/work-issue` and `/resume-initiative --start`
+  `[tracker] Resuming #12 on epic #7 "Obs rollout". /session-brief for the full picture.`
+  (from the breadcrumb) or
+  `[tracker] Resuming on epic #7 "Obs rollout" -- next up: #13. /session-brief for the full picture.`
+  (from the GitHub lookup). The epic comes from a breadcrumb `/work-issue` and `/resume-initiative --start`
   leave (any backend), else, on GitHub, from the same cached lookup the title uses.
 - **After a turn that deferred scope** ("out of scope for this PR", "in a
   separate PR", "later phase", ...) in a session that committed or opened a PR

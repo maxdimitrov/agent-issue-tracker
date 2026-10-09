@@ -66,6 +66,10 @@ triage:
 # Default: true.
 session_titles: true
 
+# Optional. Set false to turn off the `[tracker]` nudges (resume and
+# deferred-scope) for this project. Default: true.
+# nudges: true
+
 # Optional. How /work-issue --merge and /tracker-loop babysit --merge merge a
 # PR: merge | squash | rebase. Default: squash. On GitHub, squashing via the
 # CLI also changes the account's preselected method for the next manual merge

@@ -242,7 +242,8 @@ Machine-local setup the plugin leans on but never needs: the session-title and n
 2. State dir `${XDG_CACHE_HOME:-$HOME/.cache}/agent-issue-tracker/session-titles/`
    creatable/writable → `[PASS]`; else `[WARN]` with the path.
 3. Config sets `session_titles: false` → `[PASS-WITH-NOTE] session titles
-   disabled by config`.
+   disabled by config`. Config sets `nudges: false` → `[PASS-WITH-NOTE] tracker
+   nudges disabled by config`.
 4. Unattended commit signing. Read the effective values in the consumer
    repo: `git config --get commit.gpgsign`, `git config --get gpg.format`,
    `git config --get gpg.ssh.program`. No line at all unless

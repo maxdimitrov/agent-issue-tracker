@@ -116,7 +116,7 @@ eventual PR. When `config-resolve.sh` exits 1 (no project file), skip the whole 
    **Breadcrumb for the resume nudge.** Whichever shape the parent has, once
    `view_issue(parent)` has returned, record the branch's epic for
    `hooks/nudge.sh` (which cannot reach an MCP):
-   `( . "${CLAUDE_PLUGIN_ROOT}/scripts/lib/common.sh"; ait_branch_epic_put "<branch>" "<ref>" "<parent ref>" "<parent title>" )`.
+   `( . "${CLAUDE_PLUGIN_ROOT}/scripts/lib/common.sh"; ait_branch_epic_put "<branch>" "<ref>" "<parent ref>" '<parent title>' )` (single-quote the title; write a literal ' as `'\''`).
    Best-effort: a non-zero exit WARNs and the run continues.
 3. **Mark the issue in progress** via the backend's configured affordance — see
    `skills/initiative-tracking/SKILL.md` "In-progress status (optional affordances)":
