@@ -8,6 +8,7 @@ import pytest
 from shell_helpers import REPO_ROOT
 
 EXECUTABLE = (
+    "hooks/nudge.sh",
     "hooks/session-title.sh",
     "scripts/git-sign.sh",
     "scripts/loop-record.sh",

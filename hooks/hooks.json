@@ -11,6 +11,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/nudge.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
