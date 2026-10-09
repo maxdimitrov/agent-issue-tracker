@@ -1,4 +1,5 @@
 """Unit tests for scripts/lib/common.sh, run through bash."""
+import json
 import os
 import shutil
 import subprocess
@@ -510,3 +511,135 @@ def test_commit_in_tag_shallow_clone_still_trusts_a_yes_from_git(released, tmp_p
     tip = _rev(clone, "v1^{commit}")
     assert _in_tag(clone, tip, "v1", _gh_env(tmp_path, status="behind")) == (0, "contained git")
     assert _gh_calls(tmp_path) == []
+
+
+# --- ait_branch_epic (stage 6 of session-title.sh, shared with nudge.sh) ----
+
+EPIC_LIST = (
+    '[{"number": 42, "title": "epic: board support", "body": '
+    '"- **Next up:** #61 - webhook retries\\n- **Current branch:** feat/board-support\\n"}]'
+)
+
+
+def _epic_env(tmp_path):
+    env = isolated_env(tmp_path)
+    env["XDG_CACHE_HOME"] = (tmp_path / "cache").as_posix()
+    calls = tmp_path / "gh-calls"
+    data = tmp_path / "gh.json"
+    data.write_text(EPIC_LIST)
+    bin_dir = make_stub(tmp_path / "bin", "gh",
+                        f'echo "$@" >> "{calls.as_posix()}"\ncat "{data.as_posix()}"')
+    return env_with_path(env, bin_dir), calls
+
+
+def test_branch_epic_matches_and_caches(tmp_path):
+    env, calls = _epic_env(tmp_path)
+    cwd = tmp_path.as_posix()
+    snippet = f'ait_branch_epic "{cwd}" feat/board-support "{cwd}"'
+    r1 = run_lib(snippet, env=env)
+    r2 = run_lib(snippet, env=env)
+    assert r1.returncode == 0, r1.stderr
+    assert r1.stdout.strip().split("\t") == ["#42", "epic: board support", "#61 - webhook retries"]
+    assert r2.stdout == r1.stdout
+    assert len(calls.read_text().splitlines()) == 1
+
+
+def test_branch_epic_no_match_returns_1(tmp_path):
+    env, _ = _epic_env(tmp_path)
+    cwd = tmp_path.as_posix()
+    r = run_lib(f'ait_branch_epic "{cwd}" feat/other "{cwd}"; echo "rc=$?"', env=env)
+    assert r.stdout.strip() == "rc=1"
+
+
+def test_branch_epic_empty_branch_returns_1(tmp_path):
+    env, calls = _epic_env(tmp_path)
+    cwd = tmp_path.as_posix()
+    r = run_lib(f'ait_branch_epic "{cwd}" "" "{cwd}"; echo "rc=$?"', env=env)
+    assert r.stdout.strip() == "rc=1"
+    assert not calls.exists()
+
+
+def test_branch_epic_concurrent_callers_both_see_machine_block_epic(tmp_path):
+    """A second caller arriving during the first one's slow machine-block pass
+    must not read a half-written (empty) cache file as a negative entry."""
+    env = isolated_env(tmp_path)
+    env["XDG_CACHE_HOME"] = (tmp_path / "cache").as_posix()
+    lst = tmp_path / "list.json"
+    lst.write_text(json.dumps([{"number": 7, "title": "Obs rollout", "body": "x"}]))
+    com = tmp_path / "comments.json"
+    com.write_text(json.dumps({"comments": [{
+        "authorAssociation": "OWNER",
+        "body": "<!-- agent-issue-tracker:machine-block -->\n## Phases\n- #13\n"
+                "## Current branch\n- feat/obs\n"}]}))
+    body = (f'case "$*" in\n'
+            f'  *"issue list"*) cat "{lst.as_posix()}" ;;\n'
+            f'  *"--json comments"*) sleep 2; cat "{com.as_posix()}" ;;\n'
+            f'  *"--json state"*) echo OPEN ;;\n'
+            f'  *) exit 1 ;;\nesac')
+    env = env_with_path(env, make_stub(tmp_path / "bin", "gh", body))
+    cwd = tmp_path.as_posix()
+    a, b = (tmp_path / "a.out").as_posix(), (tmp_path / "b.out").as_posix()
+    call = f'ait_branch_epic "{cwd}" feat/obs "{cwd}"'
+    r = run_lib(f'( {call} >"{a}" ) & sleep 1; ( {call} >"{b}" ) & wait', env=env)
+    assert r.returncode == 0, r.stderr
+    for out in (a, b):
+        assert Path(out).read_text().startswith("#7\tObs rollout"), out
+
+
+# --- branch-epic breadcrumb ---------------------------------------------------
+
+def test_branch_epic_put_get_drop_round_trip(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    env = isolated_env(tmp_path)
+    r = run_lib('ait_branch_epic_put feat/x PROJ-12 PROJ-7 "Obs rollout" && '
+                'ait_branch_epic_get feat/x', env=env, cwd=repo)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == "PROJ-12\tPROJ-7\tObs rollout\n"
+    r = run_lib('ait_branch_epic_drop feat/x && ait_branch_epic_get feat/x; echo "rc=$?"',
+                env=env, cwd=repo)
+    assert r.stdout.strip() == "rc=1"
+
+
+def test_branch_epic_put_sanitises_title(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    env = isolated_env(tmp_path)
+    r = run_lib("ait_branch_epic_put feat/x '#3' '#1' \"$(printf 'a\\tb\\nc')\" && "
+                "ait_branch_epic_get feat/x", env=env, cwd=repo)
+    assert r.stdout == "#3\t#1\ta b c\n"
+
+
+def test_branch_epic_put_get_empty_child(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    env = isolated_env(tmp_path)
+    r = run_lib("ait_branch_epic_put feat/x '' '#1' Epic && ait_branch_epic_get feat/x | cut -f2",
+                env=env, cwd=repo)
+    assert r.stdout.strip() == "#1"
+
+
+def test_branch_epic_put_requires_epic(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    env = isolated_env(tmp_path)
+    r = run_lib("ait_branch_epic_put feat/x '#3' '' t; echo \"rc=$?\"", env=env, cwd=repo)
+    assert r.stdout.strip() == "rc=1"
+
+
+def test_branch_epic_get_ignores_old_breadcrumb(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    env = isolated_env(tmp_path)
+    run_lib("ait_branch_epic_put feat/x '#3' '#1' t", env=env, cwd=repo)
+    files = list((tmp_path / "state").rglob("branch-epic/*"))
+    assert len(files) == 1
+    old = time.time() - 31 * 86400
+    os.utime(files[0], (old, old))
+    r = run_lib('ait_branch_epic_get feat/x; echo "rc=$?"', env=env, cwd=repo)
+    assert r.stdout.strip() == "rc=1"
+
+
+def test_branch_epic_shared_across_worktrees(tmp_path):
+    repo = init_repo(tmp_path / "r")
+    wt = tmp_path / "wt"
+    git(repo, "worktree", "add", "-q", "-b", "feat/x", str(wt))
+    env = isolated_env(tmp_path)
+    run_lib("ait_branch_epic_put feat/x '#3' '#1' t", env=env, cwd=wt)
+    r = run_lib("ait_branch_epic_get feat/x", env=env, cwd=repo)
+    assert r.stdout == "#3\t#1\tt\n"

@@ -195,6 +195,154 @@ ait_worktree_for_branch() {
   printf '%s' "$p"
 }
 
+
+# --- machine-block second pass (stage 6 helper) ---------------------------------
+# New-shape epics carry no "- **Current branch:**" line in the body (that
+# signal now lives in the marker-tagged machine-block comment). Legacy epics
+# (body has a "## Status block" line) are filtered out before the cap below --
+# they can never match the machine-block path, so skipping them here spends
+# the 10-epic budget only on epics that could plausibly match, cutting the
+# worst-case SessionStart latency. Bounded to the first 10 (post-filter)
+# epics; every gh call is capped at 5s; any failure yields no match and never
+# breaks the title. Trust: authorAssociation must be one of
+# OWNER/MEMBER/COLLABORATOR; the earliest qualifying marker comment wins.
+_ait_machine_block_epic_line() {
+  local mb_epics_json="$1" mb_branch="$2" mb_cwd="$3"
+  local mb_num="" mb_title="" mb_comments="" mb_body="" mb_phases=""
+  local mb_next="" mb_checked=0 mb_ref="" mb_refnum="" mb_state="" mb_line=""
+  while IFS=$'\t' read -r mb_num mb_title; do
+    [ -n "$mb_num" ] || continue
+    mb_comments="$(cd "$mb_cwd" && ait_run_capped 5 gh issue view "$mb_num" --json comments 2>/dev/null)" \
+      || mb_comments=""
+    [ -n "$mb_comments" ] || continue
+    mb_body="$(printf '%s' "$mb_comments" | jq -r --arg b "$mb_branch" '
+      [.comments[]
+       | select(.body | contains("<!-- agent-issue-tracker:machine-block -->"))
+       | select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER"
+                or .authorAssociation == "COLLABORATOR")][0] // empty
+      | select(.body | split("\n") | map(rtrimstr("\r")) | index("- " + $b))
+      | .body' 2>/dev/null)" || mb_body=""
+    [ -n "$mb_body" ] || continue
+    mb_phases="$(printf '%s' "$mb_body" | awk '/^## Phases/{f=1; next} /^## /{if (f) exit} f')"
+    mb_next=""
+    mb_checked=0
+    for mb_ref in $(printf '%s' "$mb_phases" | grep -oE '#[0-9]+'); do
+      mb_checked=$((mb_checked + 1))
+      [ "$mb_checked" -le 5 ] || break
+      mb_refnum="${mb_ref#\#}"
+      mb_state="$(cd "$mb_cwd" && ait_run_capped 5 gh issue view "$mb_refnum" --json state --jq .state \
+        2>/dev/null)" || mb_state=""
+      if [ "$mb_state" = "OPEN" ]; then
+        mb_next="$mb_ref"
+        break
+      fi
+    done
+    mb_line="$(printf '#%s\t%s\t%s' "$mb_num" "$mb_title" "$mb_next")"
+    break
+  done < <(printf '%s' "$mb_epics_json" | jq -r '
+      [.[] | select((.body // "") | contains("## Status block") | not)][:10][]
+      | [(.number|tostring), .title] | @tsv')
+  printf '%s' "$mb_line"
+}
+# ait_branch_epic <cwd> <branch> [<toplevel>] - the open GitHub epic whose
+# current branch is <branch>: one line "<#N>\t<title>\t<next-up line>" (the
+# next-up line may be empty). A legacy epic matches on its body's
+# "- **Current branch:** <branch>" line; a new-shape epic on its trusted
+# machine-block comment (_ait_machine_block_epic_line). Cached 24h per
+# (toplevel, branch) under the session-titles state dir, shared by
+# hooks/session-title.sh and hooks/nudge.sh. Read-only on the host; every gh
+# call is capped at 5s. GitHub only: callers check the backend. Prints
+# nothing and returns 1 when nothing matches.
+ait_branch_epic() {
+  local cwd="$1" branch="$2" toplevel="${3:-}" cache_dir key cache_file
+  local fresh="" cm epics_json="" result="" tmp_file
+  [ -n "$branch" ] || return 1
+  command -v gh >/dev/null 2>&1 || return 1
+  cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/agent-issue-tracker/session-titles/epic-cache"
+  mkdir -p "$cache_dir" 2>/dev/null || true
+  key="$(printf '%s|%s' "${toplevel:-$cwd}" "$branch" | ait_hash | cut -c1-16)"
+  cache_file="$cache_dir/$key"
+  if [ -f "$cache_file" ]; then
+    cm="$(ait_file_mtime "$cache_file")" || cm=0
+    case "$cm" in '' | *[!0-9]*) cm=0 ;; esac
+    [ $(($(date +%s) - cm)) -lt 86400 ] && fresh=1
+  fi
+  if [ -z "$fresh" ]; then
+    epics_json="$(cd "$cwd" && ait_run_capped 5 gh issue list --label epic --state open \
+      --json number,title,body --limit 50 2>/dev/null)" || epics_json=""
+    # Computed fully, then moved into place: a parallel caller must never see
+    # a half-written (empty = negative) cache file.
+    result=""
+    if [ -n "$epics_json" ]; then
+      result="$(printf '%s' "$epics_json" | jq -r --arg b "$branch" '
+        [.[] | select(any(.body | split("\n")[]; rtrimstr("\r") == ("- **Current branch:** " + $b)))][0] // empty
+        | [("#" + (.number | tostring)), .title,
+           ((.body | capture("- \\*\\*Next up:\\*\\* (?<n>[^\n]+)").n) // "")]
+        | @tsv' 2>/dev/null)" || result=""
+      if [ -z "$result" ]; then
+        result="$(_ait_machine_block_epic_line "$epics_json" "$branch" "$cwd")" || result=""
+      fi
+    fi
+    tmp_file="$cache_file.tmp.$$"
+    if { [ -z "$result" ] || printf '%s\n' "$result"; } >"$tmp_file" 2>/dev/null; then
+      mv -f "$tmp_file" "$cache_file" 2>/dev/null || rm -f "$tmp_file" 2>/dev/null
+    else
+      rm -f "$tmp_file" 2>/dev/null
+    fi
+  fi
+  [ -s "$cache_file" ] || return 1
+  head -1 "$cache_file"
+}
+
+# Breadcrumb: which epic a branch works under, written by /work-issue Step 3
+# and /resume-initiative --start (they hold the backend, MCP included) and
+# read by hooks/nudge.sh, which cannot reach an MCP. Keyed by branch under
+# the per-project state dir, so every worktree of a repo shares it.
+_ait_branch_epic_file() {
+  local dir
+  dir="$(ait_state_dir "${2:-.}")" || return 1
+  printf '%s/branch-epic/%s' "$dir" "$(printf '%s' "$1" | ait_hash | cut -c1-16)"
+}
+
+# ait_branch_epic_put <branch> <child> <epic> <title> [<dir>] - record that
+# <branch> works <child> (may be empty) under <epic>. 1 on a failed write.
+ait_branch_epic_put() {
+  local branch="${1-}" child="${2-}" epic="${3-}" title="${4-}" f tmp
+  [ -n "$branch" ] && [ -n "$epic" ] || return 1
+  f="$(_ait_branch_epic_file "$branch" "${5:-.}")" || return 1
+  mkdir -p "${f%/*}" 2>/dev/null || return 1
+  title="$(printf '%s' "$title" | tr '\t\r\n' '   ')"
+  tmp="$f.tmp.$$"
+  if printf '%s\t%s\t%s\n' "$child" "$epic" "$title" >"$tmp" 2>/dev/null \
+    && mv -f "$tmp" "$f" 2>/dev/null; then
+    return 0
+  fi
+  rm -f "$tmp" 2>/dev/null
+  return 1
+}
+
+# ait_branch_epic_get <branch> [<dir>] - "<child>\t<epic>\t<title>" when a
+# breadcrumb at most 30 days old exists; nothing and 1 otherwise.
+ait_branch_epic_get() {
+  local f m
+  [ -n "${1-}" ] || return 1
+  f="$(_ait_branch_epic_file "$1" "${2:-.}")" || return 1
+  [ -s "$f" ] || return 1
+  m="$(ait_file_mtime "$f")" || return 1
+  case "$m" in '' | *[!0-9]*) return 1 ;; esac
+  [ $(($(date +%s) - m)) -le 2592000 ] || return 1
+  head -1 "$f"
+}
+
+# ait_branch_epic_drop <branch> [<dir>] - forget the breadcrumb (0 if absent).
+ait_branch_epic_drop() {
+  local f
+  [ -n "${1-}" ] || return 0
+  f="$(_ait_branch_epic_file "$1" "${2:-.}")" || return 0
+  rm -f "$f" 2>/dev/null
+  return 0
+}
+
 # ait_commit_in_tag <sha> <tag> [<dir>] [<owner/repo>] - is commit <sha>
 # contained in <tag>? Three answers, so unlike the rest of this file it always
 # prints, as `<verdict> <how>`, and returns 0 / 1 / 2:

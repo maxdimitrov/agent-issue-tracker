@@ -112,6 +112,12 @@ eventual PR. When `config-resolve.sh` exits 1 (no project file), skip the whole 
      edit to automate — child state is derived at read time under the evergreen
      model (superseding follow-up #87). Legacy parents still follow
      `initiative-tracking`'s legacy close-side Maintenance ritual, unchanged.
+
+   **Breadcrumb for the resume nudge.** Whichever shape the parent has, once
+   `view_issue(parent)` has returned, record the branch's epic for
+   `hooks/nudge.sh` (which cannot reach an MCP):
+   `( . "${CLAUDE_PLUGIN_ROOT}/scripts/lib/common.sh"; ait_branch_epic_put "<branch>" "<ref>" "<parent ref>" '<parent title>' )` (single-quote the title; write a literal ' as `'\''`).
+   Best-effort: a non-zero exit WARNs and the run continues.
 3. **Mark the issue in progress** via the backend's configured affordance — see
    `skills/initiative-tracking/SKILL.md` "In-progress status (optional affordances)":
    GitHub with `github.project` set → board item Status `In Progress`
@@ -210,7 +216,7 @@ Only when `--finish` was passed; Steps 1–7 do not run. Every sub-step is **bes
    - the local branch tip equals the PR's `headRefOid` (`git rev-parse <branch>`) — nothing unpushed. Squash and rebase merges rewrite history, so "tip is an ancestor of the base" is the wrong test;
    - `git -C <worktree> status --porcelain -uall` is empty.
 
-   Any gate fails → print what is at stake (the commits `git log --oneline <headRefOid>..<branch>` shows, or the dirty paths) and stop cleanup; the worktree and branch stay, and the sub-steps above have already run. All gates pass → if the session is still inside the worktree, `ExitWorktree` first (keeping it — the removal below does it); then, from the primary checkout: `git worktree remove <path>` (never `--force`), `git worktree prune`, `git branch -D <branch>` (`-D` because a squash-merged branch is never "fully merged" in git's sense; the head-equals-PR-head gate is what makes it safe). No such worktree → skip the removal and run `git worktree prune` (a worktree whose directory was deleted by hand still holds the branch until it is pruned); the local branch, if it exists, is still deleted behind the first two gates. Git itself refuses `branch -D` for a branch checked out anywhere else, which leaves it in place. **The remote branch is never deleted by the plugin:** when the repo has `deleteBranchOnMerge` enabled GitHub already removed it, and when it does not, the repo keeps merged branches by policy (`backends/github.md` "Post-merge (optional)").
+   Any gate fails → print what is at stake (the commits `git log --oneline <headRefOid>..<branch>` shows, or the dirty paths) and stop cleanup; the worktree and branch stay, and the sub-steps above have already run. All gates pass → if the session is still inside the worktree, `ExitWorktree` first (keeping it — the removal below does it); then, from the primary checkout: `git worktree remove <path>` (never `--force`), `git worktree prune`, `git branch -D <branch>` (`-D` because a squash-merged branch is never "fully merged" in git's sense; the head-equals-PR-head gate is what makes it safe). No such worktree → skip the removal and run `git worktree prune` (a worktree whose directory was deleted by hand still holds the branch until it is pruned); the local branch, if it exists, is still deleted behind the first two gates. Git itself refuses `branch -D` for a branch checked out anywhere else, which leaves it in place. Whenever the local branch is deleted (or was already gone), also forget its resume breadcrumb: `( . "${CLAUDE_PLUGIN_ROOT}/scripts/lib/common.sh"; ait_branch_epic_drop "<headRefName>" )` (always succeeds). **The remote branch is never deleted by the plugin:** when the repo has `deleteBranchOnMerge` enabled GitHub already removed it, and when it does not, the repo keeps merged branches by policy (`backends/github.md` "Post-merge (optional)").
 6. **Report** one line, after any WARNs:
 
    `finish <ref> · PR #<n> merged <short sha> · status: <transition | closed by keyword | none> · others: <n> · parent: <refreshed | skipped | none> · cleanup: <removed | refused: <gate> | nothing to do>`
