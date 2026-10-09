@@ -163,7 +163,7 @@ resume_flow() {
 
 # One jq call for everything the always-paid path needs (@sh quotes safely).
 event="" session_id="" stop_active="" message=""
-_ait_vars="$(printf '%s' "$payload" | jq -r '@sh "event=\(.hook_event_name // "") session_id=\(.session_id // "") stop_active=\(.stop_hook_active // false) message=\(.last_assistant_message // "")"' 2>/dev/null)" || exit 0
+_ait_vars="$(printf '%s' "$payload" | jq -r '@sh "event=\(.hook_event_name // "" | tostring) session_id=\(.session_id // "" | tostring) stop_active=\(.stop_hook_active // false | tostring) message=\(.last_assistant_message // "" | tostring)"' 2>/dev/null)" || exit 0
 eval "$_ait_vars" 2>/dev/null || exit 0
 [ -n "$session_id" ] || exit 0
 case "$session_id" in */* | *..* | *\\*) exit 0 ;; esac

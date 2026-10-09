@@ -189,6 +189,13 @@ def test_deferral_silent_when_filed(project, hook_env, filed):
     assert silent(run_hook(stop_payload(project), hook_env))
 
 
+@pytest.mark.parametrize("field", ["last_assistant_message", "hook_event_name", "session_id"])
+def test_array_typed_payload_field_is_never_executed(project, hook_env, field):
+    payload = stop_payload(project, session_id="abc")
+    payload[field] = ["Stop" if field == "hook_event_name" else "x", "echo", "INJECTED"]
+    assert silent(run_hook(payload, hook_env))
+
+
 def test_deferral_silent_after_slash_command_filing(project, hook_env):
     write_transcript(project, WORKED + [rec_user(
         "<command-message>agent-issue-tracker:file-followup</command-message>\n"
