@@ -94,6 +94,7 @@ TRANSCRIPT_JQ='
        else empty end] as $said
   | (any($cmds[]; test("\\bgit\\b[^\\n|;&]*\\bcommit\\b") or test("\\bgh\\b[^\\n|;&]*\\bpr create\\b"))) as $work
   | (any($cmds[]; test("\\bgh\\b[^\\n|;&]*\\bissue create\\b"))
+     or any($tu[]; (.name | strings | endswith("createJiraIssue")))
      or any($tu[]; .name == "Skill"
             and ((.input.skill // "") | test("(file-followup|file-bug|file-feature|followup-tracking|bug-tracking|feature-request)$")))
      or any($said[]; test("(^|<command-name>)/(agent-issue-tracker:)?file-(followup|bug|feature)"))) as $filed
@@ -102,8 +103,8 @@ TRANSCRIPT_JQ='
 deferral_flow() {
   local cwd transcript verdict
   kind_off deferral && exit 0
-  [ "$(field '.stop_hook_active')" = "true" ] && exit 0
-  field '.last_assistant_message' | grep -qiE "$LEXICON" || exit 0
+  [ "$stop_active" = "true" ] && exit 0
+  printf '%s' "$message" | grep -qiE "$LEXICON" || exit 0
   [ -e "$marker_dir/$session_id.deferral" ] && exit 0
   cwd="$(field '.cwd')"
   config_gate "$cwd" || exit 0
@@ -160,8 +161,10 @@ resume_flow() {
   emit "$msg. /session-brief for the full picture."
 }
 
-event="$(field '.hook_event_name')"
-session_id="$(field '.session_id')"
+# One jq call for everything the always-paid path needs (@sh quotes safely).
+event="" session_id="" stop_active="" message=""
+_ait_vars="$(printf '%s' "$payload" | jq -r '@sh "event=\(.hook_event_name // "") session_id=\(.session_id // "") stop_active=\(.stop_hook_active // false) message=\(.last_assistant_message // "")"' 2>/dev/null)" || exit 0
+eval "$_ait_vars" 2>/dev/null || exit 0
 [ -n "$session_id" ] || exit 0
 case "$session_id" in */* | *..* | *\\*) exit 0 ;; esac
 

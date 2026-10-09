@@ -180,6 +180,9 @@ def test_deferral_sidechain_work_does_not_count(project, hook_env):
     rec_skill("agent-issue-tracker:file-followup"),
     rec_skill("agent-issue-tracker:followup-tracking"),
     rec_user("/file-followup the retry policy"),
+    {"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "name": "mcp__claude_ai_Atlassian__createJiraIssue",
+         "input": {"summary": "x"}}]}},
 ])
 def test_deferral_silent_when_filed(project, hook_env, filed):
     write_transcript(project, WORKED + [filed])
