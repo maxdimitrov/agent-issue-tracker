@@ -137,6 +137,8 @@ def test_deferral_new_session_fires_again(project, hook_env):
     "That belongs in a later phase.",
     "I filed nothing yet but this needs a follow-up issue.",
     "Deferring the cache rework to a follow-up.",
+    "Let's do that in a follow up PR.",
+    "We’ll handle the banner later.",
 ])
 def test_deferral_lexicon_matches(project, hook_env, message):
     write_transcript(project, WORKED)
@@ -267,3 +269,136 @@ def test_unwritable_state_dir_is_silent(project, hook_env, tmp_path):
 def test_unknown_event_is_silent(project, hook_env):
     write_transcript(project, WORKED)
     assert silent(run_hook(stop_payload(project, hook_event_name="PreToolUse"), hook_env))
+
+
+def test_unset_home_and_cache_vars_do_not_crash(project, hook_env):
+    write_transcript(project, WORKED)
+    env = {k: v for k, v in hook_env.items()
+           if k not in ("CLAUDE_PLUGIN_DATA", "XDG_CACHE_HOME", "HOME")}
+    r = run_hook(stop_payload(project), env)
+    assert r.returncode == 0, r.stderr
+
+
+# --- resume -----------------------------------------------------------------
+
+from shell_helpers import run_lib  # noqa: E402
+
+EPIC_JSON = json.dumps([{
+    "number": 42, "title": "epic: board support",
+    "body": "- **Next up:** #61 - webhook retries\n- **Current branch:** feat/board-support\n",
+}])
+
+
+def resume_payload(proj, session_id="r1", source="resume"):
+    return {"session_id": session_id, "transcript_path": (proj / "t.jsonl").as_posix(),
+            "cwd": proj.as_posix(), "hook_event_name": "SessionStart", "source": source}
+
+
+@pytest.fixture
+def gh_stub(tmp_path, hook_env):
+    calls = tmp_path / "gh-calls"
+    data = tmp_path / "gh.json"
+    data.write_text(EPIC_JSON)
+    stub_bin = tmp_path / "stub-bin"
+    stub_bin.mkdir()
+    gh = stub_bin / "gh"
+    gh.write_text(f'#!/usr/bin/env bash\necho "$@" >> "{calls.as_posix()}"\ncat "{data.as_posix()}"\n')
+    gh.chmod(0o755)
+    return stub_bin, calls
+
+
+def put_crumb(proj, env, branch, child, epic, title):
+    r = run_lib(f"ait_branch_epic_put '{branch}' '{child}' '{epic}' '{title}'", env=env, cwd=proj)
+    assert r.returncode == 0, r.stderr
+
+
+def test_resume_via_gh_lookup(project, hook_env, gh_stub):
+    stub_bin, _ = gh_stub
+    git(project, "switch", "-c", "feat/board-support")
+    m = message_of(run_hook(resume_payload(project), hook_env, stub_bin=stub_bin))
+    assert m == ('[tracker] Resuming on epic #42 "epic: board support" -- next up: #61. '
+                 '/session-brief for the full picture.')
+
+
+def test_resume_once_per_session(project, hook_env, gh_stub):
+    stub_bin, _ = gh_stub
+    git(project, "switch", "-c", "feat/board-support")
+    assert message_of(run_hook(resume_payload(project), hook_env, stub_bin=stub_bin))
+    assert silent(run_hook(resume_payload(project), hook_env, stub_bin=stub_bin))
+
+
+def test_resume_via_breadcrumb_on_jira(project, hook_env, gh_stub):
+    stub_bin, calls = gh_stub
+    (project / ".claude" / "issue-tracker.yaml").write_text(CONFIG_JIRA)
+    git(project, "switch", "-c", "feat/obs-rollout")
+    put_crumb(project, hook_env, "feat/obs-rollout", "PROJ-12", "PROJ-7", "Obs rollout")
+    m = message_of(run_hook(resume_payload(project), hook_env, stub_bin=stub_bin))
+    assert m == ('[tracker] Resuming PROJ-12 on epic PROJ-7 "Obs rollout". '
+                 '/session-brief for the full picture.')
+    assert not calls.exists()
+
+
+def test_resume_breadcrumb_without_child(project, hook_env):
+    (project / ".claude" / "issue-tracker.yaml").write_text(CONFIG_JIRA)
+    git(project, "switch", "-c", "feat/obs-rollout")
+    put_crumb(project, hook_env, "feat/obs-rollout", "", "PROJ-7", "Obs rollout")
+    m = message_of(run_hook(resume_payload(project), hook_env))
+    assert m.startswith('[tracker] Resuming on epic PROJ-7 "Obs rollout".')
+
+
+def test_resume_jira_without_breadcrumb_is_silent(project, hook_env, gh_stub):
+    stub_bin, calls = gh_stub
+    (project / ".claude" / "issue-tracker.yaml").write_text(CONFIG_JIRA)
+    git(project, "switch", "-c", "feat/board-support")
+    assert silent(run_hook(resume_payload(project), hook_env, stub_bin=stub_bin))
+    assert not calls.exists()
+
+
+def test_resume_no_epic_match_is_silent(project, hook_env, gh_stub):
+    stub_bin, _ = gh_stub
+    git(project, "switch", "-c", "feat/unrelated")
+    assert silent(run_hook(resume_payload(project), hook_env, stub_bin=stub_bin))
+
+
+def test_resume_old_breadcrumb_ignored(project, hook_env, tmp_path):
+    (project / ".claude" / "issue-tracker.yaml").write_text(CONFIG_JIRA)
+    git(project, "switch", "-c", "feat/obs-rollout")
+    put_crumb(project, hook_env, "feat/obs-rollout", "PROJ-12", "PROJ-7", "Obs")
+    old = time.time() - 31 * 86400
+    for f in (tmp_path / "state").rglob("branch-epic/*"):
+        os.utime(f, (old, old))
+    assert silent(run_hook(resume_payload(project), hook_env))
+
+
+def test_resume_startup_is_silent(project, hook_env, gh_stub):
+    stub_bin, _ = gh_stub
+    git(project, "switch", "-c", "feat/board-support")
+    assert silent(run_hook(resume_payload(project, source="startup"), hook_env, stub_bin=stub_bin))
+
+
+def test_resume_off_list(project, hook_env, gh_stub):
+    stub_bin, _ = gh_stub
+    git(project, "switch", "-c", "feat/board-support")
+    env = dict(hook_env, AIT_NUDGES_OFF="resume")
+    assert silent(run_hook(resume_payload(project), env, stub_bin=stub_bin))
+
+
+def test_resume_prunes_old_markers(project, hook_env, gh_stub, tmp_path):
+    stub_bin, _ = gh_stub
+    markers = tmp_path / "plugin-data" / "nudges"
+    markers.mkdir(parents=True)
+    stale = markers / "old-session.deferral"
+    stale.write_text("")
+    old = time.time() - 31 * 86400
+    os.utime(stale, (old, old))
+    git(project, "switch", "-c", "feat/board-support")
+    run_hook(resume_payload(project), hook_env, stub_bin=stub_bin)
+    assert not stale.exists()
+
+
+def test_resume_shares_title_hook_cache(project, hook_env, gh_stub):
+    stub_bin, calls = gh_stub
+    git(project, "switch", "-c", "feat/board-support")
+    run_hook(resume_payload(project, session_id="x1"), hook_env, stub_bin=stub_bin)
+    run_hook(resume_payload(project, session_id="x2"), hook_env, stub_bin=stub_bin)
+    assert len(calls.read_text().splitlines()) == 1
