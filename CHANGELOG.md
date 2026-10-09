@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-10-09
+
 ### Added
 
 - **Tracker nudges** (#114). A new `hooks/nudge.sh` shows one-line,
@@ -18,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them off. `/work-issue` and `/resume-initiative --start` now leave a local
   branch-to-epic breadcrumb so the resume nudge works on Jira too; the
   branch-to-epic lookup moved from `hooks/session-title.sh` into
-  `scripts/lib/common.sh` (`ait_branch_epic`), unchanged.
+  `scripts/lib/common.sh` (`ait_branch_epic`), and its cache is now
+  written atomically, so the two hooks can read it in parallel on resume.
 
 ## [1.11.1] - 2026-10-08
 
