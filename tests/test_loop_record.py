@@ -317,3 +317,132 @@ def test_reopen_unknown_corrupt_and_usage(repo, tmp_path):
     assert not (p.parent / (p.name + ".tmp")).exists()
     r = run_script(SCRIPT, args=("reopen",), env=env, cwd=str(repo))
     assert r.returncode == 2
+
+
+# --- recurring mode (cron_job_id schtasks:...) ------------------------------
+
+SCHED = "schtasks:Tracker Loop demo"
+
+
+def _rewrite(repo, env, lid, **changes):
+    p = Path(rec(repo, env, "get", lid)["path"])
+    data = json.loads(p.read_text())
+    data.pop("path", None)
+    data.update(changes)
+    p.write_text(json.dumps(data))
+    return p
+
+
+def _iso(dt):
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_scheduled_loop_fired_20_times_idle_never_stops(repo, tmp_path):
+    """Each fire: check, nothing to do (wait --noop), window line. The idle
+    budget never ends a scheduled loop, and every fire reports skipped."""
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "poll", "agent-ready", "", "--cron-id", SCHED,
+              "--idle-stop-after", "2", "--max-iterations", "3")["id"]
+    for _ in range(20):
+        chk = rec(repo, env, "check", lid)
+        assert chk["ok"] is True and chk["recurring"] is True, chk
+        rec(repo, env, "append", lid, "wait", "", "--noop")
+        assert rec(repo, env, "window", lid) == {
+            "id": lid, "window": "skipped", "line": f"loop {lid} window skipped"}
+    full = rec(repo, env, "get", lid)
+    assert full["state"] == "live" and full["stop_reason"] is None
+    assert rec(repo, env, "check", lid)["trailing_noops"] == 20
+
+
+def test_scheduled_fire_that_acted_reports_window_ok(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "poll", "agent-ready", "", "--cron-id", SCHED)["id"]
+    rec(repo, env, "check", lid)
+    rec(repo, env, "append", lid, "dispatch", "#12")
+    assert rec(repo, env, "window", lid)["window"] == "ok"
+    rec(repo, env, "check", lid)
+    rec(repo, env, "append", lid, "wait-ci", "CI running")
+    assert rec(repo, env, "window", lid)["line"] == f"loop {lid} window skipped"
+
+
+def test_scheduled_max_iterations_spends_the_window_not_the_loop(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "poll", "agent-ready", "", "--cron-id", SCHED,
+              "--max-iterations", "2", "--max-hours", "1")["id"]
+    for _ in range(3):
+        rec(repo, env, "append", lid, "wait", "", "--noop")
+    rec(repo, env, "append", lid, "dispatch", "#12")
+    assert rec(repo, env, "check", lid)["ok"] is True
+    rec(repo, env, "append", lid, "dispatch", "#13")
+    spent = rec(repo, env, "check", lid)
+    assert spent["ok"] is False and spent["recurring"] is True
+    assert spent["reason"] == "window: max_iterations"
+    assert rec(repo, env, "get", lid)["state"] == "live"
+    # One window later the acting entries are in the previous window.
+    now = datetime.now(timezone.utc)
+    p = _rewrite(repo, env, lid, started=_iso(now - timedelta(minutes=70)))
+    data = json.loads(p.read_text())
+    for it in data["iterations"]:
+        it["at"] = _iso(now - timedelta(minutes=65))
+    p.write_text(json.dumps(data))
+    again = rec(repo, env, "check", lid)
+    assert again["ok"] is True and again["iterations"] == 0
+
+
+def test_scheduled_max_hours_never_stops(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "poll", "agent-ready", "", "--cron-id", SCHED, "--max-hours", "1")["id"]
+    _rewrite(repo, env, lid, started="2020-01-01T00:00:00Z")
+    chk = rec(repo, env, "check", lid)
+    assert chk["ok"] is True and chk["recurring"] is True
+    start = datetime.strptime(chk["window_started"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    end = datetime.strptime(chk["window_ends"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    assert end - start == timedelta(hours=1)
+    assert start <= datetime.now(timezone.utc) < end
+
+
+def test_scheduled_append_keeps_two_windows(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "poll", "agent-ready", "", "--cron-id", SCHED, "--max-hours", "1")["id"]
+    now = datetime.now(timezone.utc)
+    old = [{"at": _iso(now - timedelta(hours=h)), "action": "wait", "detail": "", "noop": True}
+           for h in (5, 3)]
+    recent = [{"at": _iso(now - timedelta(minutes=50)), "action": "dispatch", "detail": "#1", "noop": False}]
+    _rewrite(repo, env, lid, started=_iso(now - timedelta(hours=6, minutes=10)), iterations=old + recent)
+    out = rec(repo, env, "append", lid, "wait", "", "--noop")
+    assert out["iterations"] == 2
+    kept = rec(repo, env, "get", lid)["iterations"]
+    assert [i["detail"] for i in kept] == ["#1", ""]
+
+
+def test_check_stamps_last_fire_only_on_a_scheduled_loop(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    plain = rec(repo, env, "create", "babysit", "#42", "feat/42-x")["id"]
+    rec(repo, env, "check", plain)
+    assert "last_fire" not in rec(repo, env, "get", plain)
+    sched = rec(repo, env, "create", "poll", "agent-ready", "", "--cron-id", SCHED)["id"]
+    rec(repo, env, "check", sched)
+    assert rec(repo, env, "get", sched)["last_fire"]
+
+
+def test_stopped_scheduled_loop_checks_as_stopped(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "poll", "agent-ready", "", "--cron-id", SCHED)["id"]
+    rec(repo, env, "stop", lid, "operator stop")
+    assert rec(repo, env, "check", lid) == {"ok": False, "reason": "stopped: operator stop"}
+
+
+def test_set_cron_schtasks_turns_a_record_recurring(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "poll", "agent-ready", "", "--idle-stop-after", "1")["id"]
+    rec(repo, env, "append", lid, "wait", "", "--noop")
+    assert rec(repo, env, "check", lid) == {"ok": False, "reason": "budget: idle_stop_after"}
+    rec(repo, env, "set-cron", lid, SCHED)
+    assert rec(repo, env, "check", lid)["ok"] is True
+
+
+def test_window_unknown_and_usage(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    assert rec(repo, env, "window", "nope", expect=1)["error"] == "no such loop"
+    r = run_script(SCRIPT, args=("window",), env=env, cwd=str(repo))
+    assert r.returncode == 2

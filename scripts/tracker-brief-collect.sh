@@ -20,6 +20,15 @@
 #   AIT_SINCE        ISO-8601 override for the window start
 #   AIT_STALE_DAYS   worktree staleness threshold (default 14; non-numeric -> default + errors[])
 #   AIT_MAX_PR_DEEP  max PRs to fetch review threads + CI for (default 12; non-numeric -> default + errors[])
+#   AIT_KEEL         0 turns the keel part below off
+#
+# keel (optional): with the keel CLI on PATH, the window also reads keel's
+# `tracker-brief/<project-key>` watermark (the later of it and the state
+# file wins, so a brief read on another machine or checkout counts),
+# `--commit-run` also sets it, and the output gains a top-level `keel`
+# object with the project's open findings from `keel brief --cached` (no
+# database access). Without keel the output is exactly as before: no `keel`
+# key at all.
 
 # shellcheck disable=SC2016
 set -uo pipefail
@@ -86,6 +95,18 @@ esac
 
 STATE_DIR="$(ait_state_dir "$PWD")"
 STATE="$STATE_DIR/tracker-brief.json"
+KL_ON=false; KL_KEY=""
+if ait_keel_on; then
+  KL_ON=true
+  KL_KEY="$(ait_project_key "$PWD")"
+fi
+# is_stamp <s> - a UTC ISO-8601 second timestamp, the only form stamped.
+is_stamp() {
+  case "${1:-}" in
+    [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) return 0 ;;
+  esac
+  return 1
+}
 CONFIG="$(ait_config_path "$PWD")" || CONFIG=""
 BACKEND=""; GH_REPO=""; JIRA_SITE=""
 if [ -n "$CONFIG" ]; then
@@ -116,8 +137,15 @@ if [ "${1:-}" = "--commit-run" ]; then
   if jq -n --arg now "$NOW" --arg prev "${PREV:-}" \
       '{last_run: $now, previous_run: (if $prev == "" then null else $prev end)}' \
       >"$STATE.tmp" 2>/dev/null && mv -f "$STATE.tmp" "$STATE" 2>/dev/null; then
-    jq -n --arg now "$NOW" --arg p "$STATE" --arg w "$WARN" \
-      '{committed: $now, state_file: $p} + (if $w == "" then {} else {warning: $w} end)'
+    # keel's copy of the stamp is a direct write (watermarks are never
+    # spooled); a failure leaves the local stamp, which is what counts here.
+    KW_SET=""
+    if [ "$KL_ON" = true ]; then
+      if _ait_keel_rc watermark set tracker-brief "$KL_KEY" "$NOW"; then KW_SET="set"; else KW_SET="failed"; fi
+    fi
+    jq -n --arg now "$NOW" --arg p "$STATE" --arg w "$WARN" --arg k "$KW_SET" \
+      '{committed: $now, state_file: $p} + (if $w == "" then {} else {warning: $w} end)
+       + (if $k == "" then {} else {keel_watermark: $k} end)'
   else
     rm -f "$STATE.tmp" 2>/dev/null
     jq -n --arg p "$STATE" --arg w "$WARN" \
@@ -203,6 +231,18 @@ add_slurp() {
 # ------------------------------------------------------------------ window
 NOW_EPOCH="$(date -u +%s)"
 LAST_RUN="$(jq -r '.last_run // empty' "$STATE" 2>/dev/null)"
+KL_WM=""
+if [ "$KL_ON" = true ] && [ -z "${AIT_SINCE:-}" ]; then
+  KL_WM="$(ait_keel_read watermark get tracker-brief "$KL_KEY" | tr -d '\r\n')"
+  if [ -n "$KL_WM" ] && ! is_stamp "$KL_WM"; then
+    note_err "keel watermark '$KL_WM' is not a UTC timestamp -- ignored"
+    KL_WM=""
+  fi
+  # Same fixed-width form on both sides, so a string comparison orders them.
+  if [ -n "$KL_WM" ] && { [ -z "$LAST_RUN" ] || [[ "$KL_WM" > "$LAST_RUN" ]]; }; then
+    LAST_RUN="$KL_WM"
+  fi
+fi
 FIRST_RUN=true
 if [ -n "${AIT_SINCE:-}" ]; then
   SINCE="$AIT_SINCE"; FIRST_RUN=false
@@ -592,6 +632,39 @@ LEDGER="${LEDGER:-[]}"
 
 ORPHANS="$(jq -c '[.[] | select(.primary == false and (.detached == true or .ref == null))]' <<<"$WORKTREES" 2>/dev/null || echo '[]')"
 
+# -------------------------------------------------------------------- keel
+# Only with keel on PATH; KL_OBJ stays empty otherwise and the emit below
+# leaves the key out. Findings come from keel's local brief cache (`keel
+# brief --cached`, refreshed by keel's flush daemon): no database access, no
+# credential. A project keel does not know, or no cache yet, is findings
+# null plus a reason.
+KL_OBJ=""
+if [ "$KL_ON" = true ]; then
+  KL_SLUG="$(ait_keel_project "$PWD")" || KL_SLUG=""
+  KL_BRIEF=""; KL_ERR=""
+  if [ -z "$KL_SLUG" ]; then
+    KL_ERR="no .keel/project.yaml slug -- findings not read"
+  else
+    KL_BRIEF="$(ait_keel_read brief --project "$KL_SLUG" --json --cached)"
+    [ -n "$KL_BRIEF" ] || KL_ERR="keel brief --cached returned nothing for $KL_SLUG"
+  fi
+  is_array "$KL_BRIEF" || { [ -n "$KL_BRIEF" ] && KL_ERR="keel brief output unusable"; KL_BRIEF='[]'; }
+  JQ_ARGS=()
+  add_slurp kb "$KL_BRIEF"
+  KL_OBJ="$(jq -n -c "${JQ_ARGS[@]}" --arg slug "$KL_SLUG" --arg key "$KL_KEY" --arg wm "$KL_WM" \
+    --arg last "${LAST_RUN:-}" --arg err "$KL_ERR" --argjson since_set "$([ -n "${AIT_SINCE:-}" ] && echo true || echo false)" '
+    ($kb[0][0] // null) as $b
+    | {project: (if $slug == "" then null else $slug end), watermark_scope: ("tracker-brief/" + $key),
+       watermark: (if $wm == "" then null else $wm end),
+       window_from_keel: ($since_set | not) and $wm != "" and $wm == $last,
+       findings: (if $b == null then null
+                  else [($b.findings // [])[] | {severity, check_id, title, fingerprint, state}] end),
+       from_cache: (if $b == null then null else ($b.from_cache // null) end),
+       cache_age_seconds: (if $b == null then null else ($b.cache_age_seconds // null) end),
+       error: (if $err == "" then null else $err end)}' 2>/dev/null)"
+  [ -n "$KL_OBJ" ] || KL_OBJ='{"error":"could not assemble the keel section"}'
+fi
+
 # Last-line-of-defense validation: every fragment must parse as JSON before
 # it can reach the final emit, so one malformed capture that slipped past
 # its own guard above degrades to [] with an errors[] entry instead of
@@ -608,6 +681,7 @@ ensure_json DEEP '[]' pr_detail
 ensure_json LEDGER '[]' ledger
 ensure_json ORPHANS '[]' orphan_worktrees
 ensure_json ERRORS '[]' ""
+[ -z "$KL_OBJ" ] || ensure_json KL_OBJ '{}' keel
 
 # Every list/object fragment below goes through --slurpfile, never argv:
 # this jq -n call is exactly the one the finding traced the crash to
@@ -627,6 +701,11 @@ add_slurp dp "$DEEP"
 add_slurp ledger "$LEDGER"
 add_slurp orphans "$ORPHANS"
 add_slurp errors "$ERRORS"
+KL_FILTER='.'
+if [ -n "$KL_OBJ" ]; then
+  add_slurp keel "$KL_OBJ" '{}'
+  KL_FILTER='. + {keel: $keel[0]}'
+fi
 
 jq -n \
   --arg generated "$(iso_now)" --arg since "$SINCE" --arg last "${LAST_RUN:-}" \
@@ -656,6 +735,6 @@ jq -n \
     ledger: $ledger,
     orphan_worktrees: $orphans,
     errors: $errors
-  }'
+  } | '"$KL_FILTER"
 
 exit 0

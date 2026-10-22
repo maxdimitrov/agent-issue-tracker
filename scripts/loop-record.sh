@@ -22,8 +22,27 @@
 #                                                 # cron_job_id cleared
 #   loop-record.sh get <id>
 #   loop-record.sh list                           # live records, summarised
+#   loop-record.sh window <id>                    # recurring loops: this fire's
+#                                                 # `loop <id> window ok|skipped` line
 #
 # Exit 0 on success, 1 when the record does not exist, 2 on a usage error.
+#
+# Recurring mode: a record whose cron_job_id starts with `schtasks:` is fired
+# by an external scheduler (Windows Task Scheduler) that outlives every
+# session. Its budgets count per window, not per lifetime: windows are
+# budget.max_hours long, back to back from `started`. max_iterations counts
+# the acting entries (an action other than wait, wait-ci or skip, not a noop)
+# in the current window; when they are spent, `check` says so with
+# recurring:true and the record stays live until the next window. max_hours
+# and idle_stop_after never stop it: an idle scheduled loop is the normal
+# state. `check` stamps `last_fire`, and `window` reports whether anything
+# acted since. `append` keeps only the current and previous window's entries.
+# Every other record behaves as before.
+#
+# keel: with the keel CLI on PATH (and AIT_KEEL not 0), create, append, stop,
+# reopen and check also spool keel events (loop.created, loop.iteration for
+# entries that are not noops, loop.stopped) and a `loop:<id>` heartbeat whose
+# payload carries cron_id. Without keel nothing is emitted and nothing changes.
 #
 # Ids are claimed with a noclobber (set -C) write, which is atomic on one
 # machine's filesystem; two machines sharing one state dir are not supported.
@@ -35,6 +54,61 @@ set -uo pipefail
 DIR="$(ait_state_dir "$PWD")/loops"
 mkdir -p "$DIR" 2>/dev/null
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# --- keel reporting (a no-op without keel) -----------------------------------
+# keel_actor <id> - the actor kind for this loop's events: runner for a
+# scheduled (schtasks:) loop, claude_session otherwise.
+keel_actor() {
+  case "$(jq -r '.cron_job_id // ""' "$(path_of "$1")" 2>/dev/null)" in
+    schtasks:*) printf 'runner' ;;
+    *) printf 'claude_session' ;;
+  esac
+}
+# keel_minutes <interval> - minutes in `15m` / `1h` / `90s` / `2d` / `20`,
+# at least 30 (the self-paced idle hint), so a heartbeat is not called
+# silent between two ordinary fires.
+keel_minutes() {
+  local v="${1:-15m}" n m
+  n="${v%[smhd]}"
+  case "$n" in '' | *[!0-9]*) n=15; v=15m ;; esac
+  case "$v" in
+    *s) m=$(( (n + 59) / 60 )) ;;
+    *h) m=$(( n * 60 )) ;;
+    *d) m=$(( n * 1440 )) ;;
+    *) m="$n" ;;
+  esac
+  [ "$m" -lt 30 ] && m=30
+  printf '%s' "$m"
+}
+# keel_beat <id> - a loop:<id> heartbeat, payload {cron_id, mode, ref}.
+keel_beat() {
+  local p payload interval
+  ait_keel_on || return 0
+  p="$(path_of "$1")"
+  payload="$(jq -c '{cron_id: .cron_job_id, mode, ref}' "$p" 2>/dev/null)" || return 0
+  interval="$(jq -r '.options.interval // "15m"' "$p" 2>/dev/null)"
+  ait_keel_beat "loop:$1" "$(keel_minutes "$interval")m" "$payload" "$(ait_keel_project "$PWD")"
+}
+# keel_event <id> <type> <jq filter over the record> [<idem-key>]
+keel_event() {
+  local payload
+  ait_keel_on || return 0
+  payload="$(jq -c "$3" "$(path_of "$1")" 2>/dev/null)" || return 0
+  AIT_KEEL_ACTOR="$(keel_actor "$1")" ait_keel_event "$2" "$payload" "${4:-}" "$PWD"
+}
+
+# The current window of a recurring record, as jq definitions: $now is the
+# epoch, a record's window is budget.max_hours long and windows run back to
+# back from `started`.
+# shellcheck disable=SC2016
+WINDOW_JQ='
+  def epoch: sub("\\.[0-9]+Z$"; "Z") | (try fromdateiso8601 catch 0);
+  def recurring: ((.cron_job_id // "") | startswith("schtasks:"));
+  def win_secs: ((.budget.max_hours // 24) * 3600);
+  def win_start: (.started | epoch) as $s | ($now - $s) as $age
+    | if $age <= 0 then $s else $s + (($age / win_secs | floor) * win_secs) end;
+  def acting: (.action != "skip" and .action != "wait" and .action != "wait-ci" and .noop != true);
+'
 usage() { printf '{"error":"usage: %s"}\n' "$1" >&2; exit 2; }
 path_of() { printf '%s/%s.json' "$DIR" "$1"; }
 require() { [ -f "$(path_of "$1")" ] || { printf '{"error":"no such loop","id":"%s"}\n' "$1"; exit 1; }; }
@@ -129,6 +203,9 @@ case "$cmd" in
       exit 1
     fi
     jq -c --arg p "$p" '{id, path: $p}' "$p"
+    keel_event "$id" loop.created '{id, mode, ref, branch, cron_id: .cron_job_id, interval: .options.interval}' \
+      "loop.created:$id"
+    keel_beat "$id"
     ;;
   find)
     any=false
@@ -145,7 +222,29 @@ case "$cmd" in
   check)
     [ $# -ge 1 ] || usage "check <id>"
     require "$1"
-    if ! jq -c --argjson now "$(date -u +%s)" '
+    p="$(path_of "$1")"
+    nowe="$(date -u +%s)"
+    if jq -e "$WINDOW_JQ"' recurring and .state == "live"' --argjson now "$nowe" "$p" >/dev/null 2>&1; then
+      # shellcheck disable=SC2016
+      modify "$1" --arg at "$(now)" '.last_fire = $at'
+      if ! jq -c --argjson now "$nowe" "$WINDOW_JQ"'
+        win_start as $ws
+        | [.iterations[] | select((.at | epoch) >= $ws)] as $win
+        | ([$win[] | select(acting)] | length) as $n
+        | ([$win | reverse[] | (.noop == true)] | index(false) // ($win | length)) as $trailing
+        | {ws: ($ws | todate), we: (($ws + win_secs) | todate)} as $w
+        | if $n >= .budget.max_iterations
+          then {ok: false, recurring: true, reason: "window: max_iterations",
+                window_started: $w.ws, window_ends: $w.we}
+          else {ok: true, recurring: true, iterations: $n, trailing_noops: $trailing,
+                window_started: $w.ws, window_ends: $w.we} end' "$p"; then
+        printf '{"error":"corrupt record","id":"%s"}\n' "$1"
+        exit 1
+      fi
+      keel_beat "$1"
+      exit 0
+    fi
+    if ! jq -c --argjson now "$nowe" '
       def epoch: sub("\\.[0-9]+Z$"; "Z") | (try fromdateiso8601 catch 0);
       ([.iterations[] | select(.action != "skip")] | length) as $n
       | (($now - (.started | epoch)) / 3600) as $hours
@@ -159,6 +258,7 @@ case "$cmd" in
       printf '{"error":"corrupt record","id":"%s"}\n' "$1"
       exit 1
     fi
+    ait_keel_on && jq -e '.state == "live"' "$p" >/dev/null 2>&1 && keel_beat "$1"
     ;;
   append)
     [ $# -ge 2 ] || usage "append <id> <action> <detail> [--noop]"
@@ -166,10 +266,20 @@ case "$cmd" in
     [ "${4:-}" = "--noop" ] && noop=true
     [ "$detail" = "--noop" ] && { detail=""; noop=true; }
     require "$id"
+    # A recurring record keeps the current and the previous window only: it
+    # never ends, and every fire appends.
     # shellcheck disable=SC2016
     modify "$id" --arg at "$(now)" --arg a "$action" --arg d "$detail" --argjson n "$noop" \
-      '.iterations += [{at: $at, action: $a, detail: $d, noop: $n}]'
+      --argjson now "$(date -u +%s)" "$WINDOW_JQ"'
+      .iterations += [{at: $at, action: $a, detail: $d, noop: $n}]
+      | if recurring then (win_start - win_secs) as $cut
+          | .iterations |= map(select((.at | epoch) >= $cut)) else . end'
     jq -c '{id, iterations: (.iterations | length), last_action: (.iterations | last | .action)}' "$(path_of "$id")"
+    if [ "$noop" = false ]; then
+      # shellcheck disable=SC2016
+      keel_event "$id" loop.iteration '{id, mode, ref, action: (.iterations | last | .action),
+        detail: (.iterations | last | .detail), at: (.iterations | last | .at)}'
+    fi
     ;;
   add-pr)
     [ $# -ge 2 ] || usage "add-pr <id> <pr-ref>"
@@ -200,6 +310,8 @@ case "$cmd" in
     modify "$id" --arg r "$reason" --arg at "$(now)" --arg t "$transcript"       '.state = "stopped" | .stop_reason = $r | .stopped = $at
        | .stop_transcript = (if $t == "" then null else $t end)'
     jq -c '{id, state, stop_reason, cron_job_id}' "$(path_of "$id")"
+    keel_event "$id" loop.stopped '{id, mode, ref, reason: .stop_reason, cron_id: .cron_job_id, stopped}' \
+      "loop.stopped:$id:$(jq -r '.stopped' "$(path_of "$id")" 2>/dev/null)"
     ;;
   reopen)
     # Continue a checkpointed loop in a new session: back to live with the
@@ -210,6 +322,21 @@ case "$cmd" in
     modify "$1" '.state = "live" | .stop_reason = null | .stop_transcript = null | .stopped = null
       | .cron_job_id = null'
     jq -c '{id, state, iterations: (.iterations | length)}' "$(path_of "$1")"
+    keel_beat "$1"
+    ;;
+  window)
+    # The line a recurring fire ends with: ok when an acting entry was
+    # appended since this fire's `check` (last_fire), skipped otherwise.
+    [ $# -ge 1 ] || usage "window <id>"
+    require "$1"
+    # shellcheck disable=SC2016
+    if ! jq -c --argjson now "$(date -u +%s)" "$WINDOW_JQ"'
+      (.last_fire // .started) as $since
+      | (if any(.iterations[]; .at >= $since and acting) then "ok" else "skipped" end) as $w
+      | {id, window: $w, line: ("loop " + .id + " window " + $w)}' "$(path_of "$1")"; then
+      printf '{"error":"corrupt record","id":"%s"}\n' "$1"
+      exit 1
+    fi
     ;;
   get)
     [ $# -ge 1 ] || usage "get <id>"
@@ -221,6 +348,6 @@ case "$cmd" in
       | {id, mode, ref, branch, started, cron_job_id, prs_opened,
          iterations: (.iterations | length), last_action: (.iterations | last | .action // null)}]'
     ;;
-  *) usage "create|find|check|append|add-pr|set-cron|stop|reopen|get|list" ;;
+  *) usage "create|find|check|append|add-pr|set-cron|stop|reopen|get|list|window" ;;
 esac
 exit 0
