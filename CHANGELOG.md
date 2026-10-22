@@ -7,6 +7,121 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-22
+
+### Added
+
+- **Recurring mode for `/tracker-loop`** (#181, maxdimitrov/keel#14). A loop
+  fired by Windows Task Scheduler passes `--cron-id "schtasks:<TaskName>"`;
+  its record's budgets then count per window (`max_hours` long, back to back
+  from `started`) instead of per lifetime. `max_iterations` counts the
+  window's acting entries, and neither `max_hours` nor `idle_stop_after`
+  stops the loop, so a scheduled poll no longer dies after about three idle
+  hours while every fire exits green. `--restart` is implicit after any stop
+  but an `operator stop` (which pauses the scheduled loop), step 8 never
+  `CronDelete`s a `schtasks:` id, and every fire ends with a
+  `loop <id> window ok|skipped` line for the task's wrapper.
+  `scripts/loop-record.sh` gains `claim` (a scheduled fire's load-or-create:
+  it only uses, reopens or pauses on the task's own record, and refuses while
+  an interactive or session-cron loop of the same mode and ref is alive, so
+  that loop keeps its 1.12.0 budgets; one its own next check would stop, or
+  that nothing has iterated for four pacing steps, is stopped with that
+  reason and replaced) and `window <id>` (always `skipped` for
+  a record that is not live); `check` numbers the fires of such a record,
+  and `append` keeps two windows of entries. An interactive fire never
+  adopts a live `schtasks:` record either.
+- **keel reporting, optional** (#181). With the
+  [keel](https://github.com/maxdimitrov/keel) CLI on `PATH`,
+  `scripts/loop-record.sh` spools `loop.created`, `loop.iteration` and
+  `loop.stopped` events and a `loop:<id>` heartbeat carrying `cron_id`;
+  `/work-issue` spools `work.started`, `work.pr_opened` and `work.done`
+  through the new `scripts/keel-emit.sh`, folded into Bash calls the
+  command already makes, and skipped outright when keel is not installed.
+  These go through `ait_keel` in `scripts/lib/common.sh`: spool only, capped,
+  silent. `/tracker-brief` lists the project's open keel findings from keel's
+  local cache and reads and sets its window watermark in keel directly
+  (`keel watermark get` / `set`, keyed by the project key). Without keel, or
+  with `AIT_KEEL=0`, nothing is reported and nothing behaves differently.
+- **`loop-record.sh find --no-scheduled`** (#181): the interactive path's `find --any` leaves out a scheduled task's records, so it never reopens one or reports its stop.
+- **`AIT_PROJECT_KEY`** (#181). When set to a safe name, `ait_project_key`
+  returns it unchanged, so a separate clone or a runner checkout can share
+  the primary checkout's state dir. `tests/test_project_key_parity.py` pins
+  the key across the Git Bash, forward-slash and backslash spellings of one
+  path, in bash and in a Python port.
+- **`/tracker-init --answers <file>`** (#181). Non-interactive: renders the
+  config from an answers file, with no prompts or probes. Both modes now
+  render through `scripts/tracker-init-render.sh`, so the same answers give
+  the same file.
+
+### Changed
+
+- The repo itself is adopted into keel: its own `.claude/issue-tracker.yaml`
+  (with a `loops:` block for its scheduled poll), `.keel/project.yaml` and a
+  `DECISIONS.md` in keel's dated grammar.
+
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", run 2026-10-22 against the release
+branch (`feat/keel-emitters`; smokes 6 and 7 at 733dac6, the rest and the automated run at eb7500b) before tagging. This release
+changes the surface of smokes 3 (`/tracker-init`), 9 (`/tracker-brief`) and
+10 (`/tracker-loop`), plus the install pair (6, 7). The headless parts were
+run in the release-branch session; the parts that need an interactive Claude
+Code session or the owner are marked PENDING and are recorded here before
+the tag.
+
+- **1. GitHub backend smoke — CARRIED FORWARD from 1.12.0.**
+  `backends/github.md` and the issue-shape skills are unchanged.
+- **2. Jira backend smoke — CARRIED FORWARD / DEFERRED.** The Jira backend is
+  unchanged, and the release session has no Atlassian connector.
+- **3. `/tracker-init` from blank state — PARTIAL.** Headless: the new
+  `--answers` path's renderer (`scripts/tracker-init-render.sh`) wrote a
+  GitHub config from an answers file into a blank repo; `config-resolve.sh`
+  reads back `backend`, `github.repo` and `default_pr_close_syntax`; it
+  carries the keys `examples/github-config.yaml` has; a missing answers
+  file exits 2. PENDING (interactive session): the `AskUserQuestion` flow on
+  both backends and the next-step panel.
+- **4. `/tracker-doctor` — CARRIED FORWARD.** Unchanged.
+- **5. `/resume-initiative` against both epic shapes — CARRIED FORWARD.**
+  Unchanged.
+- **6. Install path — PASS (isolated config dir, release branch).** Bare
+  `CLAUDE_CONFIG_DIR` at a short path: `claude plugin marketplace add
+  https://github.com/maxdimitrov/agent-issue-tracker.git#feat/keel-emitters`
+  and `claude plugin install agent-issue-tracker` both exit 0;
+  `installed_plugins.json` records **1.13.0** at 733dac6. A config dir under
+  the long session scratch path failed the clone (`Filename too long`), as in
+  1.12.0.
+- **7. Plugin loads enabled post-install — PASS for the CLI checks.** After
+  adding `claude-plugins-official` and installing `superpowers` 7.0.0,
+  `claude plugin list` shows `enabled` at 1.13.0 and `claude plugin details`
+  inventories Skills (19) and Hooks (2): SessionStart and Stop. PENDING
+  (interactive session): `/tracker-doctor`, `/tracker-init` and
+  `/resume-initiative` resolving as slash commands in a fresh session opened
+  on the install.
+- **8. Session-title hook — CARRIED FORWARD.** The hook is unchanged;
+  `ait_project_key` only gains the `AIT_PROJECT_KEY` override (pinned by
+  `tests/test_project_key_parity.py`).
+- **9. Briefs — PARTIAL.** Headless, in this repository with real `gh` and
+  `AIT_KEEL=0` against an isolated state dir: `tracker-brief-collect.sh`
+  ran, `--commit-run <generated_at>` stamped it, and the second run's
+  `window.since` equals that stamp; `session-brief-collect.sh` finds PR #182
+  on the branch with no errors. PENDING (interactive session): `/session-brief`
+  printing both links and writing the resume note, and `/tracker-brief` run
+  twice as commands.
+- **10. Babysit loop — PARTIAL.** Headless, at eb7500b, `scripts/loop-record.sh` driven
+  as a scheduled poll (`claim` / `check` / `append` / `window`): three idle
+  fires stay live and print `window skipped`, an acting fire prints
+  `window ok`, a spent window reports `window: max_iterations` without
+  stopping, an operator stop pauses the task (`claim` refuses with the
+  `is stopped` line and `window skipped`) until `--restart`, a live
+  cron-less loop with the same mode and ref that is still iterating is
+  refused with `loop <id> is owned by …` and not adopted, and one past its
+  `max_hours` is stopped with `budget: max_hours` and replaced. PENDING (owner,
+  interactive session): `/loop /agent-issue-tracker:tracker-loop babysit
+  <pr>` against a deliberately red PR, as CONTRIBUTING.md describes.
+- **Automated.** Full `pytest -q` on Windows (Git Bash) with keel absent from
+  `PATH`, at eb7500b: 542 passed, 1 skipped. CI on #182 runs the same suite
+  on Linux.
+
 ## [1.12.0] - 2026-10-09
 
 ### Added
