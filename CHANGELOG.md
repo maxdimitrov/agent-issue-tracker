@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-22
+
 ### Added
 
 - **Recurring mode for `/tracker-loop`** (#181, maxdimitrov/keel#14). A loop
@@ -46,6 +48,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The repo itself is adopted into keel: its own `.claude/issue-tracker.yaml`
   (with a `loops:` block for its scheduled poll), `.keel/project.yaml` and a
   `DECISIONS.md` in keel's dated grammar.
+
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", to be recorded in the release
+session before tagging. This release changes the surface of smokes 3
+(`/tracker-init`), 9 (`/tracker-brief`) and 10 (`/tracker-loop`), plus the
+install pair (6, 7); 1, 2, 4, 5 and 8 are unchanged.
+
+- **Automated.** Full `pytest -q` on Windows (Git Bash) with keel absent from
+  `PATH`, at the release branch: 525 passed, 1 skipped. The same suite on Linux (python:3.11-slim, jq 1.7, the CI image's jq) passes too.
 
 ## [1.12.0] - 2026-10-09
 
