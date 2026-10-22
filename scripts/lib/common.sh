@@ -407,8 +407,16 @@ ait_commit_in_tag() {
 }
 
 # ait_project_key [<dir>] - <basename>-<sha256(main repo path)[0:8]>.
+# AIT_PROJECT_KEY, when set to a name of [A-Za-z0-9._-] characters (not `.`
+# or `..`), is printed unchanged instead: a separate clone, or a runner
+# checkout outside the primary repo's worktrees, then shares the primary's
+# state dir. Any other value is ignored, since the key is a directory name.
 ait_project_key() {
-  local d="${1:-.}" root name h
+  local d="${1:-.}" root name h k="${AIT_PROJECT_KEY:-}"
+  case "$k" in
+    '' | . | .. | *[!A-Za-z0-9._-]*) ;;
+    *) printf '%s' "$k"; return 0 ;;
+  esac
   root="$(ait_main_repo "$d")" || root="$(ait_norm_path "$d")"
   name="$(basename "$root" | tr -cd 'A-Za-z0-9._-' | cut -c1-40)"
   h="$(printf '%s' "$root" | ait_hash | cut -c1-8)"
@@ -421,6 +429,93 @@ ait_state_dir() {
   dir="$root/$(ait_project_key "${1:-.}")"
   mkdir -p "$dir" 2>/dev/null
   printf '%s' "$dir"
+}
+
+# --- keel (optional) -------------------------------------------------------------
+# keel (github.com/maxdimitrov/keel) is an owner-run project ledger. When its
+# CLI is on PATH the plugin reports loop and /work-issue activity to it; when
+# it is not, every helper below is a silent no-op, so nothing else in the
+# plugin may depend on what they do. AIT_KEEL=0 turns them off with keel present.
+
+# ait_keel_on - 0 when keel reporting is on (keel on PATH, AIT_KEEL not 0).
+ait_keel_on() {
+  [ "${AIT_KEEL:-1}" = 0 ] && return 1
+  command -v keel >/dev/null 2>&1
+}
+
+# _ait_keel_rc <keel args...> - run keel capped at AIT_KEEL_TIMEOUT seconds
+# (default 10) with no stdin and its output discarded; returns keel's exit
+# code (1 when reporting is off). Callers that only report use ait_keel.
+_ait_keel_rc() {
+  ait_keel_on || return 1
+  ait_run_capped "${AIT_KEEL_TIMEOUT:-10}" keel "$@" </dev/null >/dev/null 2>&1
+}
+
+# ait_keel <keel args...> - one spooled keel write, `keel <args> --spool`:
+# appended to keel's local spool, never a network call. Always returns 0.
+ait_keel() {
+  _ait_keel_rc "$@" --spool
+  return 0
+}
+
+# ait_keel_read <keel args...> - keel's stdout for a read (`keel watermark
+# get`, `keel brief --cached --json`), capped like _ait_keel_rc; empty unless
+# keel exited 0. Always returns 0.
+ait_keel_read() {
+  local out rc
+  ait_keel_on || return 0
+  out="$(ait_run_capped "${AIT_KEEL_TIMEOUT:-10}" keel "$@" </dev/null 2>/dev/null)"
+  rc=$?
+  [ "$rc" -eq 0 ] && printf '%s' "$out"
+  return 0
+}
+
+# ait_keel_beat <subject> <next> <payload-json> [<project>] - a spooled
+# heartbeat, next one expected within <next> (`30m`). A keel without
+# `beat --payload` (exit 2, a usage error) gets the beat without it.
+ait_keel_beat() {
+  local subject="$1" next="$2" payload="${3:-}" project="${4:-}" rc
+  ait_keel_on || return 0
+  _ait_keel_rc beat "$subject" --next "$next" ${project:+--project "$project"} \
+    ${payload:+--payload "$payload"} --spool
+  rc=$?
+  if [ "$rc" -eq 2 ] && [ -n "$payload" ]; then
+    _ait_keel_rc beat "$subject" --next "$next" ${project:+--project "$project"} --spool
+  fi
+  return 0
+}
+
+# ait_keel_project [<dir>] - the keel slug from `.keel/project.yaml` at
+# <dir>'s git toplevel, else at the main checkout's root (a runner worktree
+# of the primary repo carries the same tracked file). Nothing and 1 when
+# neither has one.
+ait_keel_project() {
+  local d="${1:-.}" top main f slug
+  top="$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)" || top=""
+  main="$(ait_main_repo "$d")" || main=""
+  for f in ${top:+"$top/.keel/project.yaml"} ${main:+"$main/.keel/project.yaml"}; do
+    [ -f "$f" ] || continue
+    slug="$(tr -d '\r' <"$f" 2>/dev/null \
+      | sed -n "s/^slug:[[:space:]]*[\"']\{0,1\}\([a-z0-9][a-z0-9-]*\)[\"']\{0,1\}[[:space:]]*\$/\1/p" | head -1)"
+    if [ -n "$slug" ]; then
+      printf '%s' "$slug"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# ait_keel_event <type> <payload-json> [<idem-key>] [<dir>] - a spooled keel
+# event for the project at <dir> (default .), actor `runner` when
+# AIT_KEEL_ACTOR says so, else `claude_session`. Always returns 0.
+ait_keel_event() {
+  local type="$1" payload="${2:-}" idem="${3:-}" d="${4:-.}" project kind
+  ait_keel_on || return 0
+  project="$(ait_keel_project "$d")" || project=""
+  kind="${AIT_KEEL_ACTOR:-claude_session}"
+  case "$kind" in runner | claude_session) ;; *) kind=claude_session ;; esac
+  ait_keel event "$type" ${project:+--project "$project"} --actor-kind "$kind" \
+    --actor-id agent-issue-tracker ${payload:+--payload "$payload"} ${idem:+--idem-key "$idem"}
 }
 
 # ait_config_path [<dir>] - the nearest .claude/issue-tracker.yaml: <dir>, then
