@@ -24,8 +24,10 @@
 #
 # keel (optional): with the keel CLI on PATH, the window also reads keel's
 # `tracker-brief/<project-key>` watermark (the later of it and the state
-# file wins, so a brief read on another machine or checkout counts),
-# `--commit-run` also sets it, and the output gains a top-level `keel`
+# file wins, so a brief read elsewhere under the same project key counts:
+# another worktree, or another machine with the same primary checkout path
+# or the same AIT_PROJECT_KEY), `--commit-run` also sets it (both direct
+# keel calls, not spooled), and the output gains a top-level `keel`
 # object with the project's open findings from `keel brief --cached` (no
 # database access). Without keel the output is exactly as before: no `keel`
 # key at all.

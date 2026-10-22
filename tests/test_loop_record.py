@@ -462,3 +462,97 @@ def test_window_ignores_an_earlier_fires_entry_from_the_same_second(repo, tmp_pa
     rec(repo, env, "append", lid, "wait", "", "--noop")
     assert rec(repo, env, "window", lid)["window"] == "skipped"
     assert [i["fire"] for i in rec(repo, env, "get", lid)["iterations"]] == [1, 2]
+
+# --- claim: a scheduled fire's load-or-create ----------------------------------
+
+def claim(repo, env, *extra, expect=0):
+    return rec(repo, env, "claim", "poll", "agent-ready", "", "--cron-id", SCHED, *extra, expect=expect)
+
+
+def test_claim_creates_then_uses_the_tasks_record(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    made = claim(repo, env, "--max-iterations", "7")
+    assert made["action"] == "create"
+    full = rec(repo, env, "get", made["id"])
+    assert full["cron_job_id"] == SCHED and full["budget"]["max_iterations"] == 7
+    assert claim(repo, env) == {"action": "use", "id": made["id"]}
+
+
+def test_claim_never_adopts_an_interactive_loop(repo, tmp_path):
+    """A live cron-less record (an interactive /loop in a worktree that shares
+    the project key) is refused, untouched, and keeps its session budgets."""
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "poll", "agent-ready", "", "--idle-stop-after", "1")["id"]
+    out = claim(repo, env)
+    assert out["action"] == "refuse" and out["id"] == lid
+    assert out["line"] == f"loop {lid} window skipped"
+    assert "another session" in out["message"]
+    full = rec(repo, env, "get", lid)
+    assert full["cron_job_id"] is None and full["state"] == "live" and "fire" not in full
+    rec(repo, env, "append", lid, "wait", "", "--noop")
+    assert rec(repo, env, "check", lid) == {"ok": False, "reason": "budget: idle_stop_after"}
+
+
+def test_claim_refuses_a_loop_another_cron_drives(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "poll", "agent-ready", "", "--cron-id", "job77")["id"]
+    out = claim(repo, env)
+    assert out["action"] == "refuse" and "job77" in out["message"]
+    assert rec(repo, env, "get", lid)["cron_job_id"] == "job77"
+
+
+def test_claim_honours_an_operator_pause_until_restart(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = claim(repo, env)["id"]
+    rec(repo, env, "stop", lid, "operator stop")
+    out = claim(repo, env)
+    assert out["action"] == "refuse" and out["id"] == lid
+    assert out["message"] == f"loop {lid} is stopped (operator stop); pass --restart to begin a new loop"
+    fresh = claim(repo, env, "--restart")
+    assert fresh["action"] == "create" and fresh["id"] != lid
+
+
+def test_claim_is_not_paused_by_an_interactive_loops_operator_stop(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    other = rec(repo, env, "create", "poll", "agent-ready", "")["id"]
+    rec(repo, env, "stop", other, "operator stop")
+    made = claim(repo, env)
+    assert made["action"] == "create" and made["id"] != other
+
+
+def test_claim_reopens_its_own_checkpoint_with_the_cron_id(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = claim(repo, env)["id"]
+    rec(repo, env, "stop", lid, "checkpoint: fresh session", "--transcript", "t/1.jsonl")
+    assert claim(repo, env) == {"action": "reopen", "id": lid}
+    full = rec(repo, env, "get", lid)
+    assert full["state"] == "live" and full["cron_job_id"] == SCHED
+
+
+def test_claim_starts_fresh_after_any_other_stop(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = claim(repo, env)["id"]
+    rec(repo, env, "stop", lid, "needs-you")
+    made = claim(repo, env)
+    assert made["action"] == "create" and made["id"] != lid
+
+
+@pytest.mark.parametrize("bad", [(), ("--cron-id", "job77"), ("--cron-id", "schtasks:")])
+def test_claim_needs_a_schtasks_cron_id(repo, tmp_path, bad):
+    env = isolated_env(tmp_path)
+    r = run_script(SCRIPT, args=("claim", "poll", "agent-ready", "", *bad), env=env, cwd=str(repo))
+    assert r.returncode == 2
+
+
+def test_window_of_a_paused_or_stopped_loop_is_skipped(repo, tmp_path):
+    """A paused loop's later fires refuse without running check, so window
+    must not repeat the last acting fire's ok."""
+    env = isolated_env(tmp_path)
+    lid = claim(repo, env)["id"]
+    rec(repo, env, "check", lid)
+    rec(repo, env, "append", lid, "dispatch", "#12")
+    assert rec(repo, env, "window", lid)["window"] == "ok"
+    rec(repo, env, "stop", lid, "operator stop")
+    for _ in range(3):
+        assert claim(repo, env)["action"] == "refuse"
+        assert rec(repo, env, "window", lid)["window"] == "skipped"

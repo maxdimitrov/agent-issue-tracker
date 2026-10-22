@@ -21,18 +21,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   but an `operator stop` (which pauses the scheduled loop), step 8 never
   `CronDelete`s a `schtasks:` id, and every fire ends with a
   `loop <id> window ok|skipped` line for the task's wrapper.
-  `scripts/loop-record.sh` gains `window <id>`; `check` stamps `last_fire` on
-  such a record, and `append` keeps two windows of entries.
+  `scripts/loop-record.sh` gains `claim` (a scheduled fire's load-or-create:
+  it only uses, reopens or pauses on the task's own record, and refuses while
+  an interactive or session-cron loop of the same mode and ref is live, so
+  that loop keeps its 1.12.0 budgets) and `window <id>` (always `skipped` for
+  a record that is not live); `check` numbers the fires of such a record,
+  and `append` keeps two windows of entries. An interactive fire never
+  adopts a live `schtasks:` record either.
 - **keel reporting, optional** (#181). With the
   [keel](https://github.com/maxdimitrov/keel) CLI on `PATH`,
   `scripts/loop-record.sh` spools `loop.created`, `loop.iteration` and
   `loop.stopped` events and a `loop:<id>` heartbeat carrying `cron_id`;
   `/work-issue` spools `work.started`, `work.pr_opened` and `work.done`
-  through the new `scripts/keel-emit.sh`; `/tracker-brief` shares its window
-  watermark with keel and lists the project's open keel findings. Every call
-  goes through `ait_keel` in `scripts/lib/common.sh`: spool only, capped,
-  silent. Without keel, or with `AIT_KEEL=0`, nothing is reported and nothing
-  behaves differently.
+  through the new `scripts/keel-emit.sh`, folded into Bash calls the
+  command already makes, and skipped outright when keel is not installed.
+  These go through `ait_keel` in `scripts/lib/common.sh`: spool only, capped,
+  silent. `/tracker-brief` lists the project's open keel findings from keel's
+  local cache and reads and sets its window watermark in keel directly
+  (`keel watermark get` / `set`, keyed by the project key). Without keel, or
+  with `AIT_KEEL=0`, nothing is reported and nothing behaves differently.
 - **`AIT_PROJECT_KEY`** (#181). When set to a safe name, `ait_project_key`
   returns it unchanged, so a separate clone or a runner checkout can share
   the primary checkout's state dir. `tests/test_project_key_parity.py` pins

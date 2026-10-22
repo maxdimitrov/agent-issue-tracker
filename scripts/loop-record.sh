@@ -24,6 +24,9 @@
 #   loop-record.sh list                           # live records, summarised
 #   loop-record.sh window <id>                    # recurring loops: this fire's
 #                                                 # `loop <id> window ok|skipped` line
+#   loop-record.sh claim <mode> <ref> <branch> --cron-id schtasks:<TaskName> [--restart]
+#                  [create flags]                 # a scheduled fire's load-or-create:
+#                                                 # {"action":"use|create|reopen|refuse",...}
 #
 # Exit 0 on success, 1 when the record does not exist, 2 on a usage error.
 #
@@ -330,17 +333,81 @@ case "$cmd" in
     # The line a recurring fire ends with: ok when an acting entry was
     # appended since this fire's `check`, skipped otherwise. check numbers
     # the fires (.fire) and append tags each entry with the current one, so
-    # two fires within one second never see each other's entries.
+    # two fires within one second never see each other's entries. A record
+    # that is not live is always skipped: a fire that only refused (a paused
+    # loop) never ran `check`, so its .fire still names an older fire.
+    # A fire that acts and then stops runs `window` before `stop`.
     [ $# -ge 1 ] || usage "window <id>"
     require "$1"
     # shellcheck disable=SC2016
     if ! jq -c --argjson now "$(date -u +%s)" "$WINDOW_JQ"'
       .fire as $f
-      | (if $f != null and any(.iterations[]; .fire == $f and acting) then "ok" else "skipped" end) as $w
+      | (if .state == "live" and $f != null and any(.iterations[]; .fire == $f and acting)
+         then "ok" else "skipped" end) as $w
       | {id, window: $w, line: ("loop " + .id + " window " + $w)}' "$(path_of "$1")"; then
       printf '{"error":"corrupt record","id":"%s"}\n' "$1"
       exit 1
     fi
+    ;;
+  claim)
+    # Recurring mode's load-or-create, for a fire of the scheduled task named
+    # by --cron-id. Only a record that task owns is ever used, reopened or
+    # paused-on: a live loop of the same mode and ref driven by anything else
+    # (an interactive /loop, a session cron) is left alone and the fire is
+    # refused, so that loop keeps its 1.12.0 budgets.
+    [ $# -ge 3 ] || usage "claim <mode> <ref> <branch> --cron-id schtasks:<TaskName> [--restart] [create flags]"
+    mode="$1"; ref="$2"; branch="$3"; shift 3
+    cron=""; restart=false; pass=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --cron-id) cron="${2:-}"; shift ;;
+        --restart) restart=true ;;
+        --merge | --draft) pass+=("$1") ;;
+        --max-iterations | --max-hours | --idle-stop-after | --interval) pass+=("$1" "${2:-}"); shift ;;
+        *) usage "unknown flag $1" ;;
+      esac
+      shift
+    done
+    case "$cron" in schtasks:?*) ;; *) usage "claim needs --cron-id schtasks:<TaskName>" ;; esac
+    [ -n "$mode" ] && [ -n "$ref" ] || usage "claim <mode> <ref> <branch> --cron-id schtasks:<TaskName>"
+    refuse() {
+      jq -nc --arg id "$1" --arg m "$2" --arg why "$3" \
+        '{action: "refuse", id: $id, reason: $why, message: $m, line: ("loop " + $id + " window skipped")}'
+      exit 0
+    }
+    live="$(all_records | jq -c --arg m "$mode" --arg r "$ref" \
+      '[.[] | select(.state == "live" and .mode == $m and .ref == $r)] | first // null')"
+    if [ "$live" != null ] && [ -n "$live" ]; then
+      lid="$(jq -r '.id' <<<"$live")"
+      lcron="$(jq -r '.cron_job_id // ""' <<<"$live")"
+      if [ "$lcron" = "$cron" ]; then
+        jq -nc --arg id "$lid" '{action: "use", id: $id}'
+        exit 0
+      fi
+      owner="${lcron:-another session (no cron id)}"
+      refuse "$lid" "loop $lid is owned by $owner; not acting" "owned by $owner"
+    fi
+    if [ "$restart" = false ]; then
+      newest="$(all_records | jq -c --arg m "$mode" --arg r "$ref" --arg c "$cron" \
+        '[.[] | select(.mode == $m and .ref == $r and .cron_job_id == $c)]
+         | sort_by(.started, (.id | length), .id) | last // null')"
+      if [ "$newest" != null ] && [ -n "$newest" ]; then
+        nid="$(jq -r '.id' <<<"$newest")"
+        nreason="$(jq -r '.stop_reason // ""' <<<"$newest")"
+        case "$nreason" in
+          "operator stop")
+            refuse "$nid" "loop $nid is stopped (operator stop); pass --restart to begin a new loop" "operator stop" ;;
+          checkpoint:*)
+            "$BASH" "$0" reopen "$nid" >/dev/null || exit 1
+            "$BASH" "$0" set-cron "$nid" "$cron" >/dev/null || exit 1
+            jq -nc --arg id "$nid" '{action: "reopen", id: $id}'
+            exit 0 ;;
+        esac
+      fi
+    fi
+    made="$("$BASH" "$0" create "$mode" "$ref" "$branch" --cron-id "$cron" ${pass[@]+"${pass[@]}"})" || {
+      printf '%s\n' "$made"; exit 1; }
+    jq -c '{action: "create", id, path}' <<<"$made"
     ;;
   get)
     [ $# -ge 1 ] || usage "get <id>"
@@ -352,6 +419,6 @@ case "$cmd" in
       | {id, mode, ref, branch, started, cron_job_id, prs_opened,
          iterations: (.iterations | length), last_action: (.iterations | last | .action // null)}]'
     ;;
-  *) usage "create|find|check|append|add-pr|set-cron|stop|reopen|get|list|window" ;;
+  *) usage "create|find|check|append|add-pr|set-cron|stop|reopen|get|list|window|claim" ;;
 esac
 exit 0
