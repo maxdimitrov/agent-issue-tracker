@@ -1,8 +1,8 @@
 ---
-description: Interactive scaffolder — writes `.claude/issue-tracker.yaml` for the consumer project. Refuses to overwrite without --force.
+description: Interactive scaffolder — writes `.claude/issue-tracker.yaml` for the consumer project, or non-interactively from an answers file with --answers. Refuses to overwrite without --force.
 ---
 
-# /tracker-init [--force]
+# /tracker-init [--force] [--answers <file>]
 
 Write a valid `.claude/issue-tracker.yaml` to the consumer project's root. This command walks you through an `AskUserQuestion`-driven flow to gather backend choice, backend-specific credentials and config, and project vocabulary. It assembles the YAML in memory per the schema and writes it atomically. Refuses to overwrite an existing config unless `--force` is passed. After init completes, run `/tracker-doctor` to validate the config end-to-end — `/tracker-init` writes; `/tracker-doctor` validates. The schema reference is [`examples/issue-tracker.yaml.example`](../examples/issue-tracker.yaml.example).
 
@@ -14,6 +14,8 @@ Write a valid `.claude/issue-tracker.yaml` to the consumer project's root. This 
 | `/tracker-init --force` | Interactive flow. Overwrites an existing `.claude/issue-tracker.yaml`. |
 | `/tracker-init --global` | Scaffold `~/.claude/issue-tracker.yaml` with the shared sections only. Refuses to overwrite an existing global file. |
 | `/tracker-init --global --force` | Same, overwriting. |
+| `/tracker-init --answers <file>` | Non-interactive: no questions, no probes. Renders the config from the answers file (see `--answers` below). Refuses to overwrite an existing `.claude/issue-tracker.yaml`. |
+| `/tracker-init --answers <file> --force` | Same, overwriting. |
 
 ## What you should do
 
@@ -108,7 +110,9 @@ If the subsystems answer is "No", record that `subsystems:` will be omitted from
 
 ### Phase 6 — Assemble the YAML
 
-Build the YAML string in memory. Start with the header comment block (VERBATIM, with the current ISO date substituted for `YYYY-MM-DD`):
+Render it with `"${CLAUDE_PLUGIN_ROOT}/scripts/tracker-init-render.sh" <answers-file>`, never by hand, so an interactive run and an `--answers` run with the same answers write the same file. Write the answers gathered in Phases 2–5 to a temp answers file in the shape `--answers` documents below (`backend`; `github.repo` and `github.project`, or `jira.site`, `jira.cloud_id`, `jira.project`, `jira.feature_type`, `jira.area_field` and `jira.parent_link_style`; the `areas` and `subsystems` lists), run the script on it, then delete the temp file. A non-zero exit prints `error: <why>` on stderr and nothing on stdout: report it and stop, writing nothing. The script prints the shape below, which is the schema this command writes.
+
+The header comment block (VERBATIM, with the current ISO date substituted for `YYYY-MM-DD`):
 
 ```yaml
 # .claude/issue-tracker.yaml — agent-issue-tracker schema v1
@@ -159,7 +163,7 @@ Omit `loops:` block entirely (optional; `/tracker-loop` uses the defaults docume
 
 ### Phase 7 — Write
 
-Invoke `Write` tool once with the consumer's CWD path `./.claude/issue-tracker.yaml` and the YAML string assembled in Phase 6. This is the sole point at which the file is written to disk — atomic, no intermediate files.
+Invoke `Write` tool once with the consumer's CWD path `./.claude/issue-tracker.yaml` and the script's stdout from Phase 6, unchanged. This is the sole point at which the config is written to disk — atomic; the temp answers file is the only intermediate file, and it is never the config.
 
 ### Phase 8 — Next-steps panel
 
@@ -183,6 +187,37 @@ Grant the token scope once with `gh auth refresh -s project,read:project`, then
 **For Jira:** Append: "If `/tracker-doctor` reports missing issue types in the project, it will print the next-step `getJiraProjectIssueTypesMetadata` call you can run."
 
 **For `--force` overwrites:** Prepend the entire output with: "(Overwrote existing config at `.claude/issue-tracker.yaml`.)"
+
+## `--answers <file>`
+
+The non-interactive mode, for a scaffolder or a script that already knows the answers (keel's `keel new project` is one). No `AskUserQuestion`, no `gh auth status`, no `gh repo view`, no Atlassian discovery: the answers are taken as given, and `/tracker-doctor` is still the validation step afterwards.
+
+1. Phase 1's existing-config guard runs exactly as in the interactive flow (`--force` to overwrite).
+2. Skip Phases 2–5. Run `"${CLAUDE_PLUGIN_ROOT}/scripts/tracker-init-render.sh" <file>` (Phase 6). A non-zero exit → print its `error:` line and stop; nothing is written.
+3. Phase 7 writes its stdout; Phase 8 prints the next-steps panel for the rendered backend.
+
+The answers file uses the plugin's flat YAML (top-level keys, two-space sections, `  - item` lists, `#` comments):
+
+```yaml
+backend: github                  # github | jira (required)
+github:
+  repo: owner/repo               # required for github
+  project: https://github.com/users/<owner>/projects/<N>   # optional board
+jira:
+  site: acme.atlassian.net       # required for jira; https:// and a trailing / are stripped
+  cloud_id: <cloud id>           # required for jira
+  project: TRADE                 # required for jira
+  feature_type: Story            # Story (default) | Task
+  area_field: components         # components (default) | labels
+  parent_link_style: native      # native (default) | epic_link
+areas:                           # optional
+  - backend
+subsystems:                      # optional
+  - ingest
+date: 2026-10-22                 # optional; the header's date (default today, UTC)
+```
+
+The same answers given interactively produce the same file, because both modes render through the one script. `--answers` does not combine with `--global`.
 
 ## `--global`
 
@@ -212,6 +247,7 @@ Writes `~/.claude/issue-tracker.yaml`: a base layer merged under every project f
 
 ## Failure modes
 
+- `--answers <file>` the script rejects (missing required key, a value outside a closed enum, unreadable file) → print the script's `error:` line and stop. Nothing is written; there is no prompt to fall back to.
 - Existing config + no `--force` → refuse to overwrite. Report the file's path; suggest `/tracker-doctor` (to validate the existing config) or `--force` (to overwrite). Stop.
 - GitHub: `gh` missing or unauthenticated (Phase 3a) → instruct operator to run `gh auth login` and re-invoke `/tracker-init`. Stop.
 - GitHub: CWD is not a GitHub repo (Phase 3b) → no default extracted. Operator enters repo manually via "Other" in Phase 3c. Continue.
