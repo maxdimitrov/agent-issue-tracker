@@ -369,7 +369,7 @@ case "$cmd" in
       shift
     done
     case "$cron" in schtasks:?*) ;; *) usage "claim needs --cron-id schtasks:<TaskName>" ;; esac
-    [ -n "$mode" ] && [ -n "$ref" ] || usage "claim <mode> <ref> <branch> --cron-id schtasks:<TaskName>"
+    if [ -z "$mode" ] || [ -z "$ref" ]; then usage "claim <mode> <ref> <branch> --cron-id schtasks:<TaskName>"; fi
     refuse() {
       jq -nc --arg id "$1" --arg m "$2" --arg why "$3" \
         '{action: "refuse", id: $id, reason: $why, message: $m, line: ("loop " + $id + " window skipped")}'
