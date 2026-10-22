@@ -656,7 +656,7 @@ if [ "$KL_ON" = true ]; then
     ($kb[0][0] // null) as $b
     | {project: (if $slug == "" then null else $slug end), watermark_scope: ("tracker-brief/" + $key),
        watermark: (if $wm == "" then null else $wm end),
-       window_from_keel: ($since_set | not) and $wm != "" and $wm == $last,
+       window_from_keel: (($since_set | not) and $wm != "" and $wm == $last),
        findings: (if $b == null then null
                   else [($b.findings // [])[] | {severity, check_id, title, fingerprint, state}] end),
        from_cache: (if $b == null then null else ($b.from_cache // null) end),

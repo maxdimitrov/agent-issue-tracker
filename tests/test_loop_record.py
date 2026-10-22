@@ -446,3 +446,19 @@ def test_window_unknown_and_usage(repo, tmp_path):
     assert rec(repo, env, "window", "nope", expect=1)["error"] == "no such loop"
     r = run_script(SCRIPT, args=("window",), env=env, cwd=str(repo))
     assert r.returncode == 2
+
+def test_window_ignores_an_earlier_fires_entry_from_the_same_second(repo, tmp_path):
+    """Fires are numbered: an acting entry from the previous fire never makes
+    this fire's window ok, whatever its timestamp says."""
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "poll", "agent-ready", "", "--cron-id", SCHED)["id"]
+    rec(repo, env, "check", lid)
+    rec(repo, env, "append", lid, "dispatch", "#12")
+    p = Path(rec(repo, env, "get", lid)["path"])
+    data = json.loads(p.read_text())
+    data["iterations"][-1]["at"] = "2999-01-01T00:00:00Z"
+    p.write_text(json.dumps(data))
+    rec(repo, env, "check", lid)
+    rec(repo, env, "append", lid, "wait", "", "--noop")
+    assert rec(repo, env, "window", lid)["window"] == "skipped"
+    assert [i["fire"] for i in rec(repo, env, "get", lid)["iterations"]] == [1, 2]

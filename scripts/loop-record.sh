@@ -35,8 +35,10 @@
 # in the current window; when they are spent, `check` says so with
 # recurring:true and the record stays live until the next window. max_hours
 # and idle_stop_after never stop it: an idle scheduled loop is the normal
-# state. `check` stamps `last_fire`, and `window` reports whether anything
-# acted since. `append` keeps only the current and previous window's entries.
+# state. `check` stamps `last_fire` and numbers the fire (`fire`), `append`
+# tags its entry with that number, and `window` reports whether anything
+# acted in this fire. `append` keeps only the current and previous window's
+# entries.
 # Every other record behaves as before.
 #
 # keel: with the keel CLI on PATH (and AIT_KEEL not 0), create, append, stop,
@@ -226,7 +228,7 @@ case "$cmd" in
     nowe="$(date -u +%s)"
     if jq -e "$WINDOW_JQ"' recurring and .state == "live"' --argjson now "$nowe" "$p" >/dev/null 2>&1; then
       # shellcheck disable=SC2016
-      modify "$1" --arg at "$(now)" '.last_fire = $at'
+      modify "$1" --arg at "$(now)" '.last_fire = $at | .fire = ((.fire // 0) + 1)'
       if ! jq -c --argjson now "$nowe" "$WINDOW_JQ"'
         win_start as $ws
         | [.iterations[] | select((.at | epoch) >= $ws)] as $win
@@ -271,7 +273,7 @@ case "$cmd" in
     # shellcheck disable=SC2016
     modify "$id" --arg at "$(now)" --arg a "$action" --arg d "$detail" --argjson n "$noop" \
       --argjson now "$(date -u +%s)" "$WINDOW_JQ"'
-      .iterations += [{at: $at, action: $a, detail: $d, noop: $n}]
+      .iterations += [{at: $at, action: $a, detail: $d, noop: $n} + (if .fire then {fire: .fire} else {} end)]
       | if recurring then (win_start - win_secs) as $cut
           | .iterations |= map(select((.at | epoch) >= $cut)) else . end'
     jq -c '{id, iterations: (.iterations | length), last_action: (.iterations | last | .action)}' "$(path_of "$id")"
@@ -326,13 +328,15 @@ case "$cmd" in
     ;;
   window)
     # The line a recurring fire ends with: ok when an acting entry was
-    # appended since this fire's `check` (last_fire), skipped otherwise.
+    # appended since this fire's `check`, skipped otherwise. check numbers
+    # the fires (.fire) and append tags each entry with the current one, so
+    # two fires within one second never see each other's entries.
     [ $# -ge 1 ] || usage "window <id>"
     require "$1"
     # shellcheck disable=SC2016
     if ! jq -c --argjson now "$(date -u +%s)" "$WINDOW_JQ"'
-      (.last_fire // .started) as $since
-      | (if any(.iterations[]; .at >= $since and acting) then "ok" else "skipped" end) as $w
+      .fire as $f
+      | (if $f != null and any(.iterations[]; .fire == $f and acting) then "ok" else "skipped" end) as $w
       | {id, window: $w, line: ("loop " + .id + " window " + $w)}' "$(path_of "$1")"; then
       printf '{"error":"corrupt record","id":"%s"}\n' "$1"
       exit 1
