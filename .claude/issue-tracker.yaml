@@ -1,0 +1,19 @@
+# .claude/issue-tracker.yaml — agent-issue-tracker schema v1
+#
+# Written by /tracker-init on 2026-10-22. Schema reference:
+# https://github.com/maxdimitrov/agent-issue-tracker/blob/main/examples/issue-tracker.yaml.example
+#
+# Run /tracker-doctor to validate this config.
+
+schema_version: 1
+backend: github
+github:
+  repo: maxdimitrov/agent-issue-tracker
+  default_pr_close_syntax: "Fixes #N"
+
+# The repo's own scheduled loop (keel's `Tracker Loop agent-issue-tracker` task)
+# fires every loops.interval; budgets as the defaults in the schema example.
+loops:
+  interval: 15m
+  pr_mode: draft
+  poll_label: agent-ready
