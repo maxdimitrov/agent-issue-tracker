@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Release-gate smokes
 
 Per `CONTRIBUTING.md` "Release process", run 2026-10-22 against the release
-branch (`feat/keel-emitters` at 733dac6) before tagging. This release
+branch (`feat/keel-emitters`; smokes 6 and 7 at 733dac6, the rest and the automated run at eb7500b) before tagging. This release
 changes the surface of smokes 3 (`/tracker-init`), 9 (`/tracker-brief`) and
 10 (`/tracker-loop`), plus the install pair (6, 7). The headless parts were
 run in the release-branch session; the parts that need an interactive Claude
@@ -107,7 +107,7 @@ the tag.
   on the branch with no errors. PENDING (interactive session): `/session-brief`
   printing both links and writing the resume note, and `/tracker-brief` run
   twice as commands.
-- **10. Babysit loop — PARTIAL.** Headless, `scripts/loop-record.sh` driven
+- **10. Babysit loop — PARTIAL.** Headless, at eb7500b, `scripts/loop-record.sh` driven
   as a scheduled poll (`claim` / `check` / `append` / `window`): three idle
   fires stay live and print `window skipped`, an acting fire prints
   `window ok`, a spent window reports `window: max_iterations` without
@@ -119,7 +119,7 @@ the tag.
   interactive session): `/loop /agent-issue-tracker:tracker-loop babysit
   <pr>` against a deliberately red PR, as CONTRIBUTING.md describes.
 - **Automated.** Full `pytest -q` on Windows (Git Bash) with keel absent from
-  `PATH`, at 733dac6: 536 passed, 1 skipped. CI on #182 runs the same suite
+  `PATH`, at eb7500b: 542 passed, 1 skipped. CI on #182 runs the same suite
   on Linux.
 
 ## [1.12.0] - 2026-10-09
