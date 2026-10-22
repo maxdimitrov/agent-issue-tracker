@@ -58,13 +58,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Release-gate smokes
 
-Per `CONTRIBUTING.md` "Release process", to be recorded in the release
-session before tagging. This release changes the surface of smokes 3
-(`/tracker-init`), 9 (`/tracker-brief`) and 10 (`/tracker-loop`), plus the
-install pair (6, 7); 1, 2, 4, 5 and 8 are unchanged.
+Per `CONTRIBUTING.md` "Release process", run 2026-10-22 against the release
+branch (`feat/keel-emitters` at 733dac6) before tagging. This release
+changes the surface of smokes 3 (`/tracker-init`), 9 (`/tracker-brief`) and
+10 (`/tracker-loop`), plus the install pair (6, 7). The headless parts were
+run in the release-branch session; the parts that need an interactive Claude
+Code session or the owner are marked PENDING and are recorded here before
+the tag.
 
+- **1. GitHub backend smoke — CARRIED FORWARD from 1.12.0.**
+  `backends/github.md` and the issue-shape skills are unchanged.
+- **2. Jira backend smoke — CARRIED FORWARD / DEFERRED.** The Jira backend is
+  unchanged, and the release session has no Atlassian connector.
+- **3. `/tracker-init` from blank state — PARTIAL.** Headless: the new
+  `--answers` path's renderer (`scripts/tracker-init-render.sh`) wrote a
+  GitHub config from an answers file into a blank repo; `config-resolve.sh`
+  reads back `backend`, `github.repo` and `default_pr_close_syntax`; it
+  carries the keys `examples/github-config.yaml` has; a missing answers
+  file exits 2. PENDING (interactive session): the `AskUserQuestion` flow on
+  both backends and the next-step panel.
+- **4. `/tracker-doctor` — CARRIED FORWARD.** Unchanged.
+- **5. `/resume-initiative` against both epic shapes — CARRIED FORWARD.**
+  Unchanged.
+- **6. Install path — PASS (isolated config dir, release branch).** Bare
+  `CLAUDE_CONFIG_DIR` at a short path: `claude plugin marketplace add
+  https://github.com/maxdimitrov/agent-issue-tracker.git#feat/keel-emitters`
+  and `claude plugin install agent-issue-tracker` both exit 0;
+  `installed_plugins.json` records **1.13.0** at 733dac6. A config dir under
+  the long session scratch path failed the clone (`Filename too long`), as in
+  1.12.0.
+- **7. Plugin loads enabled post-install — PASS for the CLI checks.** After
+  adding `claude-plugins-official` and installing `superpowers` 7.0.0,
+  `claude plugin list` shows `enabled` at 1.13.0 and `claude plugin details`
+  inventories Skills (19) and Hooks (2): SessionStart and Stop. PENDING
+  (interactive session): `/tracker-doctor`, `/tracker-init` and
+  `/resume-initiative` resolving as slash commands in a fresh session opened
+  on the install.
+- **8. Session-title hook — CARRIED FORWARD.** The hook is unchanged;
+  `ait_project_key` only gains the `AIT_PROJECT_KEY` override (pinned by
+  `tests/test_project_key_parity.py`).
+- **9. Briefs — PARTIAL.** Headless, in this repository with real `gh` and
+  `AIT_KEEL=0` against an isolated state dir: `tracker-brief-collect.sh`
+  ran, `--commit-run <generated_at>` stamped it, and the second run's
+  `window.since` equals that stamp; `session-brief-collect.sh` finds PR #182
+  on the branch with no errors. PENDING (interactive session): `/session-brief`
+  printing both links and writing the resume note, and `/tracker-brief` run
+  twice as commands.
+- **10. Babysit loop — PARTIAL.** Headless, `scripts/loop-record.sh` driven
+  as a scheduled poll (`claim` / `check` / `append` / `window`): three idle
+  fires stay live and print `window skipped`, an acting fire prints
+  `window ok`, a spent window reports `window: max_iterations` without
+  stopping, an operator stop pauses the task (`claim` refuses with the
+  `is stopped` line and `window skipped`) until `--restart`, and a live
+  interactive loop of another ref is refused, not adopted. PENDING (owner,
+  interactive session): `/loop /agent-issue-tracker:tracker-loop babysit
+  <pr>` against a deliberately red PR, as CONTRIBUTING.md describes.
 - **Automated.** Full `pytest -q` on Windows (Git Bash) with keel absent from
-  `PATH`, at the release branch: 525 passed, 1 skipped. The same suite on Linux (python:3.11-slim, jq 1.7, the CI image's jq) passes too.
+  `PATH`, at 733dac6: 536 passed, 1 skipped. CI on #182 runs the same suite
+  on Linux.
 
 ## [1.12.0] - 2026-10-09
 
