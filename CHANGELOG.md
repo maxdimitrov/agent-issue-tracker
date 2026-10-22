@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Recurring mode for `/tracker-loop`** (#181, maxdimitrov/keel#14). A loop
+  fired by Windows Task Scheduler passes `--cron-id "schtasks:<TaskName>"`;
+  its record's budgets then count per window (`max_hours` long, back to back
+  from `started`) instead of per lifetime. `max_iterations` counts the
+  window's acting entries, and neither `max_hours` nor `idle_stop_after`
+  stops the loop, so a scheduled poll no longer dies after about three idle
+  hours while every fire exits green. `--restart` is implicit after any stop
+  but an `operator stop` (which pauses the scheduled loop), step 8 never
+  `CronDelete`s a `schtasks:` id, and every fire ends with a
+  `loop <id> window ok|skipped` line for the task's wrapper.
+  `scripts/loop-record.sh` gains `window <id>`; `check` stamps `last_fire` on
+  such a record, and `append` keeps two windows of entries.
+- **keel reporting, optional** (#181). With the
+  [keel](https://github.com/maxdimitrov/keel) CLI on `PATH`,
+  `scripts/loop-record.sh` spools `loop.created`, `loop.iteration` and
+  `loop.stopped` events and a `loop:<id>` heartbeat carrying `cron_id`;
+  `/work-issue` spools `work.started`, `work.pr_opened` and `work.done`
+  through the new `scripts/keel-emit.sh`; `/tracker-brief` shares its window
+  watermark with keel and lists the project's open keel findings. Every call
+  goes through `ait_keel` in `scripts/lib/common.sh`: spool only, capped,
+  silent. Without keel, or with `AIT_KEEL=0`, nothing is reported and nothing
+  behaves differently.
+- **`AIT_PROJECT_KEY`** (#181). When set to a safe name, `ait_project_key`
+  returns it unchanged, so a separate clone or a runner checkout can share
+  the primary checkout's state dir. `tests/test_project_key_parity.py` pins
+  the key across the Git Bash, forward-slash and backslash spellings of one
+  path, in bash and in a Python port.
+- **`/tracker-init --answers <file>`** (#181). Non-interactive: renders the
+  config from an answers file, with no prompts or probes. Both modes now
+  render through `scripts/tracker-init-render.sh`, so the same answers give
+  the same file.
+
+### Changed
+
+- The repo itself is adopted into keel: its own `.claude/issue-tracker.yaml`
+  (with a `loops:` block for its scheduled poll), `.keel/project.yaml` and a
+  `DECISIONS.md` in keel's dated grammar.
+
 ## [1.12.0] - 2026-10-09
 
 ### Added

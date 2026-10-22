@@ -78,11 +78,14 @@ merge_method: squash
 
 # Optional. Budgets and defaults for /tracker-loop and the --loop flag on
 # /work-issue and /resume-initiative. Every key optional; defaults shown.
+# A loop fired by a scheduled task (--cron-id schtasks:<TaskName>) counts its
+# budgets per window of max_hours instead: max_iterations caps the acting
+# iterations in each window, and neither max_hours nor idle_stop_after stops it.
 loops:
   interval: 15m            # cron cadence for --loop; poll idle cadence
-  max_iterations: 50       # per loop record
-  max_hours: 24            # wall-clock since the loop started
-  idle_stop_after: 12      # consecutive no-change iterations before stopping
+  max_iterations: 50       # per loop record (per window for a scheduled loop)
+  max_hours: 24            # wall-clock since the loop started (a scheduled loop's window length)
+  idle_stop_after: 12      # consecutive no-change iterations before stopping (not for a scheduled loop)
   pr_mode: draft           # draft | ready — PRs opened by unattended loops
   poll_label: agent-ready  # label /tracker-loop poll dispatches on
   # claim_label: agent-claimed   # applied on dispatch; never removed (no remove_label op)
