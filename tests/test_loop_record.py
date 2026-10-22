@@ -1,5 +1,6 @@
 """Subprocess tests for scripts/loop-record.sh."""
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -556,3 +557,70 @@ def test_window_of_a_paused_or_stopped_loop_is_skipped(repo, tmp_path):
     for _ in range(3):
         assert claim(repo, env)["action"] == "refuse"
         assert rec(repo, env, "window", lid)["window"] == "skipped"
+
+# --- claim vs an abandoned loop; find --no-scheduled ---------------------------
+
+KEEL_SKIPPED_RE = re.compile(r"^loop \S+ is (?:stopped|owned by)\b")   # keel's runner, keel#67
+
+
+def test_claim_stops_an_interactive_loop_past_its_max_hours_and_creates(repo, tmp_path):
+    """The record a 1.12.0-era `poll --restart` fire (or a closed /loop) left
+    live: its own next check would stop it, so claim stops it with that very
+    reason and takes over."""
+    env = isolated_env(tmp_path)
+    old = rec(repo, env, "create", "poll", "agent-ready", "", "--max-hours", "2")["id"]
+    _rewrite(repo, env, old, started=_iso(datetime.now(timezone.utc) - timedelta(hours=3)))
+    made = claim(repo, env)
+    assert made["action"] == "create" and made["id"] != old
+    full = rec(repo, env, "get", old)
+    assert full["state"] == "stopped" and full["stop_reason"] == "budget: max_hours"
+    assert full["cron_job_id"] is None
+
+
+def test_claim_stops_an_idle_interactive_loop(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    old = rec(repo, env, "create", "poll", "agent-ready", "", "--idle-stop-after", "2")["id"]
+    rec(repo, env, "append", old, "wait", "", "--noop")
+    rec(repo, env, "append", old, "wait", "", "--noop")
+    assert claim(repo, env)["action"] == "create"
+    assert rec(repo, env, "get", old)["stop_reason"] == "budget: idle_stop_after"
+
+
+def test_claim_stops_a_loop_nothing_has_iterated_for_four_steps(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    old = rec(repo, env, "create", "poll", "agent-ready", "", "--interval", "15m")["id"]
+    _rewrite(repo, env, old, started=_iso(datetime.now(timezone.utc) - timedelta(minutes=125)))
+    assert claim(repo, env)["action"] == "create"
+    assert rec(repo, env, "get", old)["stop_reason"] == "orphaned: no iteration in 120 min"
+
+
+def test_claim_refuses_a_fresh_interactive_loop_with_a_line_keel_records_as_skipped(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    lid = rec(repo, env, "create", "poll", "agent-ready", "")["id"]
+    rec(repo, env, "append", lid, "dispatch", "#3")
+    out = claim(repo, env)
+    assert out["action"] == "refuse"
+    assert KEEL_SKIPPED_RE.match(out["message"]), out["message"]
+    assert rec(repo, env, "get", lid)["state"] == "live"
+
+
+def test_claim_prefers_its_own_live_record_over_another(repo, tmp_path):
+    env = isolated_env(tmp_path)
+    mine = claim(repo, env)["id"]
+    rec(repo, env, "create", "poll", "agent-ready", "")
+    assert claim(repo, env) == {"action": "use", "id": mine}
+
+
+def test_find_no_scheduled_skips_a_tasks_records(repo, tmp_path):
+    """The interactive path never reopens or reports on a scheduled task's
+    record, live or stopped."""
+    env = isolated_env(tmp_path)
+    sched = claim(repo, env)["id"]
+    assert rec(repo, env, "find", "--no-scheduled", "poll", "agent-ready") is None
+    assert rec(repo, env, "find", "poll", "agent-ready")["id"] == sched
+    rec(repo, env, "stop", sched, "needs-you")
+    assert rec(repo, env, "find", "--any", "--no-scheduled", "poll", "agent-ready") is None
+    assert rec(repo, env, "find", "--any", "poll", "agent-ready")["id"] == sched
+    mine = rec(repo, env, "create", "poll", "agent-ready", "")["id"]
+    rec(repo, env, "stop", mine, "operator stop")
+    assert rec(repo, env, "find", "--no-scheduled", "--any", "poll", "agent-ready")["id"] == mine

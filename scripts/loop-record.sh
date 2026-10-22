@@ -7,9 +7,11 @@
 # Usage:
 #   loop-record.sh create <mode> <ref> <branch> [--merge] [--draft] [--cron-id <id>]
 #                  [--max-iterations N] [--max-hours N] [--idle-stop-after N] [--interval <s>]
-#   loop-record.sh find [--any] <mode> <ref>      # live record with that mode+ref, or null;
+#   loop-record.sh find [--any] [--no-scheduled] <mode> <ref>
+#                                                 # live record with that mode+ref, or null;
 #                                                  # --any: newest record regardless of state
-#                                                  # (by started, ties broken by id)
+#                                                  # (by started, ties broken by id);
+#                                                  # --no-scheduled: skip schtasks: records
 #   loop-record.sh check <id>                     # {"ok":true,...} or {"ok":false,"reason":...}
 #                                                 # max_iterations counts entries whose
 #                                                 # action is not "skip"
@@ -213,15 +215,28 @@ case "$cmd" in
     keel_beat "$id"
     ;;
   find)
-    any=false
-    [ "${1:-}" = "--any" ] && { any=true; shift; }
-    [ $# -ge 2 ] || usage "find [--any] <mode> <ref>"
+    # --no-scheduled leaves out records a scheduled task owns (cron_job_id
+    # schtasks:*), for the interactive path: it must never reopen or report
+    # on a task's record.
+    any=false; nosched=false
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --any) any=true; shift ;;
+        --no-scheduled) nosched=true; shift ;;
+        *) break ;;
+      esac
+    done
+    [ $# -ge 2 ] || usage "find [--any] [--no-scheduled] <mode> <ref>"
     if [ "$any" = true ]; then
-      all_records | jq -c --arg m "$1" --arg r "$2" \
-        '[.[] | select(.mode == $m and .ref == $r)] | sort_by(.started, (.id | length), .id) | last // null'
+      all_records | jq -c --arg m "$1" --arg r "$2" --argjson ns "$nosched" \
+        '[.[] | select(.mode == $m and .ref == $r)
+              | select(($ns | not) or ((.cron_job_id // "") | startswith("schtasks:") | not))]
+         | sort_by(.started, (.id | length), .id) | last // null'
     else
-      all_records | jq -c --arg m "$1" --arg r "$2" \
-        '[.[] | select(.state == "live" and .mode == $m and .ref == $r)] | first // null'
+      all_records | jq -c --arg m "$1" --arg r "$2" --argjson ns "$nosched" \
+        '[.[] | select(.state == "live" and .mode == $m and .ref == $r)
+              | select(($ns | not) or ((.cron_job_id // "") | startswith("schtasks:") | not))]
+         | first // null'
     fi
     ;;
   check)
@@ -375,18 +390,44 @@ case "$cmd" in
         '{action: "refuse", id: $id, reason: $why, message: $m, line: ("loop " + $id + " window skipped")}'
       exit 0
     }
-    live="$(all_records | jq -c --arg m "$mode" --arg r "$ref" \
-      '[.[] | select(.state == "live" and .mode == $m and .ref == $r)] | first // null')"
-    if [ "$live" != null ] && [ -n "$live" ]; then
-      lid="$(jq -r '.id' <<<"$live")"
-      lcron="$(jq -r '.cron_job_id // ""' <<<"$live")"
-      if [ "$lcron" = "$cron" ]; then
-        jq -nc --arg id "$lid" '{action: "use", id: $id}'
-        exit 0
-      fi
-      owner="${lcron:-another session (no cron id)}"
-      refuse "$lid" "loop $lid is owned by $owner; not acting" "owned by $owner"
+    live_all="$(all_records | jq -c --arg m "$mode" --arg r "$ref" \
+      '[.[] | select(.state == "live" and .mode == $m and .ref == $r)]')"
+    own="$(jq -r --arg c "$cron" '[.[] | select(.cron_job_id == $c) | .id] | first // empty' <<<"$live_all")"
+    if [ -n "$own" ]; then
+      jq -nc --arg id "$own" '{action: "use", id: $id}'
+      exit 0
     fi
+    # A live loop another driver runs is left alone while it is alive. It is
+    # abandoned, and stopped with the reason, when its own next `check` would
+    # already stop it (the 1.12.0 budgets: max_iterations, max_hours,
+    # idle_stop_after, in check's order), or when nothing has iterated it for
+    # four of its pacing steps (its interval, at least 30 minutes, the
+    # slowest idle hint a session loop gets): a closed or Esc'd /loop, or the
+    # cron-less record a 1.12.0-era `poll --restart` fire left behind.
+    for oid in $(jq -r '.[].id' <<<"$live_all" | tr -d '\r'); do
+      step="$(keel_minutes "$(jq -r '.options.interval // "15m"' "$(path_of "$oid")" 2>/dev/null)")"
+      # shellcheck disable=SC2016
+      why="$(jq -r --argjson now "$(date -u +%s)" --argjson stale "$((step * 4 * 60))" "$WINDOW_JQ"'
+        ([.iterations[] | select(.action != "skip")] | length) as $n
+        | (($now - (.started | epoch)) / 3600) as $hours
+        | (.iterations | length) as $len
+        | ([.iterations | reverse[] | (.noop == true)] | index(false) // $len) as $trailing
+        | ((.iterations | last | .at // null) // .started | epoch) as $last
+        | if recurring then null
+          elif $n >= .budget.max_iterations then "budget: max_iterations"
+          elif $hours >= .budget.max_hours then "budget: max_hours"
+          elif $trailing >= .budget.idle_stop_after then "budget: idle_stop_after"
+          else null end
+        | . // (if ($now - $last) >= $stale then "orphaned: no iteration in \($stale / 60 | floor) min" else null end)
+        | . // empty' "$(path_of "$oid")" 2>/dev/null)"
+      if [ -n "$why" ]; then
+        "$BASH" "$0" stop "$oid" "$why" >/dev/null || exit 1
+        continue
+      fi
+      ocron="$(jq -r '.cron_job_id // ""' "$(path_of "$oid")")"
+      owner="${ocron:-another session (no cron id)}"
+      refuse "$oid" "loop $oid is owned by $owner; not acting" "owned by $owner"
+    done
     if [ "$restart" = false ]; then
       newest="$(all_records | jq -c --arg m "$mode" --arg r "$ref" --arg c "$cron" \
         '[.[] | select(.mode == $m and .ref == $r and .cron_job_id == $c)]
@@ -398,8 +439,12 @@ case "$cmd" in
           "operator stop")
             refuse "$nid" "loop $nid is stopped (operator stop); pass --restart to begin a new loop" "operator stop" ;;
           checkpoint:*)
-            "$BASH" "$0" reopen "$nid" >/dev/null || exit 1
-            "$BASH" "$0" set-cron "$nid" "$cron" >/dev/null || exit 1
+            # reopen with the task's cron id kept, in one write (a plain
+            # reopen clears it, and a second write could be lost).
+            # shellcheck disable=SC2016
+            modify "$nid" --arg c "$cron" '.state = "live" | .stop_reason = null | .stop_transcript = null
+              | .stopped = null | .cron_job_id = $c'
+            keel_beat "$nid"
             jq -nc --arg id "$nid" '{action: "reopen", id: $id}'
             exit 0 ;;
         esac
