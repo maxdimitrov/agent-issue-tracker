@@ -1,6 +1,6 @@
 # agent-issue-tracker
 
-Portable issue-tracking skills + slash commands for Claude Code. Six skills, thirteen slash commands, one session-title hook, two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
+Portable issue-tracking skills + slash commands for Claude Code. Six skills, thirteen slash commands, two hooks (session titles and tracker nudges), two backends (GitHub via `gh`; Jira Cloud via the Atlassian Remote MCP). Install once; reuse across personal and work projects.
 
 ## What this is
 
@@ -25,14 +25,14 @@ Thirteen slash commands:
 
 | Command | What it does |
 | --- | --- |
-| [`/tracker-init`](commands/tracker-init.md) | Interactive scaffolder — writes `.claude/issue-tracker.yaml` from prompts |
+| [`/tracker-init`](commands/tracker-init.md) | Interactive scaffolder — writes `.claude/issue-tracker.yaml` from prompts, or from an answers file with `--answers` |
 | [`/tracker-doctor`](commands/tracker-doctor.md) | Validates the config + backend reachability + vocabulary sanity |
 | [`/resume-initiative`](commands/resume-initiative.md) | Loads an epic, prints status, optionally enters a worktree on the next-up child |
 | [`/work-issue`](commands/work-issue.md) | Drives ONE named issue end-to-end — read, scope, worktree, brainstorm → plan → execute → verify → PR |
 | [`/audit-skills`](commands/audit-skills.md) | PR-time doc-currency audit — lists docs whose references may be stale vs the branch's diff; informational, never blocks |
 | [`/session-brief`](commands/session-brief.md) | Catch up on the current session — issue + PR links, CI, review threads awaiting you, a keep-going / compact / fresh verdict, and a resume note |
 | [`/tracker-brief`](commands/tracker-brief.md) | Inbound digest since the last run — tracker activity, PRs, worktrees, resume notes and loop records joined into one ledger with a verdict per issue |
-| [`/tracker-loop`](commands/tracker-loop.md) | One iteration of an unattended loop — babysit a PR, clear an epic, or poll a label — with budgets on disk; recurrence via `/loop` or `--loop` |
+| [`/tracker-loop`](commands/tracker-loop.md) | One iteration of an unattended loop — babysit a PR, clear an epic, or poll a label — with budgets on disk; recurrence via `/loop`, `--loop`, or a scheduled task (`--cron-id schtasks:<TaskName>`) |
 | [`/new-tab`](commands/new-tab.md) | Open a new Claude Code tab in VS Code with a prompt typed in, ready for Enter — the handoff `/file-followup` and `/session-brief` offer, on demand with any prompt, or with none for the next step the session named; prints the prompt for copy-paste off VS Code |
 | [`/file-bug`](commands/file-bug.md) | Discoverable entry-point for the `bug-tracking` skill |
 | [`/file-feature`](commands/file-feature.md) | Discoverable entry-point for the `feature-request` skill |
@@ -132,15 +132,40 @@ only at start/resume — mid-session focus shifts get a paste-ready `/rename`
 suggestion from the `initiative-tracking` skill instead. Jira projects get
 branch refs + AI summaries but no epic enrichment (hooks cannot reach MCP).
 
+## Tracker nudges
+
+In a configured project, `hooks/nudge.sh` shows at most one short
+`[tracker]` line to you (never to the model) at two moments:
+
+- **On resume**, when the branch works under an open epic:
+  `[tracker] Resuming #12 on epic #7 "Obs rollout". /session-brief for the full picture.`
+  (from the breadcrumb) or
+  `[tracker] Resuming on epic #7 "Obs rollout" -- next up: #13. /session-brief for the full picture.`
+  (from the GitHub lookup). The epic comes from a breadcrumb `/work-issue` and `/resume-initiative --start`
+  leave (any backend), else, on GitHub, from the same cached lookup the title uses.
+- **After a turn that deferred scope** ("out of scope for this PR", "in a
+  separate PR", "later phase", ...) in a session that committed or opened a PR
+  and filed nothing: `[tracker] Scope was deferred this turn and nothing was filed -- /file-followup?`
+
+Each nudge shows once per session. Turn them off with `AIT_NUDGES=0`, per kind
+with `AIT_NUDGES_OFF=resume,deferral`, or per project with `nudges: false`.
+Fail-open like the title hook: any failure means no message.
+
 ## Briefs and loops
 
 Two briefs and one loop runtime, all backed by scripts that always exit 0 and print JSON, with state under `${XDG_CACHE_HOME:-~/.cache}/agent-issue-tracker/<project-key>/` and never inside a repo.
 
 - **`/session-brief`** re-orients you in the session you are in: what you were doing, what needs you (review threads, red CI, conflicts), what is already resolved, and whether to keep going, `/compact`, or start fresh — with a resume note written for a cold start.
 - **`/tracker-brief`** is the morning read: what moved in the tracker and on the git host since the last run, joined to your worktrees and resume notes, with one verdict per issue — Needs action, Status drift (a merged PR whose issue never closed), Waiting, Closeable, Stale, or No code artifact.
-- **`/tracker-loop`** runs one iteration of an unattended loop. Three modes: `babysit` watches a PR to green and addresses code-level review comments; `clear` works an epic leaf by leaf through `/work-issue`; `poll` dispatches `/work-issue` on issues carrying a label. Recurrence is the harness's: `/loop /agent-issue-tracker:tracker-loop babysit #42` (self-paced) or `/loop 15m …` (fixed), or pass `--loop` to `/work-issue` / `/resume-initiative --start` to arm a session cron. Budgets (`loops:` in the config) are enforced from the record on disk, a judgement question from a reviewer always stops the loop, and nothing merges without `--merge`. A stopped loop stays stopped on later fires (a `checkpoint: fresh session` stop is the exception, it hands off through the resume note), and `/tracker-loop <mode> <ref> --restart` begins a new one.
+- **`/tracker-loop`** runs one iteration of an unattended loop. Three modes: `babysit` watches a PR to green and addresses code-level review comments; `clear` works an epic leaf by leaf through `/work-issue`; `poll` dispatches `/work-issue` on issues carrying a label. Recurrence is the harness's: `/loop /agent-issue-tracker:tracker-loop babysit #42` (self-paced) or `/loop 15m …` (fixed), or pass `--loop` to `/work-issue` / `/resume-initiative --start` to arm a session cron. Budgets (`loops:` in the config) are enforced from the record on disk, a judgement question from a reviewer always stops the loop, and nothing merges without `--merge`. A stopped loop stays stopped on later fires (a `checkpoint: fresh session` stop is the exception, it hands off through the resume note), and `/tracker-loop <mode> <ref> --restart` begins a new one. For a loop that runs for weeks, a scheduled task fires `/tracker-loop poll --cron-id "schtasks:<TaskName>"` in a fresh session each time: its budgets count per window instead of per lifetime, so it never stops on them, and every fire ends with a `loop <id> window ok|skipped` line for the task's wrapper (see `/tracker-loop` "Recurring mode").
 
 **New tab handoff (VS Code only).** After `/file-followup` files an issue, or when `/session-brief` says **fresh session**, the agent offers to open a new Claude Code tab with the next prompt typed in: `/agent-issue-tracker:work-issue <ref>`, or a pointer to the resume note. It uses the extension's URI handler (`code --open-url "vscode://anthropic.claude-code/open?prompt=…"`, via `scripts/open-session-tab.sh`). The prompt is not submitted, so you press Enter, and VS Code asks once to allow the URI. It is always an offer, never automatic. In the CLI or JetBrains, the prompt is printed for copy-paste as before. `/new-tab <prompt>` opens the same tab on demand with any prompt, outside either flow; invoking it is the consent, so there is no offer step. A bare `/new-tab` takes the next step the session itself named (a `/work-issue <ref>` it said is workable, a resume note it wrote), and asks only when it named several or none.
+
+## keel (optional)
+
+[keel](https://github.com/maxdimitrov/keel) is an owner-run project ledger. When its `keel` CLI is on `PATH`, loops and `/work-issue` report into it through keel's local spool and never make a network call doing so: `scripts/loop-record.sh` sends `loop.created`, `loop.iteration` and `loop.stopped` events and a `loop:<id>` heartbeat, and `/work-issue` sends `work.started`, `work.pr_opened` and `work.done` (`scripts/keel-emit.sh`). `/tracker-brief` is the one direct caller: it reads the project's open findings from keel's local cache, and reads and sets its window watermark in keel's database (`keel watermark get` / `set`), keyed by the project key (below). A brief read in another worktree, or on another machine whose checkout has the same path or the same `AIT_PROJECT_KEY`, therefore moves the window for both. The project is the `slug` in the repo's `.keel/project.yaml`. Without keel nothing is reported and nothing behaves differently; `AIT_KEEL=0` turns reporting off with keel installed.
+
+The per-project state directory is keyed by `<basename>-<sha256 of the main checkout's path>[0:8]`, so every worktree of a repo shares it, and the Git Bash, forward-slash and backslash spellings of one path give one key (`tests/test_project_key_parity.py`). A separate clone, or a runner checkout that is not a worktree of the primary repo, gets a different key; set `AIT_PROJECT_KEY=<key>` (letters, digits, `.`, `_`, `-`) to make it share the primary's.
 
 ## Walkthroughs
 
@@ -220,7 +245,7 @@ A GitLab backend is filed as [#4](https://github.com/maxdimitrov/agent-issue-tra
 
 The current release is the top entry in [CHANGELOG.md](CHANGELOG.md); every shipped capability is recorded there with its issue and PR numbers. Open work, in priority order, lives in [the issues list](https://github.com/maxdimitrov/agent-issue-tracker/issues?q=is%3Aissue+is%3Aopen+label%3Aenhancement):
 
-- **Session-boundary nudges** via hook `systemMessage` (#114, needs a design pass).
+- **More nudges** — model-facing deferral nudge ([#174](https://github.com/maxdimitrov/agent-issue-tracker/issues/174)), missing in-progress signal ([#175](https://github.com/maxdimitrov/agent-issue-tracker/issues/175)), stale initiative ([#176](https://github.com/maxdimitrov/agent-issue-tracker/issues/176)), desktop banner ([#177](https://github.com/maxdimitrov/agent-issue-tracker/issues/177)).
 
 ## License
 

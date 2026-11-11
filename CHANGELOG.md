@@ -15,6 +15,259 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   steps or none, drops a step the session said must run from another
   repository, and opens one tab.
 
+## [1.13.0] - 2026-10-22
+
+### Added
+
+- **Recurring mode for `/tracker-loop`** (#181, maxdimitrov/keel#14). A loop
+  fired by Windows Task Scheduler passes `--cron-id "schtasks:<TaskName>"`;
+  its record's budgets then count per window (`max_hours` long, back to back
+  from `started`) instead of per lifetime. `max_iterations` counts the
+  window's acting entries, and neither `max_hours` nor `idle_stop_after`
+  stops the loop, so a scheduled poll no longer dies after about three idle
+  hours while every fire exits green. `--restart` is implicit after any stop
+  but an `operator stop` (which pauses the scheduled loop), step 8 never
+  `CronDelete`s a `schtasks:` id, and every fire ends with a
+  `loop <id> window ok|skipped` line for the task's wrapper.
+  `scripts/loop-record.sh` gains `claim` (a scheduled fire's load-or-create:
+  it only uses, reopens or pauses on the task's own record, and refuses while
+  an interactive or session-cron loop of the same mode and ref is alive, so
+  that loop keeps its 1.12.0 budgets; one its own next check would stop, or
+  that nothing has iterated for four pacing steps, is stopped with that
+  reason and replaced) and `window <id>` (always `skipped` for
+  a record that is not live); `check` numbers the fires of such a record,
+  and `append` keeps two windows of entries. An interactive fire never
+  adopts a live `schtasks:` record either.
+- **keel reporting, optional** (#181). With the
+  [keel](https://github.com/maxdimitrov/keel) CLI on `PATH`,
+  `scripts/loop-record.sh` spools `loop.created`, `loop.iteration` and
+  `loop.stopped` events and a `loop:<id>` heartbeat carrying `cron_id`;
+  `/work-issue` spools `work.started`, `work.pr_opened` and `work.done`
+  through the new `scripts/keel-emit.sh`, folded into Bash calls the
+  command already makes, and skipped outright when keel is not installed.
+  These go through `ait_keel` in `scripts/lib/common.sh`: spool only, capped,
+  silent. `/tracker-brief` lists the project's open keel findings from keel's
+  local cache and reads and sets its window watermark in keel directly
+  (`keel watermark get` / `set`, keyed by the project key). Without keel, or
+  with `AIT_KEEL=0`, nothing is reported and nothing behaves differently.
+- **`loop-record.sh find --no-scheduled`** (#181): the interactive path's `find --any` leaves out a scheduled task's records, so it never reopens one or reports its stop.
+- **`AIT_PROJECT_KEY`** (#181). When set to a safe name, `ait_project_key`
+  returns it unchanged, so a separate clone or a runner checkout can share
+  the primary checkout's state dir. `tests/test_project_key_parity.py` pins
+  the key across the Git Bash, forward-slash and backslash spellings of one
+  path, in bash and in a Python port.
+- **`/tracker-init --answers <file>`** (#181). Non-interactive: renders the
+  config from an answers file, with no prompts or probes. Both modes now
+  render through `scripts/tracker-init-render.sh`, so the same answers give
+  the same file.
+
+### Changed
+
+- The repo itself is adopted into keel: its own `.claude/issue-tracker.yaml`
+  (with a `loops:` block for its scheduled poll), `.keel/project.yaml` and a
+  `DECISIONS.md` in keel's dated grammar.
+
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", run 2026-10-22 against the release
+branch (`feat/keel-emitters`; smokes 6 and 7 at 733dac6, the rest and the automated run at eb7500b) before tagging. This release
+changes the surface of smokes 3 (`/tracker-init`), 9 (`/tracker-brief`) and
+10 (`/tracker-loop`), plus the install pair (6, 7). The headless parts were
+run in the release-branch session; the parts that need an interactive Claude
+Code session or the owner are marked PENDING and are recorded here before
+the tag.
+
+- **1. GitHub backend smoke — CARRIED FORWARD from 1.12.0.**
+  `backends/github.md` and the issue-shape skills are unchanged.
+- **2. Jira backend smoke — CARRIED FORWARD / DEFERRED.** The Jira backend is
+  unchanged, and the release session has no Atlassian connector.
+- **3. `/tracker-init` from blank state — PARTIAL.** Headless: the new
+  `--answers` path's renderer (`scripts/tracker-init-render.sh`) wrote a
+  GitHub config from an answers file into a blank repo; `config-resolve.sh`
+  reads back `backend`, `github.repo` and `default_pr_close_syntax`; it
+  carries the keys `examples/github-config.yaml` has; a missing answers
+  file exits 2. PENDING (interactive session): the `AskUserQuestion` flow on
+  both backends and the next-step panel.
+- **4. `/tracker-doctor` — CARRIED FORWARD.** Unchanged.
+- **5. `/resume-initiative` against both epic shapes — CARRIED FORWARD.**
+  Unchanged.
+- **6. Install path — PASS (isolated config dir, release branch).** Bare
+  `CLAUDE_CONFIG_DIR` at a short path: `claude plugin marketplace add
+  https://github.com/maxdimitrov/agent-issue-tracker.git#feat/keel-emitters`
+  and `claude plugin install agent-issue-tracker` both exit 0;
+  `installed_plugins.json` records **1.13.0** at 733dac6. A config dir under
+  the long session scratch path failed the clone (`Filename too long`), as in
+  1.12.0.
+- **7. Plugin loads enabled post-install — PASS for the CLI checks.** After
+  adding `claude-plugins-official` and installing `superpowers` 7.0.0,
+  `claude plugin list` shows `enabled` at 1.13.0 and `claude plugin details`
+  inventories Skills (19) and Hooks (2): SessionStart and Stop. PENDING
+  (interactive session): `/tracker-doctor`, `/tracker-init` and
+  `/resume-initiative` resolving as slash commands in a fresh session opened
+  on the install.
+- **8. Session-title hook — CARRIED FORWARD.** The hook is unchanged;
+  `ait_project_key` only gains the `AIT_PROJECT_KEY` override (pinned by
+  `tests/test_project_key_parity.py`).
+- **9. Briefs — PARTIAL.** Headless, in this repository with real `gh` and
+  `AIT_KEEL=0` against an isolated state dir: `tracker-brief-collect.sh`
+  ran, `--commit-run <generated_at>` stamped it, and the second run's
+  `window.since` equals that stamp; `session-brief-collect.sh` finds PR #182
+  on the branch with no errors. PENDING (interactive session): `/session-brief`
+  printing both links and writing the resume note, and `/tracker-brief` run
+  twice as commands.
+- **10. Babysit loop — PARTIAL.** Headless, at eb7500b, `scripts/loop-record.sh` driven
+  as a scheduled poll (`claim` / `check` / `append` / `window`): three idle
+  fires stay live and print `window skipped`, an acting fire prints
+  `window ok`, a spent window reports `window: max_iterations` without
+  stopping, an operator stop pauses the task (`claim` refuses with the
+  `is stopped` line and `window skipped`) until `--restart`, a live
+  cron-less loop with the same mode and ref that is still iterating is
+  refused with `loop <id> is owned by …` and not adopted, and one past its
+  `max_hours` is stopped with `budget: max_hours` and replaced. PENDING (owner,
+  interactive session): `/loop /agent-issue-tracker:tracker-loop babysit
+  <pr>` against a deliberately red PR, as CONTRIBUTING.md describes.
+- **Automated.** Full `pytest -q` on Windows (Git Bash) with keel absent from
+  `PATH`, at eb7500b: 542 passed, 1 skipped. CI on #182 runs the same suite
+  on Linux.
+
+## [1.12.0] - 2026-10-09
+
+### Added
+
+- **Tracker nudges** (#114). A new `hooks/nudge.sh` shows one-line,
+  user-only `[tracker]` messages through the hook `systemMessage` field: on
+  resume, which epic the branch works under and its next-up; after a turn
+  that deferred scope in a session that committed or opened a PR and filed
+  nothing, a pointer to `/file-followup`. Each shows once per session.
+  `AIT_NUDGES=0`, `AIT_NUDGES_OFF=resume,deferral` and `nudges: false` turn
+  them off. `/work-issue` and `/resume-initiative --start` now leave a local
+  branch-to-epic breadcrumb so the resume nudge works on Jira too; the
+  branch-to-epic lookup moved from `hooks/session-title.sh` into
+  `scripts/lib/common.sh` (`ait_branch_epic`), and its cache is now
+  written atomically, so the two hooks can read it in parallel on resume.
+
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", run 2026-10-09 against the release
+branch before tagging. As in 1.11.1, the smokes for the surface this release
+changes are re-run, plus the install pair; the rest carry forward.
+
+- **1. GitHub backend smoke — CARRIED FORWARD from 1.11.1.** `backends/github.md`
+  and the issue-shape skills are unchanged.
+- **2. Jira backend smoke — CARRIED FORWARD / DEFERRED.** The Jira backend is
+  unchanged, and the release session has no Atlassian connector.
+- **3. `/tracker-init` from blank state — CARRIED FORWARD.** Unchanged.
+- **4. `/tracker-doctor` — CARRIED FORWARD.** Only Phase 4 wording changed
+  (the `jq` WARN names both hooks; a `nudges: false` note).
+- **5. `/resume-initiative` against both epic shapes — CARRIED FORWARD.**
+  Next-up resolution is unchanged; Mode 3 only gained the breadcrumb write.
+- **6. Install path — PASS (isolated config dir, release branch).** Bare
+  `CLAUDE_CONFIG_DIR`: `claude plugin marketplace add
+  https://github.com/maxdimitrov/agent-issue-tracker.git#chore/release-1.12.0`
+  and `claude plugin install agent-issue-tracker` both exit 0;
+  `installed_plugins.json` records **1.12.0** at bfe0f01. The config dir had
+  to live at a short path: under a long scratch path git failed the
+  marketplace clone with `Filename too long`.
+- **7. Plugin loads enabled post-install — PASS.** After adding
+  `claude-plugins-official` and installing `superpowers` 6.4.1 (as in
+  1.11.1), `claude plugin list` shows `enabled` at 1.12.0, and
+  `claude plugin details` inventories Skills (19) and Hooks (2): SessionStart
+  and Stop. The description names both hooks.
+- **8. Session-title hook — PASS (installed 1.12.0 hook, payload-driven).**
+  A scratch repo whose `origin` is this repository, on branch
+  `feat/114-tracker-nudges`, with real `gh`: a `resume` payload yields the
+  title `#114 tracker-nudges` after the live epic query (moved into
+  `ait_branch_epic`). A second `resume` carrying a manual `session_title`
+  emits nothing and pins the session. Driven by stdin payloads, not a live
+  VS Code resume. The smoke also found
+  [#179](https://github.com/maxdimitrov/agent-issue-tracker/issues/179): live
+  evergreen epics store `## Current branch` as a bare branch name, which the
+  lookup (unchanged from stage 6) never matches. That bug predates this
+  release; the breadcrumb path is unaffected.
+- **Tracker nudges (new) — PASS (installed 1.12.0 hook, payload-driven).**
+  Same scratch repo:
+  - A `resume` with no breadcrumb and no matching epic is silent.
+  - After `ait_branch_epic_put` (installed `common.sh`), `resume` prints
+    `[tracker] Resuming #114 on epic #59 "...". /session-brief for the full
+    picture.` once, and is silent on the repeat.
+  - A `Stop` with "out of scope for this PR", after a `git -C … commit` in
+    the transcript, prints the deferral nudge once, and is silent on the
+    repeat.
+  - A `Stop` with no deferral phrasing is silent in 282 ms.
+
+  Not yet seen in a live Claude Code session.
+- **9. Briefs — CARRIED FORWARD.** Unchanged.
+- **10. Babysit loop — CARRIED FORWARD.** Unchanged.
+- **Automated.** Full `pytest -q` on Windows (Git Bash) at the merge of #178:
+  467 passed, 1 skipped. CI on #178 passed every job, including Shellcheck,
+  Python tests, Markdown lint, YAML validate and Backend contract.
+
+## [1.11.1] - 2026-10-08
+
+### Fixed
+
+- **Jira checkboxes that stayed literal `[ ]`**. Descriptions written by
+  earlier Atlassian MCP revisions stored `- [ ]` / `- [x]` lines as plain
+  bullets with literal brackets, so Jira showed a bullet and `[ ]` instead
+  of a checkbox. They read back escaped (`* \[ \] <text>`), and every
+  read-modify-write stored them that way again, so they never healed.
+  The legacy `## Children` mirror grammar also skipped them, so
+  `/resume-initiative` missed those children. The Jira backend's
+  `view_issue` now rewrites escaped checkbox lines to `- [ ]` / `- [x]`
+  (outside code fences) and `edit_body` writes from that normalized body,
+  so an affected issue gets real checkboxes on its next edit. The MCP
+  already stores new `- [ ]` lines as real checkboxes, so the templates are
+  unchanged. New `tests/test_jira_checkbox_normalization.py` pins the
+  documented pattern against an escaped fixture.
+
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process", run 2026-10-08 against the release
+branch before tagging. As in 1.0.2, a patch release re-runs the smokes for
+the surface it changes plus the install pair; the rest carry forward.
+
+- **1. GitHub backend smoke — CARRIED FORWARD from 1.11.0.**
+  `backends/github.md` and the skills that dispatch to it are unchanged.
+- **2. Jira backend smoke — PASS (read half); write half DEFERRED.** Read: a
+  live legacy epic, last written after the MCP began storing real task
+  lists, still carried 31 escaped `* \[x\]` / `* \[ \]` mirror lines. The
+  documented `view_issue` normalization rewrote 34 escaped lines (line
+  count unchanged, none left), and the `## Children` mirror grammar then
+  matched 32 children, against 1 before. Write: the round trip on a scratch
+  issue (write `* \[ \]`, read it back escaped, normalize, write, read back
+  as an ADF `taskList`) was blocked by the release session's permission
+  classifier and not retried. It needs a session allowed to write to Jira.
+- **3. `/tracker-init` from blank state — CARRIED FORWARD.** Unchanged.
+- **4. `/tracker-doctor` — CARRIED FORWARD.** Unchanged.
+- **5. `/resume-initiative` against both epic shapes — PASS (legacy, live
+  Jira data); evergreen CARRIED FORWARD.** On the same epic, before
+  normalization the only unchecked child the mirror grammar saw was a
+  last-phase child, so next-up skipped every open earlier-phase child.
+  After it, all 11 unchecked children parse in order and next-up resolves
+  to the open Phase 0 child.
+- **6. Install path — PASS (isolated config dir, release branch).** Bare
+  `CLAUDE_CONFIG_DIR`: `claude plugin marketplace add <fork>.git#<release
+  branch>` and `claude plugin install agent-issue-tracker` both exit 0;
+  `installed_plugins.json` records **1.11.1** at c29a2d8. Installed from a
+  fork of this repo because the release session could not push here; the
+  manifests are the same files.
+- **7. Plugin loads enabled post-install — PASS.** Same dir: `failed to
+  load` until `superpowers` is installed. On CLI 2.1.294 a bare config dir
+  knows only `anthropic-plugin-directory`, so `claude-plugins-official` had
+  to be added first (`claude plugin marketplace add
+  https://github.com/anthropics/claude-plugins-official.git`); then
+  `superpowers@claude-plugins-official` 6.4.1 installed, `claude plugin
+  list` shows `enabled` at 1.11.1, and `claude plugin details` inventories
+  Skills (19) (6 skills + 13 commands) and the SessionStart hook.
+- **8. Session-title hook — CARRIED FORWARD.** Hook unchanged.
+- **9. Briefs — CARRIED FORWARD.** Unchanged.
+- **10. Babysit loop — CARRIED FORWARD.** Unchanged.
+- **Automated.** `pytest -q`: 376 passed, 31 failed. Unmodified v1.11.0
+  fails the identical 31 on the same machine (370 passed). They come from
+  config-resolution tests picking up a machine-local config layer. The 6
+  new normalization tests pass, and CI's Python-tests job on the PR is the
+  clean-environment run. `markdownlint-cli2` on the CI globs: 0 issues.
+
 ## [1.11.0] - 2026-10-01
 
 ### Added

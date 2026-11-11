@@ -1,0 +1,26 @@
+# keel definitions for agent-issue-tracker; every key is documented in keel's docs/project-yaml.md.
+schema: 1
+slug: agent-issue-tracker
+org: personal
+name: "agent-issue-tracker"
+profile: plugin
+github_repo: maxdimitrov/agent-issue-tracker
+default_branch: main
+paths:
+  repo: "F:/Claude/Projects/agent-issue-tracker"
+# ait_project_key of the primary checkout (tests/test_project_key_parity.py).
+ait_project_keys:
+  - agent-issue-tracker-a0b7e7d6
+# The repo's own Tracker Loop task (keel tasks install), polling agent-ready.
+loop: true
+dependencies:
+  - {kind: plugin, name: agent-issue-tracker}
+  - {kind: plugin, name: superpowers, ref: "superpowers@claude-plugins-official"}
+# Each bundled skill is a convention a consumer's agents follow; review it every 120 days.
+rules:
+  - {key: skill-bug-tracking, class: convention, review_every: "120 days", doc_ref: skills/bug-tracking/SKILL.md}
+  - {key: skill-feature-request, class: convention, review_every: "120 days", doc_ref: skills/feature-request/SKILL.md}
+  - {key: skill-followup-tracking, class: convention, review_every: "120 days", doc_ref: skills/followup-tracking/SKILL.md}
+  - {key: skill-initiative-tracking, class: convention, review_every: "120 days", doc_ref: skills/initiative-tracking/SKILL.md}
+  - {key: skill-skill-currency, class: convention, review_every: "120 days", doc_ref: skills/skill-currency/SKILL.md}
+  - {key: skill-tracker-contribute, class: convention, review_every: "120 days", doc_ref: skills/tracker-contribute/SKILL.md}

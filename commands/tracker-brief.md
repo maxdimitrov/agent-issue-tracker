@@ -57,17 +57,22 @@ Never use `git merge-base --is-ancestor` to prove a branch landed. Squash and re
 
 `loops[]` are `/tracker-loop` records. For each `live` one, print mode, ref, iteration count, last action, and `actions_in_window`. For each `stopped` one whose `stop_reason` is set, print the reason — a loop that stopped on NEEDS YOU is a Needs-action item and is already in the ledger row.
 
+## Step 3b — keel findings (only with keel installed)
+
+The collector adds a top-level `keel` object only when the [keel](https://github.com/maxdimitrov/keel) CLI is installed; with no `keel` key, skip this step and the section below, silently. `keel.findings[]` are the project's open findings from keel's local brief cache (`severity`, `check_id`, `title`, `fingerprint`, `state`); `cache_age_seconds` says how old that cache is. `findings: null` means they could not be read, and `keel.error` says why (no `.keel/project.yaml` slug, no cache yet): print that as a Degraded line, never as "no findings". An `urgent` or `warn` finding is a **Needs you** item; `info` ones go in the Findings section only. `keel.window_from_keel` true means the window started at keel's `tracker-brief` watermark (a brief read from another checkout, or another machine, whose state dir has the same project key: the same primary checkout path, or the same `AIT_PROJECT_KEY`), not at this machine's stamp; say so in the window line.
+
 ## Step 4 — Output
 
 Terminal, in this order and nothing else:
 
-1. **Needs you** — merged and ranked across tracker comments, PR threads, CI, drift, and loop stops. The only section that must be read.
+1. **Needs you** — merged and ranked across tracker comments, PR threads, CI, drift, loop stops and keel's `urgent` / `warn` findings. The only section that must be read.
 2. **Status drift** — one line per row, with the command that fixes it.
 3. **Closeable / stale** — one line per row, with the `git worktree remove` line.
 4. **Loops** — one line per live loop.
-5. **Degraded** — one line per `errors[]` entry; omit the section when empty.
+5. **Findings** — only when `keel` is present: one line per `keel.findings[]` entry (`<severity> <check_id> <title>`), with the cache age; omit the section when keel is absent, and say "none open" when the list is empty.
+6. **Degraded** — one line per `errors[]` entry (and `keel.error`, when set); omit the section when empty.
 
-When the `Artifact` tool exists in this session, also publish the full brief (the five sections above plus the tracker activity list, the PR lists, and the complete ledger table) titled `Tracker Brief`, and keep that title stable across days so it stays one recognisable page. No daily log file is written.
+When the `Artifact` tool exists in this session, also publish the full brief (the sections above plus the tracker activity list, the PR lists, and the complete ledger table) titled `Tracker Brief`, and keep that title stable across days so it stays one recognisable page. No daily log file is written.
 
 Then stamp the window so the next run picks up exactly here:
 
@@ -75,6 +80,8 @@ Then stamp the window so the next run picks up exactly here:
 "${CLAUDE_PLUGIN_ROOT}/scripts/tracker-brief-collect.sh" --commit-run "<generated_at from Step 0>"
 rm -f "<brief-json>"
 ```
+
+With keel installed the same call also sets keel's `tracker-brief/<project-key>` watermark (the output's `keel_watermark` is `set` or `failed`; a failure leaves the local stamp, which is enough for this machine).
 
 Stamp **only after** the brief is written. Stamping a failed run silently skips that window forever. Pass Step 0's `generated_at`, not nothing: the stamp then marks when the facts were collected, so activity that arrived while the brief was being written falls inside the next run's window instead of being skipped.
 

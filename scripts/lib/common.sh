@@ -195,6 +195,154 @@ ait_worktree_for_branch() {
   printf '%s' "$p"
 }
 
+
+# --- machine-block second pass (stage 6 helper) ---------------------------------
+# New-shape epics carry no "- **Current branch:**" line in the body (that
+# signal now lives in the marker-tagged machine-block comment). Legacy epics
+# (body has a "## Status block" line) are filtered out before the cap below --
+# they can never match the machine-block path, so skipping them here spends
+# the 10-epic budget only on epics that could plausibly match, cutting the
+# worst-case SessionStart latency. Bounded to the first 10 (post-filter)
+# epics; every gh call is capped at 5s; any failure yields no match and never
+# breaks the title. Trust: authorAssociation must be one of
+# OWNER/MEMBER/COLLABORATOR; the earliest qualifying marker comment wins.
+_ait_machine_block_epic_line() {
+  local mb_epics_json="$1" mb_branch="$2" mb_cwd="$3"
+  local mb_num="" mb_title="" mb_comments="" mb_body="" mb_phases=""
+  local mb_next="" mb_checked=0 mb_ref="" mb_refnum="" mb_state="" mb_line=""
+  while IFS=$'\t' read -r mb_num mb_title; do
+    [ -n "$mb_num" ] || continue
+    mb_comments="$(cd "$mb_cwd" && ait_run_capped 5 gh issue view "$mb_num" --json comments 2>/dev/null)" \
+      || mb_comments=""
+    [ -n "$mb_comments" ] || continue
+    mb_body="$(printf '%s' "$mb_comments" | jq -r --arg b "$mb_branch" '
+      [.comments[]
+       | select(.body | contains("<!-- agent-issue-tracker:machine-block -->"))
+       | select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER"
+                or .authorAssociation == "COLLABORATOR")][0] // empty
+      | select(.body | split("\n") | map(rtrimstr("\r")) | index("- " + $b))
+      | .body' 2>/dev/null)" || mb_body=""
+    [ -n "$mb_body" ] || continue
+    mb_phases="$(printf '%s' "$mb_body" | awk '/^## Phases/{f=1; next} /^## /{if (f) exit} f')"
+    mb_next=""
+    mb_checked=0
+    for mb_ref in $(printf '%s' "$mb_phases" | grep -oE '#[0-9]+'); do
+      mb_checked=$((mb_checked + 1))
+      [ "$mb_checked" -le 5 ] || break
+      mb_refnum="${mb_ref#\#}"
+      mb_state="$(cd "$mb_cwd" && ait_run_capped 5 gh issue view "$mb_refnum" --json state --jq .state \
+        2>/dev/null)" || mb_state=""
+      if [ "$mb_state" = "OPEN" ]; then
+        mb_next="$mb_ref"
+        break
+      fi
+    done
+    mb_line="$(printf '#%s\t%s\t%s' "$mb_num" "$mb_title" "$mb_next")"
+    break
+  done < <(printf '%s' "$mb_epics_json" | jq -r '
+      [.[] | select((.body // "") | contains("## Status block") | not)][:10][]
+      | [(.number|tostring), .title] | @tsv')
+  printf '%s' "$mb_line"
+}
+# ait_branch_epic <cwd> <branch> [<toplevel>] - the open GitHub epic whose
+# current branch is <branch>: one line "<#N>\t<title>\t<next-up line>" (the
+# next-up line may be empty). A legacy epic matches on its body's
+# "- **Current branch:** <branch>" line; a new-shape epic on its trusted
+# machine-block comment (_ait_machine_block_epic_line). Cached 24h per
+# (toplevel, branch) under the session-titles state dir, shared by
+# hooks/session-title.sh and hooks/nudge.sh. Read-only on the host; every gh
+# call is capped at 5s. GitHub only: callers check the backend. Prints
+# nothing and returns 1 when nothing matches.
+ait_branch_epic() {
+  local cwd="$1" branch="$2" toplevel="${3:-}" cache_dir key cache_file
+  local fresh="" cm epics_json="" result="" tmp_file
+  [ -n "$branch" ] || return 1
+  command -v gh >/dev/null 2>&1 || return 1
+  cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/agent-issue-tracker/session-titles/epic-cache"
+  mkdir -p "$cache_dir" 2>/dev/null || true
+  key="$(printf '%s|%s' "${toplevel:-$cwd}" "$branch" | ait_hash | cut -c1-16)"
+  cache_file="$cache_dir/$key"
+  if [ -f "$cache_file" ]; then
+    cm="$(ait_file_mtime "$cache_file")" || cm=0
+    case "$cm" in '' | *[!0-9]*) cm=0 ;; esac
+    [ $(($(date +%s) - cm)) -lt 86400 ] && fresh=1
+  fi
+  if [ -z "$fresh" ]; then
+    epics_json="$(cd "$cwd" && ait_run_capped 5 gh issue list --label epic --state open \
+      --json number,title,body --limit 50 2>/dev/null)" || epics_json=""
+    # Computed fully, then moved into place: a parallel caller must never see
+    # a half-written (empty = negative) cache file.
+    result=""
+    if [ -n "$epics_json" ]; then
+      result="$(printf '%s' "$epics_json" | jq -r --arg b "$branch" '
+        [.[] | select(any(.body | split("\n")[]; rtrimstr("\r") == ("- **Current branch:** " + $b)))][0] // empty
+        | [("#" + (.number | tostring)), .title,
+           ((.body | capture("- \\*\\*Next up:\\*\\* (?<n>[^\n]+)").n) // "")]
+        | @tsv' 2>/dev/null)" || result=""
+      if [ -z "$result" ]; then
+        result="$(_ait_machine_block_epic_line "$epics_json" "$branch" "$cwd")" || result=""
+      fi
+    fi
+    tmp_file="$cache_file.tmp.$$"
+    if { [ -z "$result" ] || printf '%s\n' "$result"; } >"$tmp_file" 2>/dev/null; then
+      mv -f "$tmp_file" "$cache_file" 2>/dev/null || rm -f "$tmp_file" 2>/dev/null
+    else
+      rm -f "$tmp_file" 2>/dev/null
+    fi
+  fi
+  [ -s "$cache_file" ] || return 1
+  head -1 "$cache_file"
+}
+
+# Breadcrumb: which epic a branch works under, written by /work-issue Step 3
+# and /resume-initiative --start (they hold the backend, MCP included) and
+# read by hooks/nudge.sh, which cannot reach an MCP. Keyed by branch under
+# the per-project state dir, so every worktree of a repo shares it.
+_ait_branch_epic_file() {
+  local dir
+  dir="$(ait_state_dir "${2:-.}")" || return 1
+  printf '%s/branch-epic/%s' "$dir" "$(printf '%s' "$1" | ait_hash | cut -c1-16)"
+}
+
+# ait_branch_epic_put <branch> <child> <epic> <title> [<dir>] - record that
+# <branch> works <child> (may be empty) under <epic>. 1 on a failed write.
+ait_branch_epic_put() {
+  local branch="${1-}" child="${2-}" epic="${3-}" title="${4-}" f tmp
+  [ -n "$branch" ] && [ -n "$epic" ] || return 1
+  f="$(_ait_branch_epic_file "$branch" "${5:-.}")" || return 1
+  mkdir -p "${f%/*}" 2>/dev/null || return 1
+  title="$(printf '%s' "$title" | tr '\t\r\n' '   ')"
+  tmp="$f.tmp.$$"
+  if printf '%s\t%s\t%s\n' "$child" "$epic" "$title" >"$tmp" 2>/dev/null \
+    && mv -f "$tmp" "$f" 2>/dev/null; then
+    return 0
+  fi
+  rm -f "$tmp" 2>/dev/null
+  return 1
+}
+
+# ait_branch_epic_get <branch> [<dir>] - "<child>\t<epic>\t<title>" when a
+# breadcrumb at most 30 days old exists; nothing and 1 otherwise.
+ait_branch_epic_get() {
+  local f m
+  [ -n "${1-}" ] || return 1
+  f="$(_ait_branch_epic_file "$1" "${2:-.}")" || return 1
+  [ -s "$f" ] || return 1
+  m="$(ait_file_mtime "$f")" || return 1
+  case "$m" in '' | *[!0-9]*) return 1 ;; esac
+  [ $(($(date +%s) - m)) -le 2592000 ] || return 1
+  head -1 "$f"
+}
+
+# ait_branch_epic_drop <branch> [<dir>] - forget the breadcrumb (0 if absent).
+ait_branch_epic_drop() {
+  local f
+  [ -n "${1-}" ] || return 0
+  f="$(_ait_branch_epic_file "$1" "${2:-.}")" || return 0
+  rm -f "$f" 2>/dev/null
+  return 0
+}
+
 # ait_commit_in_tag <sha> <tag> [<dir>] [<owner/repo>] - is commit <sha>
 # contained in <tag>? Three answers, so unlike the rest of this file it always
 # prints, as `<verdict> <how>`, and returns 0 / 1 / 2:
@@ -259,8 +407,16 @@ ait_commit_in_tag() {
 }
 
 # ait_project_key [<dir>] - <basename>-<sha256(main repo path)[0:8]>.
+# AIT_PROJECT_KEY, when set to a name of [A-Za-z0-9._-] characters (not `.`
+# or `..`), is printed unchanged instead: a separate clone, or a runner
+# checkout outside the primary repo's worktrees, then shares the primary's
+# state dir. Any other value is ignored, since the key is a directory name.
 ait_project_key() {
-  local d="${1:-.}" root name h
+  local d="${1:-.}" root name h k="${AIT_PROJECT_KEY:-}"
+  case "$k" in
+    '' | . | .. | *[!A-Za-z0-9._-]*) ;;
+    *) printf '%s' "$k"; return 0 ;;
+  esac
   root="$(ait_main_repo "$d")" || root="$(ait_norm_path "$d")"
   name="$(basename "$root" | tr -cd 'A-Za-z0-9._-' | cut -c1-40)"
   h="$(printf '%s' "$root" | ait_hash | cut -c1-8)"
@@ -273,6 +429,93 @@ ait_state_dir() {
   dir="$root/$(ait_project_key "${1:-.}")"
   mkdir -p "$dir" 2>/dev/null
   printf '%s' "$dir"
+}
+
+# --- keel (optional) -------------------------------------------------------------
+# keel (github.com/maxdimitrov/keel) is an owner-run project ledger. When its
+# CLI is on PATH the plugin reports loop and /work-issue activity to it; when
+# it is not, every helper below is a silent no-op, so nothing else in the
+# plugin may depend on what they do. AIT_KEEL=0 turns them off with keel present.
+
+# ait_keel_on - 0 when keel reporting is on (keel on PATH, AIT_KEEL not 0).
+ait_keel_on() {
+  [ "${AIT_KEEL:-1}" = 0 ] && return 1
+  command -v keel >/dev/null 2>&1
+}
+
+# _ait_keel_rc <keel args...> - run keel capped at AIT_KEEL_TIMEOUT seconds
+# (default 10) with no stdin and its output discarded; returns keel's exit
+# code (1 when reporting is off). Callers that only report use ait_keel.
+_ait_keel_rc() {
+  ait_keel_on || return 1
+  ait_run_capped "${AIT_KEEL_TIMEOUT:-10}" keel "$@" </dev/null >/dev/null 2>&1
+}
+
+# ait_keel <keel args...> - one spooled keel write, `keel <args> --spool`:
+# appended to keel's local spool, never a network call. Always returns 0.
+ait_keel() {
+  _ait_keel_rc "$@" --spool
+  return 0
+}
+
+# ait_keel_read <keel args...> - keel's stdout for a read (`keel watermark
+# get`, `keel brief --cached --json`), capped like _ait_keel_rc; empty unless
+# keel exited 0. Always returns 0.
+ait_keel_read() {
+  local out rc
+  ait_keel_on || return 0
+  out="$(ait_run_capped "${AIT_KEEL_TIMEOUT:-10}" keel "$@" </dev/null 2>/dev/null)"
+  rc=$?
+  [ "$rc" -eq 0 ] && printf '%s' "$out"
+  return 0
+}
+
+# ait_keel_beat <subject> <next> <payload-json> [<project>] - a spooled
+# heartbeat, next one expected within <next> (`30m`). A keel without
+# `beat --payload` (exit 2, a usage error) gets the beat without it.
+ait_keel_beat() {
+  local subject="$1" next="$2" payload="${3:-}" project="${4:-}" rc
+  ait_keel_on || return 0
+  _ait_keel_rc beat "$subject" --next "$next" ${project:+--project "$project"} \
+    ${payload:+--payload "$payload"} --spool
+  rc=$?
+  if [ "$rc" -eq 2 ] && [ -n "$payload" ]; then
+    _ait_keel_rc beat "$subject" --next "$next" ${project:+--project "$project"} --spool
+  fi
+  return 0
+}
+
+# ait_keel_project [<dir>] - the keel slug from `.keel/project.yaml` at
+# <dir>'s git toplevel, else at the main checkout's root (a runner worktree
+# of the primary repo carries the same tracked file). Nothing and 1 when
+# neither has one.
+ait_keel_project() {
+  local d="${1:-.}" top main f slug
+  top="$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)" || top=""
+  main="$(ait_main_repo "$d")" || main=""
+  for f in ${top:+"$top/.keel/project.yaml"} ${main:+"$main/.keel/project.yaml"}; do
+    [ -f "$f" ] || continue
+    slug="$(tr -d '\r' <"$f" 2>/dev/null \
+      | sed -n "s/^slug:[[:space:]]*[\"']\{0,1\}\([a-z0-9][a-z0-9-]*\)[\"']\{0,1\}[[:space:]]*\$/\1/p" | head -1)"
+    if [ -n "$slug" ]; then
+      printf '%s' "$slug"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# ait_keel_event <type> <payload-json> [<idem-key>] [<dir>] - a spooled keel
+# event for the project at <dir> (default .), actor `runner` when
+# AIT_KEEL_ACTOR says so, else `claude_session`. Always returns 0.
+ait_keel_event() {
+  local type="$1" payload="${2:-}" idem="${3:-}" d="${4:-.}" project kind
+  ait_keel_on || return 0
+  project="$(ait_keel_project "$d")" || project=""
+  kind="${AIT_KEEL_ACTOR:-claude_session}"
+  case "$kind" in runner | claude_session) ;; *) kind=claude_session ;; esac
+  ait_keel event "$type" ${project:+--project "$project"} --actor-kind "$kind" \
+    --actor-id agent-issue-tracker ${payload:+--payload "$payload"} ${idem:+--idem-key "$idem"}
 }
 
 # ait_config_path [<dir>] - the nearest .claude/issue-tracker.yaml: <dir>, then

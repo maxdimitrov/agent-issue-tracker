@@ -1,8 +1,8 @@
 ---
-description: Run ONE iteration of an unattended loop — babysit a PR to green, clear an epic leaf by leaf, or poll a label and dispatch /work-issue — with budgets and stop conditions kept on disk. Recurrence comes from /loop or a session cron.
+description: Run ONE iteration of an unattended loop — babysit a PR to green, clear an epic leaf by leaf, or poll a label and dispatch /work-issue — with budgets and stop conditions kept on disk. Recurrence comes from /loop, a session cron, or a scheduled task (--cron-id schtasks:<TaskName>).
 ---
 
-# /tracker-loop <mode> [ref] [--label <name>] [--merge | --draft] [--restart] | status | stop [<id>]
+# /tracker-loop <mode> [ref] [--label <name>] [--merge | --draft] [--restart] [--cron-id schtasks:<TaskName>] | status | stop [<id>]
 
 One iteration per invocation. `/tracker-loop` never schedules itself and never calls `ScheduleWakeup`; recurrence is external:
 
@@ -11,18 +11,21 @@ One iteration per invocation. `/tracker-loop` never schedules itself and never c
 | Self-paced (preferred) | `/loop /agent-issue-tracker:tracker-loop babysit #42` — the harness picks each delay; this command ends every iteration with a **pacing hint** the self-paced loop follows |
 | Fixed interval | `/loop 15m /agent-issue-tracker:tracker-loop poll` |
 | Armed by a driver | `/work-issue #42 --start --loop` or `/resume-initiative #9 --start --loop` creates a session cron that fires this command (see those commands) |
+| Scheduled task (long-lived) | Windows Task Scheduler runs `claude -p "/agent-issue-tracker:tracker-loop poll --cron-id \"schtasks:<TaskName>\""` every `loops.interval`, each fire a fresh session; see **Recurring mode** below. keel's `keel tasks install` registers one per project as `Tracker Loop <project>` |
 
-Session crons expire after seven days and end with the conversation; `/schedule` (cloud routines) is the documented answer for longer-lived automation and is not wrapped here.
+Session crons expire after seven days and end with the conversation. A scheduled task outlives every session and is the documented answer for a loop that runs for weeks; `/schedule` (cloud routines) is the other, and is not wrapped here.
 
 ## Modes
 
 ```
-/tracker-loop babysit [<pr-number> | <issue-ref>] [--merge] [--restart]
-/tracker-loop clear <epic-ref> [--draft | --merge] [--restart]
-/tracker-loop poll [--label <name>] [--draft | --merge] [--restart]
+/tracker-loop babysit [<pr-number> | <issue-ref>] [--merge] [--restart] [--cron-id schtasks:<TaskName>]
+/tracker-loop clear <epic-ref> [--draft | --merge] [--restart] [--cron-id schtasks:<TaskName>]
+/tracker-loop poll [--label <name>] [--draft | --merge] [--restart] [--cron-id schtasks:<TaskName>]
 /tracker-loop status
 /tracker-loop stop [<loop-id>]
 ```
+
+`--cron-id` names the external scheduler that fires this loop and selects **Recurring mode** (below). It must start with `schtasks:` (the task's name follows, spaces allowed; quote it); refuse any other value with a one-line message, since a session cron is never passed on the command line (the drivers record theirs with `LR set-cron`). Without `--cron-id` every step below behaves as it always has.
 
 `--draft` and `--merge` are mutually exclusive; refuse with a one-line message if both are passed. They pass straight through to the `/work-issue` invocations a loop makes and to the babysit merge rule. When neither is on the command line, the loaded record's `options.merge` / `options.draft` apply (a loop armed by a driver, or re-armed from a resume note, keeps the flags it was created with); a flag on the command line wins over the record for that iteration. "The effective `--merge`" / "the effective `--draft`" below means this resolved value. `--restart` creates a fresh record even when a stopped one already exists for that mode and ref (see step 2).
 
@@ -51,19 +54,21 @@ All bookkeeping goes through `"${CLAUDE_PLUGIN_ROOT}/scripts/loop-record.sh"` (`
 1. **Collect.** Run `"${CLAUDE_PLUGIN_ROOT}/scripts/session-brief-collect.sh"` for the current branch (`SB` below). It runs first, before the record is loaded, because step 2 needs `SB` (the babysit ref and the session transcript). Modes `clear` and `poll` also read the tracker in their own step.
 2. **Load or create the record.** The record's `<ref>` is: `poll` → the poll label in use (`--label`, else `loops.poll_label`, default `agent-ready`); `babysit` with no argument → `SB.ticket.key`, else `#<SB.pr.number>`, else the current branch name; `babysit <arg>` → that argument, normalised: strip a leading `#`; a bare number is then a PR number when `gh pr view <n>` resolves one, else an issue number, and either way is recorded as `#<n>` (the form the no-argument case uses), so `babysit 128` and `babysit #128` find the same record; `owner/repo#N` and any other issue ref are kept as-is; `clear` → the epic ref. `LR find` and `LR create` always take the normalised ref.
 
-   `LR find <mode> <ref>`; if it returns a live record, use it. Otherwise, unless `--restart` was passed, `LR find --any <mode> <ref>`:
+   `LR find <mode> <ref>`; if it returns a live record whose `cron_job_id` starts with `schtasks:`, it belongs to a scheduled task: print `loop <id> is driven by <cron_job_id>; not acting` and end the iteration without acting (pacing hint `stopped`), and never adopt it. If it returns any other live record, use it. Otherwise, unless `--restart` was passed, `LR find --any --no-scheduled <mode> <ref>` (`--no-scheduled` leaves out every record a scheduled task owns, so this path never reopens one or reports its stop reason):
    - `null` → create (below).
    - the newest record is stopped with a `stop_reason` beginning `checkpoint:` → a checkpoint continues only in a *different* session. If `SB.session.transcript` is non-null and differs from the record's `stop_transcript`, `LR reopen <id>` and continue with that record: its `started` time, iterations, `prs_opened`, budgets and options are kept, so the budgets keep counting, and its `cron_job_id` is cleared, since the checkpointing session's cron ended with that session. Otherwise print `loop <id> is checkpointed for a fresh session; press Esc to end this /loop, then start a new session with the resume note (or pass --restart)` and end the iteration without acting, with pacing hint `stopped`: a same-session `/loop` keeps firing into this message until the operator presses Esc.
    - the newest record is stopped for any other reason → print `loop <id> is stopped (<reason>); pass --restart to begin a new loop` and end the iteration without creating or acting.
 
    `--restart` skips the `find --any` check above and always creates a fresh record.
 
+   With `--cron-id`, step 2 follows **Recurring mode** "Load or create" instead of the three bullets above.
+
    `reopen` never resets `started`: a reopened record's `max_hours` budget includes the gap between the checkpointing session and the one that reopened it. That is by design; `--restart` is the way to a fresh clock.
 
    **Create:** `LR create <mode> <ref> <branch> [--merge] [--draft] --max-iterations … --max-hours … --idle-stop-after … --interval …` with the configured budgets and the command-line flags. `<branch>` is the current branch for `babysit`, the epic ref's slug for `clear`, and `""` for `poll`. Refuse to create a second live loop of the same mode and ref; report the existing id instead.
 
    **Flags.** With the record loaded, resolve the effective `--merge` / `--draft` (see Modes): the command line wins; otherwise the record's `options.merge` / `options.draft`.
-3. **Budget check.** `LR check <id>`. On `ok: false`, go to step 8 with the `reason`. `max_iterations` counts the record's `iterations[]` entries whose action is not `skip`: skip entries are clear-mode bookkeeping, so a cascade of skips does not burn the iteration budget, and `iterations[]` can be longer than the count `LR check` reports.
+3. **Budget check.** `LR check <id>`. On `ok: false` with `recurring: true` (a scheduled loop whose window budget is spent), do not stop: `LR append <id> wait "<reason>" --noop`, print step 7's report line with `next: <window_ends>`, then the window line (Recurring mode), and end the iteration. On any other `ok: false`, go to step 8 with the `reason`. `max_iterations` counts the record's `iterations[]` entries whose action is not `skip`: skip entries are clear-mode bookkeeping, so a cascade of skips does not burn the iteration budget, and `iterations[]` can be longer than the count `LR check` reports.
 4. **Decide.** The mode's table yields exactly one action, or `wait`, or `stop <reason>`.
 5. **Act.** Perform that one action through the existing skills and commands. An "action" is one mutating work action — a push, a rebase, a branch update, a merge, or a `/work-issue` dispatch; bookkeeping (the skip comment, `LR append … skip`) doesn't count against the limit. Never two mutating actions in one iteration, except where a mode's table below says otherwise (poll, clear).
 6. **Checkpoint.** Apply the `/session-brief` verdict table (`commands/session-brief.md` Step 3) to `SB.session`. On a `fresh session` verdict, in this order: run step 7's `LR append` for the action just taken (so it is on the record), write the resume note exactly as `/session-brief` Step 4 does, including the `**Loop:**` re-arm line, then `LR stop <id> "checkpoint: fresh session" --transcript <SB.session.transcript>` (omit `--transcript` when that is null) and go to step 8, which does not stop the record a second time.
@@ -74,7 +79,9 @@ All bookkeeping goes through `"${CLAUDE_PLUGIN_ROOT}/scripts/loop-record.sh"` (`
 
    `loop <id> · <mode> <ref> · iteration <n> · <action or noop> · next: <pacing hint>`
 
-8. **Stop.** `LR stop <id> "<reason>"` (already done by step 6 for a checkpoint); if the printed `cron_job_id` is set, `CronDelete` it. For a checkpoint, first print step 7's report line with `next: stopped` for the action step 6 appended. Print the reason. When the reason is NEEDS YOU, print the NEEDS YOU block (author, path:line, excerpt) exactly as `/session-brief` would. A loop stopped with reason `checkpoint: fresh session` continues only from a different session: a fire whose `SB.session.transcript` differs from the record's `stop_transcript` reopens it (step 2) with its iterations, `prs_opened` and budgets intact, while a fire from the same session reports it checkpointed and takes no action. A loop stopped for any other reason stays stopped: the next fire's step 2 reports it and takes no action. `--restart` begins a fresh record in either case.
+   A scheduled loop (Recurring mode) then runs `LR window <id>` and prints its `line` as the **last line** of the iteration's output, on its own: `loop <id> window ok` when something acted since this fire's `LR check`, else `loop <id> window skipped`. The wrapper that runs the task may parse it: keel's `keel run` keeps it as the run's summary and records the run as `ok` either way, since an idle fire is a healthy one.
+
+8. **Stop.** `LR stop <id> "<reason>"` (already done by step 6 for a checkpoint); if the printed `cron_job_id` is set and does not start with `schtasks:`, `CronDelete` it. A `schtasks:` id is never passed to `CronDelete`: the task belongs to Task Scheduler, not to this session, and stopping the record does not unregister it; a scheduled loop runs `LR window <id>` before `LR stop` and ends with that line (Recurring mode "Window line"). For a checkpoint, first print step 7's report line with `next: stopped` for the action step 6 appended. Print the reason. When the reason is NEEDS YOU, print the NEEDS YOU block (author, path:line, excerpt) exactly as `/session-brief` would. A loop stopped with reason `checkpoint: fresh session` continues only from a different session: a fire whose `SB.session.transcript` differs from the record's `stop_transcript` reopens it (step 2) with its iterations, `prs_opened` and budgets intact, while a fire from the same session reports it checkpointed and takes no action. A loop stopped for any other reason stays stopped: the next fire's step 2 reports it and takes no action. `--restart` begins a fresh record in either case.
 
 ## Mode: babysit
 
@@ -154,6 +161,25 @@ Per iteration (at most one mutating action — see step 5):
 
 No `remove_label` operation exists in the contract, so a `claim_label` stays on the issue until a human removes it or the issue closes. Two machines polling the same label without a `claim_label` can collide; the local claim signals do not cross machines.
 
+## Recurring mode (scheduled tasks)
+
+A loop fired by Windows Task Scheduler (`--cron-id schtasks:<TaskName>`, recorded as the record's `cron_job_id`) runs for weeks, one fresh `claude -p` session per fire. Session budgets would end it within hours while every fire exits green, so a `schtasks:` record counts its budgets per **window** instead. The scheduler, not this command, decides when the next fire comes; the pacing hint is informational.
+
+- **Windows.** `budget.max_hours` long, back to back from the record's `started`. `max_iterations` counts the window's *acting* entries: an action other than `wait`, `wait-ci` or `skip`, not a noop. When they are spent, `LR check` returns `ok: false, recurring: true, reason: "window: max_iterations"` and the window's later fires do nothing (step 3) until the next window. `max_hours` is the window length and never stops the loop; `idle_stop_after` never stops it either, because idle is a scheduled loop's normal state and the scheduler pays for the fire whatever happens (`LR check` still reports `trailing_noops`). `LR append` keeps the current and the previous window's entries only.
+- **Load or create** (step 2). One call, `LR claim <mode> <ref> <branch> --cron-id <cron-id> [--restart] [--merge] [--draft] --max-iterations … --max-hours … --idle-stop-after … --interval …` with the configured budgets, decides; read its `action`:
+  - `use` / `create` / `reopen` → continue with its `id`. `use` is the live record this task owns; `reopen` is this task's own `checkpoint:` record, reopened with the cron id restored (every fire is a fresh session); `create` is a fresh record carrying the cron id, as `--restart` would make. `--restart` is implicit apart from the pause below.
+  - `refuse` → print its `message`, then its `line` (`loop <id> window skipped`) as the last line, and end the fire without acting. It refuses when a live loop of the same mode and ref is driven by anything else and is still alive (an interactive `/loop` or a session cron in a checkout that shares the project key, `message` `loop <id> is owned by …; not acting`): that loop is never adopted, so it keeps its own budgets exactly as before. Such a loop counts as abandoned, and `claim` stops it and goes on to create, when its own next `LR check` would stop it anyway (its `max_iterations`, `max_hours` or `idle_stop_after`, in that order; the stop reason is the same `budget: …`), or when nothing has iterated it for four of its pacing steps (its `options.interval`, at least 30 minutes, the slowest idle hint a session loop gets; reason `orphaned: no iteration in <n> min`): a closed or Esc'd `/loop`, or the cron-less record a 1.12.0-era `poll --restart` fire left live. Both refusal messages start `loop <id> is owned by` or `loop <id> is stopped`, which keel's `keel run` records as a skipped run. It also refuses when this task's newest record was stopped with reason `operator stop` (an operator paused the scheduled loop, see `stop`): `loop <id> is stopped (operator stop); pass --restart to begin a new loop`.
+  - A stop of another driver's record never pauses the task; only a record whose `cron_job_id` is this task's is reopened or paused on.
+- **Checkpoint** (step 6). Each fire is its own session, so the verdict is almost always `keep going`; when it is not, the checkpoint stop and the next fire's reopen above carry the loop on.
+- **Stop** (step 8). A mode's stop row (`done`, `needs-you`, `initiative clear`, …) stops the record as usual and never calls `CronDelete`; the next fire starts a fresh record. That is how a `needs-you` PR is left to the operator while the poll carries on with other issues: the PR stays open and claimed, and the fresh record's `prs_opened` does not hold it.
+- **Window line.** Every fire ends with a window line as its last output line: `LR window <id>`'s `line` after step 7, and on a stop path `LR window <id>` run **before** `LR stop` (a record that is no longer live always reports `skipped`); a fire `LR claim` refused prints the `line` it returned. `loop <id> window ok` means an acting entry was appended in this fire, `loop <id> window skipped` that nothing acted.
+
+To pause a scheduled loop without touching Task Scheduler, `/tracker-loop stop <id>` (reason `operator stop`); to resume it, run the task's own prompt once by hand with `--restart` added; the pause holds until then. To end it for good, unregister the task (`keel tasks uninstall`, or Task Scheduler itself).
+
+## keel reporting
+
+When the [keel](https://github.com/maxdimitrov/keel) CLI is on `PATH`, `LR` reports to it through keel's local spool (`keel … --spool`, never a network call): `loop.created` on create, `loop.iteration` for each non-noop entry, `loop.stopped` with the reason on stop, and a `loop:<id>` heartbeat (payload `cron_id`, `mode`, `ref`) on create, on each `check` of a live loop and on reopen. The project is the `slug` in the repo's `.keel/project.yaml`. Without keel, or with `AIT_KEEL=0`, nothing is reported and nothing else changes.
+
 ## Pacing hint
 
 The last line of every iteration. A self-paced `/loop` follows it; a fixed-interval loop ignores it.
@@ -172,7 +198,7 @@ The last line of every iteration. A self-paced `/loop` follows it; a fixed-inter
 ## `status` and `stop`
 
 - `status`: `LR list`, printed one line per live loop (`id · mode ref · iteration n · last action · cron armed|none`), followed by the last three stopped records with their reasons. `<state-dir>` is `ait_state_dir "$PWD"` from `"${CLAUDE_PLUGIN_ROOT}/scripts/lib/common.sh"` (`${XDG_CACHE_HOME:-~/.cache}/agent-issue-tracker/<project-key>/`); list `<state-dir>/loops/*.json` and `LR get` each stopped one.
-- `stop [<id>]`: with an id, `LR stop <id> "operator stop"` and `CronDelete` its `cron_job_id` if set. Without an id and exactly one live loop, stop that one; with several, list them and ask which.
+- `stop [<id>]`: with an id, `LR stop <id> "operator stop"` and `CronDelete` its `cron_job_id` if set and not a `schtasks:` id. A scheduled loop stopped this way stays paused (Recurring mode): say so, and name its task. Without an id and exactly one live loop, stop that one; with several, list them and ask which.
 
 ## Prerequisites
 
@@ -185,7 +211,8 @@ An unattended loop commits while nobody is at the keyboard, so on a machine that
 - At most one mutating action per iteration (step 5's definition; poll and clear's controlled exceptions are spelled out in their tables); a NEEDS YOU always stops the loop over continuing.
 - Every tracker write is a contract op (`backends/_interface.md`): `add_label` for the claim label, `upsert_comment` for the skip comment (marker `<!-- tracker-loop:skip -->`). Every git-host write is one `/work-issue` already documents.
 - Budgets are enforced from the record on disk (`LR check`), before acting.
-- `/tracker-loop stop`, `CronDelete`, and `Esc` on a `/loop` all end a loop; the record says which when it was `stop`.
+- `/tracker-loop stop`, `CronDelete`, and `Esc` on a `/loop` all end a loop; the record says which when it was `stop`. A scheduled loop is ended by unregistering its task; `stop` pauses it.
+- Never `CronDelete` a `schtasks:` id: it is not a session cron.
 
 ## Failure modes
 

@@ -113,92 +113,16 @@ if [ -z "$ref" ] && [ -n "$ref_shape" ] && [ -f "$transcript_path" ]; then
   slug=""
 fi
 
-# --- machine-block second pass (stage 6 helper) ---------------------------------
-# New-shape epics carry no "- **Current branch:**" line in the body (that
-# signal now lives in the marker-tagged machine-block comment). Legacy epics
-# (body has a "## Status block" line) are filtered out before the cap below --
-# they can never match the machine-block path, so skipping them here spends
-# the 10-epic budget only on epics that could plausibly match, cutting the
-# worst-case SessionStart latency. Bounded to the first 10 (post-filter)
-# epics; every gh call is tmo-bounded; any failure yields no match and never
-# breaks the title. Trust: authorAssociation must be one of
-# OWNER/MEMBER/COLLABORATOR; the earliest qualifying marker comment wins.
-machine_block_epic_line() {
-  local mb_epics_json="$1" mb_branch="$2" mb_cwd="$3"
-  local mb_num="" mb_title="" mb_comments="" mb_body="" mb_phases=""
-  local mb_next="" mb_checked=0 mb_ref="" mb_refnum="" mb_state="" mb_line=""
-  while IFS=$'\t' read -r mb_num mb_title; do
-    [ -n "$mb_num" ] || continue
-    mb_comments="$(cd "$mb_cwd" && tmo 5 gh issue view "$mb_num" --json comments 2>/dev/null)" \
-      || mb_comments=""
-    [ -n "$mb_comments" ] || continue
-    mb_body="$(printf '%s' "$mb_comments" | jq -r --arg b "$mb_branch" '
-      [.comments[]
-       | select(.body | contains("<!-- agent-issue-tracker:machine-block -->"))
-       | select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER"
-                or .authorAssociation == "COLLABORATOR")][0] // empty
-      | select(.body | split("\n") | map(rtrimstr("\r")) | index("- " + $b))
-      | .body' 2>/dev/null)" || mb_body=""
-    [ -n "$mb_body" ] || continue
-    mb_phases="$(printf '%s' "$mb_body" | awk '/^## Phases/{f=1; next} /^## /{if (f) exit} f')"
-    mb_next=""
-    mb_checked=0
-    for mb_ref in $(printf '%s' "$mb_phases" | grep -oE '#[0-9]+'); do
-      mb_checked=$((mb_checked + 1))
-      [ "$mb_checked" -le 5 ] || break
-      mb_refnum="${mb_ref#\#}"
-      mb_state="$(cd "$mb_cwd" && tmo 5 gh issue view "$mb_refnum" --json state --jq .state \
-        2>/dev/null)" || mb_state=""
-      if [ "$mb_state" = "OPEN" ]; then
-        mb_next="$mb_ref"
-        break
-      fi
-    done
-    mb_line="$(printf '#%s\t%s\t%s' "$mb_num" "$mb_title" "$mb_next")"
-    break
-  done < <(printf '%s' "$mb_epics_json" | jq -r '
-      [.[] | select((.body // "") | contains("## Status block") | not)][:10][]
-      | [(.number|tostring), .title] | @tsv')
-  printf '%s' "$mb_line"
-}
-
 # --- stage 6: epic enrichment (GitHub backend only; 24h cache; read-only) -------
+# The lookup itself lives in scripts/lib/common.sh (ait_branch_epic), shared
+# with hooks/nudge.sh.
 epic_next=""
-if [ "$backend" = "github" ] && [ -n "$branch" ] && command -v gh >/dev/null 2>&1; then
-  cache_dir="$state_dir/epic-cache"
-  mkdir -p "$cache_dir" 2>/dev/null || true
-  key="$(printf '%s|%s' "${toplevel:-$cwd}" "$branch" | ait_hash | cut -c1-16)"
-  cache_file="$cache_dir/$key"
-  fresh=""
-  if [ -f "$cache_file" ]; then
-    cm="$(ait_file_mtime "$cache_file")" || cm=0
-    case "$cm" in '' | *[!0-9]*) cm=0 ;; esac
-    [ $(($(date +%s) - cm)) -lt 86400 ] && fresh=1
-  fi
-  if [ -z "$fresh" ]; then
-    epics_json="$(cd "$cwd" && tmo 5 gh issue list --label epic --state open \
-      --json number,title,body --limit 50 2>/dev/null)" || epics_json=""
-    if [ -n "$epics_json" ]; then
-      printf '%s' "$epics_json" | jq -r --arg b "$branch" '
-        [.[] | select(any(.body | split("\n")[]; rtrimstr("\r") == ("- **Current branch:** " + $b)))][0] // empty
-        | [("#" + (.number | tostring)), .title,
-           ((.body | capture("- \\*\\*Next up:\\*\\* (?<n>[^\n]+)").n) // "")]
-        | @tsv' >"$cache_file" 2>/dev/null || : >"$cache_file"
-    else
-      : >"$cache_file"
-    fi
-    # New-shape epics have no body "- **Current branch:**" line (it now lives
-    # in the machine-block comment). When the legacy body-match above found
-    # nothing, run a bounded second pass over the same epic list.
-    if [ ! -s "$cache_file" ] && [ -n "$epics_json" ]; then
-      mb_line="$(machine_block_epic_line "$epics_json" "$branch" "$cwd")" || mb_line=""
-      [ -n "$mb_line" ] && printf '%s' "$mb_line" >"$cache_file" 2>/dev/null
-    fi
-  fi
-  if [ -s "$cache_file" ]; then
-    e_ref="$(cut -f1 "$cache_file" 2>/dev/null)"
-    e_title="$(cut -f2 "$cache_file" 2>/dev/null)"
-    e_next_line="$(cut -f3 "$cache_file" 2>/dev/null)"
+if [ "$backend" = "github" ] && [ -n "$branch" ]; then
+  e_line="$(ait_branch_epic "$cwd" "$branch" "$toplevel")" || e_line=""
+  if [ -n "$e_line" ]; then
+    e_ref="$(printf '%s\n' "$e_line" | cut -f1)"
+    e_title="$(printf '%s\n' "$e_line" | cut -f2)"
+    e_next_line="$(printf '%s\n' "$e_line" | cut -f3)"
     if [ -n "$e_ref" ]; then
       ref="$e_ref"
       slug="$(printf '%s' "$e_title" | tr '[:upper:]' '[:lower:]' \
