@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`/new-tab --repo <repo>`** opens the tab in another repository's VS Code
+  window: focused if open, opened first if not. The extension's URI has no
+  folder parameter and lands in the focused window, so
+  `scripts/open-session-tab.sh --repo <dir>` runs `code <dir>`, polls
+  `code --status` until a window titled with the folder's name is listed,
+  waits for the extension to load, and only then fires the URI. A window that
+  never shows up gets no URI (new reason `window-not-ready`); a missing
+  directory is `no-such-repo`. The JSON carries `repo`. Asked in words ("open
+  a window in Trading with a prompt to fix X"), the agent writes a
+  self-contained prompt. A bare `/new-tab` now opens a step the session said
+  must run elsewhere in that repository instead of dropping it.
+
 ### Changed
 
 - **`/new-tab` with no prompt** takes the next step the session itself
