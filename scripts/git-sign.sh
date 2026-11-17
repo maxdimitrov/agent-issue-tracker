@@ -3,6 +3,7 @@
 # signing through the 1Password Automation service account (#119).
 #
 # Git calls this as:  git-sign.sh -Y sign -n git -f <pubkey-file> <buffer-file>
+# (Other -Y modes, i.e. signature checks, are passed to ssh-keygen as-is.)
 #
 # Two steps:
 # 1. Try the operator's default signer, op-ssh-sign (1Password desktop app,
@@ -59,6 +60,22 @@
 
 set -u
 umask 077
+
+# --- 0. only `-Y sign` is ours ------------------------------------------------
+# git also runs gpg.ssh.program to check signatures (`-Y find-principals`,
+# `-Y verify`, `-Y check-novalidate`), and there `-f` names the allowed-
+# signers file, not a public key. Those calls need no key and no 1Password,
+# so they go straight to ssh-keygen with argv unchanged. Swapping that `-f`
+# for the agent public key made `git log --show-signature` report
+# "invalid key" and "No principal matched" for every commit.
+ymode=""; prev=""
+for a in "$@"; do
+    if [ "$prev" = "-Y" ]; then ymode="$a"; break; fi
+    prev="$a"
+done
+if [ "$ymode" != "sign" ]; then
+    exec ssh-keygen "$@"
+fi
 
 RUNNER_DIR="${AIT_RUNNER_DIR:-$HOME/.claude-runner}"
 KEY_REF="${AIT_SIGN_KEY_REF:-op://Automation/agent-signing-key}"

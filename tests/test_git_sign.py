@@ -181,10 +181,11 @@ class Rig:
         self.runner.mkdir(parents=True, exist_ok=True)
         (self.runner / "op-token").write_text(f"  {TOKEN}\r\n")
 
-    def run(self, **extra_env):
+    def run(self, argv=None, **extra_env):
         env = dict(self.env)
         env.update(extra_env)
-        return run_script(self.launcher, args=[SCRIPT.as_posix(), *self.git_argv()],
+        argv = self.git_argv() if argv is None else argv
+        return run_script(self.launcher, args=[SCRIPT.as_posix(), *argv],
                           env=env)
 
     def calls(self, name):
@@ -387,3 +388,31 @@ def test_empty_sig_left_by_desktop_signer_is_removed_before_fallback(rig):
     r = rig.run(STUB_OPSSH_RC="1", STUB_OPSSH_LEAVE_EMPTY_SIG="1")
     assert_fallback_signed(rig, r)
     assert not (rig.tmp / "buffer.sig").exists()
+
+
+# 11. git also runs gpg.ssh.program to check signatures; there `-f` is the
+# allowed-signers file. Those calls reach ssh-keygen with argv unchanged and
+# never touch 1Password, whether or not AIT_SIGN_FORCE_SA is set.
+def _verify_argvs(rig):
+    allowed = (rig.tmp / "allowed_signers").as_posix()
+    sig = (rig.tmp / "commit.sig").as_posix()
+    return {
+        "find-principals": ["-Y", "find-principals", "-f", allowed, "-s", sig],
+        "verify": ["-Y", "verify", "-n", "git", "-f", allowed,
+                   "-I", "me@example.com", "-s", sig],
+        "check-novalidate": ["-Y", "check-novalidate", "-n", "git", "-s", sig],
+    }
+
+
+@pytest.mark.parametrize("mode", ["find-principals", "verify", "check-novalidate"])
+@pytest.mark.parametrize("force_sa", ["0", "1"])
+def test_verify_modes_pass_through_to_ssh_keygen(rig, mode, force_sa):
+    rig.write_token_file()
+    argv = _verify_argvs(rig)[mode]
+    r = rig.run(argv, AIT_SIGN_FORCE_SA=force_sa)
+    assert r.returncode == 0, r.stderr
+    assert rig.calls("ssh-keygen") == [argv]
+    assert rig.calls("op-ssh-sign") == []
+    assert rig.calls("op") == []
+    assert rig.calls("ssh-agent") == []
+    assert rig.runner_files() == ["op-token"]

@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   steps or none, drops a step the session said must run from another
   repository, and opens one tab.
 
+### Fixed
+
+- **`scripts/git-sign.sh` broke local signature checks.** git also runs
+  `gpg.ssh.program` for `git log --show-signature` and `git verify-commit`
+  (`-Y find-principals`, `-Y verify`, `-Y check-novalidate`). On the
+  service-account path the wrapper swapped that call's `-f` (the
+  allowed-signers file) for the agent public key, so every check printed
+  "invalid key" and "No principal matched". Only `-Y sign` is handled now;
+  every other mode goes to `ssh-keygen` unchanged and never touches
+  1Password.
+
 ## [1.13.0] - 2026-10-22
 
 ### Added
