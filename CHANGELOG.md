@@ -53,8 +53,19 @@ tagging (the last tag is v1.12.0), so 1.14.0 ships as a version bump on
 
 - **1-5, 8-10 — CARRIED FORWARD from 1.13.0**, with 1.13.0's PARTIAL and
   PENDING items (3, 7's slash-command check, 9, 10) still open.
-- **6. Install path** — SMOKE6
-- **7. Plugin loads enabled post-install** — SMOKE7
+- **6. Install path — PASS (isolated config dir, release branch).** Bare
+  `CLAUDE_CONFIG_DIR` at a short path: `claude plugin marketplace add
+  https://github.com/maxdimitrov/agent-issue-tracker.git#chore/release-1.14.0`
+  and `claude plugin install agent-issue-tracker` both exit 0;
+  `installed_plugins.json` records **1.14.0** at c6e8ce6.
+- **7. Plugin loads enabled post-install — PASS for the CLI checks.** Right
+  after install it showed `failed to load` (dependency
+  `superpowers@claude-plugins-official` not installed, its marketplace added
+  after the install); after `claude plugin install superpowers` (7.0.2),
+  `claude plugin list` shows `enabled` at 1.14.0 and `claude plugin details`
+  inventories Skills (19, `new-tab` among them) and Hooks (2): SessionStart
+  and Stop. PENDING as in 1.13.0 (interactive session): the slash commands
+  resolving in a fresh session opened on the install.
 - **`/new-tab --repo`** (not a numbered smoke) — PASS, live on MAXPC:
   `--repo F:/Claude/Projects/keel` opened the keel window and the tab landed
   there with the prompt typed in, in about 17 s.
