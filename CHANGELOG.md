@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-11-17
+
 ### Added
 
 - **`/new-tab --repo <repo>`** opens the tab in another repository's VS Code
@@ -26,8 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`/new-tab` with no prompt** takes the next step the session itself
   named (a `/work-issue <ref>` it said is workable here, a resume note it
   wrote) instead of asking. It still asks when the session named several
-  steps or none, drops a step the session said must run from another
-  repository, and opens one tab.
+  steps or none, and opens one tab; a step the session said must run in
+  another repository opens there (`--repo`, above).
 
 ### Fixed
 
@@ -39,6 +41,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "invalid key" and "No principal matched". Only `-Y sign` is handled now;
   every other mode goes to `ssh-keygen` unchanged and never touches
   1Password.
+
+### Release-gate smokes
+
+Per `CONTRIBUTING.md` "Release process". This release changes `/new-tab`
+(and `scripts/open-session-tab.sh`) and `scripts/git-sign.sh`, none of which
+any smoke scenario covers, so smokes 1-5 and 8-10 are carried forward. No tag
+is pushed for 1.14.0: 1.13.0's PARTIAL smokes 3, 9 and 10 still block
+tagging (the last tag is v1.12.0), so 1.14.0 ships as a version bump on
+`main`, as 1.13.0 did.
+
+- **1-5, 8-10 — CARRIED FORWARD from 1.13.0**, with 1.13.0's PARTIAL and
+  PENDING items (3, 7's slash-command check, 9, 10) still open.
+- **6. Install path** — SMOKE6
+- **7. Plugin loads enabled post-install** — SMOKE7
+- **`/new-tab --repo`** (not a numbered smoke) — PASS, live on MAXPC:
+  `--repo F:/Claude/Projects/keel` opened the keel window and the tab landed
+  there with the prompt typed in, in about 17 s.
 
 ## [1.13.0] - 2026-10-22
 
